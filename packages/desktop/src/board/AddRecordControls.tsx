@@ -2,8 +2,11 @@
  * The visible controls for adding to the roster where the record goes (issue #168, docs/mvp-spec.md §7):
  * "+ Story" on an Epic card's heading and "+ Epic" in the Milestone header. Each opens the board's Write a
  * Story / Add an Epic dialog (`WriteStoryDialog.tsx`) with its place already chosen, so the developer names
- * the record instead of finding its Epic or Milestone again. The top bar's + Epic and + Story stay as they
- * are, for a record whose place is not on screen.
+ * the record instead of finding its Epic or Milestone again. The top bar keeps only + Story, for a record whose
+ * place is not on screen; its Write a Story adds a new Milestone or Epic on the way (issue #201).
+ *
+ * Every add inside a card is the same control (issue #201): a small ghost button, a plus and the record's
+ * name.
  */
 import { useState } from "react";
 import { Plus } from "lucide-react";
@@ -53,7 +56,7 @@ export function AddEpicToMilestone({
   if (!isOpenRecord(milestone.state)) return null;
   return (
     <>
-      <Button variant="outline" size="sm" onClick={() => setOpen(true)} aria-label={`Add an Epic to ${milestone.title}`}>
+      <Button variant="ghost" size="sm" onClick={() => setOpen(true)} aria-label={`Add an Epic to ${milestone.title}`}>
         <Plus aria-hidden="true" />
         Epic
       </Button>

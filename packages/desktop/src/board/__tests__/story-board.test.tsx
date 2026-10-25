@@ -1,7 +1,7 @@
 /**
- * Behaviour under test (issue #50): the bare board writes a Milestone, an Epic and a Story with
- * criteria and Checks from visible controls, lists the project's Stories with their state, keeps
- * that state live on `board:changed`, and Start reaches the core's `story_start` for a Ready Story.
+ * Behaviour under test (issue #50): the bare board lists the project's Stories with their state, keeps
+ * that state live on `board:changed`, and Start reaches the core's `story_start` for a Ready Story. Writing a
+ * Story by hand is `write-story.test.tsx` (issue #201).
  *
  * Issue #159: each row draws what the roster's one core read (`roster_rows`) says of it: its attention, the
  * *doing* Task or the open review's diff size, then its action or "criteria x/y · tasks x/y"; a row that needs
@@ -126,20 +126,6 @@ function renderBoard() {
       <StoryBoard projectId="p1" projectName="Threadfin" />
     </QueryClientProvider>,
   );
-}
-
-/** Open the Write a Story dialog from the board's Story control. */
-async function openForm() {
-  fireEvent.click(await screen.findByRole("button", { name: "Write a Story" }));
-  await screen.findByRole("dialog");
-}
-
-/** Choose Milestone m1, wait for its Epics to load, then choose Epic e1. */
-async function chooseEpic() {
-  await screen.findByRole("option", { name: "M1" });
-  fireEvent.change(screen.getByLabelText("Milestone"), { target: { value: "m1" } });
-  await screen.findByRole("option", { name: "FLY-1 E1" });
-  fireEvent.change(screen.getByLabelText("Epic"), { target: { value: "e1" } });
 }
 
 beforeEach(() => {
@@ -272,90 +258,6 @@ describe("StoryBoard: the Story list", () => {
 
     expect(await screen.findByText("Start needs a Ready Story; this one is running")).toBeInTheDocument();
     expect(useUiStore.getState().activeSessionId).toBeNull();
-  });
-});
-
-describe("StoryBoard: the hand-written Story form", () => {
-  it("creates a Milestone from its visible controls", async () => {
-    renderBoard();
-    await openForm();
-    fireEvent.change(await screen.findByLabelText("Milestone title"), { target: { value: "  M1  " } });
-    fireEvent.change(screen.getByLabelText("Exit test"), { target: { value: "It ships" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add Milestone" }));
-
-    await waitFor(() => expect(milestoneCreate).toHaveBeenCalledWith("p1", "M1", "It ships"));
-  });
-
-  it("creates an Epic only inside a chosen Milestone", async () => {
-    milestoneList.mockResolvedValue([milestone("m1", "M1")]);
-    renderBoard();
-    await openForm();
-
-    const addEpic = await screen.findByRole("button", { name: "Add Epic" });
-    fireEvent.change(screen.getByLabelText("Epic title"), { target: { value: "E1" } });
-    expect(addEpic).toBeDisabled();
-
-    await screen.findByRole("option", { name: "M1" });
-    fireEvent.change(screen.getByLabelText("Milestone"), { target: { value: "m1" } });
-    expect(addEpic).toBeEnabled();
-    fireEvent.click(addEpic);
-    await waitFor(() => expect(epicCreate).toHaveBeenCalledWith("m1", "E1"));
-  });
-
-  it("writes a Story with its criteria and Checks inside the chosen Epic", async () => {
-    milestoneList.mockResolvedValue([milestone("m1", "M1")]);
-    epicList.mockResolvedValue([epic("e1", "E1")]);
-    renderBoard();
-    await openForm();
-
-    const create = await screen.findByRole("button", { name: "Create Story" });
-    fireEvent.change(screen.getByLabelText("Story title"), { target: { value: "Start a Story" } });
-    fireEvent.change(screen.getByLabelText("Criterion 1"), { target: { value: "It starts" } });
-    expect(create).toBeDisabled();
-
-    await chooseEpic();
-    await waitFor(() => expect(create).toBeEnabled());
-
-    fireEvent.change(screen.getByLabelText("Check command 1"), { target: { value: "cargo test" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add criterion" }));
-    fireEvent.change(screen.getByLabelText("Criterion 2"), { target: { value: "It shows its state" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add criterion" }));
-    fireEvent.change(screen.getByLabelText("Description"), { target: { value: "why" } });
-    fireEvent.click(create);
-
-    await waitFor(() =>
-      expect(storyWriteByHand).toHaveBeenCalledWith("e1", "Start a Story", "why", [
-        { statement: "It starts", checkCommand: "cargo test" },
-        { statement: "It shows its state", checkCommand: null },
-      ]),
-    );
-    await waitFor(() => expect(screen.getByLabelText("Story title")).toHaveValue(""));
-  });
-
-  it("cannot create a Story without a criterion", async () => {
-    milestoneList.mockResolvedValue([milestone("m1", "M1")]);
-    epicList.mockResolvedValue([epic("e1", "E1")]);
-    renderBoard();
-    await openForm();
-    await chooseEpic();
-    fireEvent.change(screen.getByLabelText("Story title"), { target: { value: "No criteria" } });
-
-    expect(screen.getByRole("button", { name: "Create Story" })).toBeDisabled();
-  });
-
-  it("shows the core's refusal and keeps the draft", async () => {
-    milestoneList.mockResolvedValue([milestone("m1", "M1")]);
-    epicList.mockResolvedValue([epic("e1", "E1")]);
-    storyWriteByHand.mockRejectedValue(new Error("Epic is done; a new Story goes into an open Epic"));
-    renderBoard();
-    await openForm();
-    await chooseEpic();
-    fireEvent.change(screen.getByLabelText("Story title"), { target: { value: "Kept" } });
-    fireEvent.change(screen.getByLabelText("Criterion 1"), { target: { value: "x" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create Story" }));
-
-    expect(await screen.findByText("Epic is done; a new Story goes into an open Epic")).toBeInTheDocument();
-    expect(screen.getByLabelText("Story title")).toHaveValue("Kept");
   });
 });
 

@@ -1,9 +1,12 @@
-import type { CSSProperties, ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Flag } from "lucide-react";
+import { ChevronRight, Flag } from "lucide-react";
 import { milestoneProgress, type MilestoneProgressDto } from "../adapters/tauri";
 import { Icon, type IconName } from "../components/Icon";
+import { ReadError } from "../components/ReadError";
 import { StateBadge } from "../components/StateBadge";
+import { Collapsible, CollapsibleTrigger } from "../components/ui/collapsible";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../components/ui/empty";
 import { Skeleton } from "../components/ui/skeleton";
 import { ConfirmExitTest, milestoneExitTestConfirmable } from "./ConfirmExitTest";
 import { AddEpicToMilestone } from "./AddRecordControls";
@@ -33,6 +36,10 @@ const BOX_ORDER: readonly BarSegment["key"][] = ["inReview", "running", "ready",
  * The count boxes are the bar's legend: each box that has a segment carries that segment's swatch along
  * its top edge. Dropped and Epics done have no segment, so they carry none. Waiting on you lights its box
  * yellow while any Story waits, the one place on the header that asks something of the Developer.
+ *
+ * Issue #201: a long name and a long Exit test never push Needs you out of the first viewport. The name is
+ * clamped to two lines (the whole name in its tooltip); the Exit test to two lines too, and when it runs
+ * longer its "Exit test" label is a Collapsible trigger that shows the rest in place.
  */
 export function MilestoneHeader({ projectId, milestoneId = null }: { projectId: string; milestoneId?: string | null }) {
   const progressQuery = useMilestoneProgress(projectId, milestoneId);
@@ -41,22 +48,23 @@ export function MilestoneHeader({ projectId, milestoneId = null }: { projectId: 
     return <Skeleton aria-label="Loading the Milestone" className="h-[188px] w-full rounded-lg" />;
   }
   if (progressQuery.isError) {
-    return (
-      <HeaderCard>
-        <p className="text-body text-destructive-text">
-          {`The Milestone's progress could not be read: ${progressQuery.error instanceof Error ? progressQuery.error.message : String(progressQuery.error)}`}
-        </p>
-      </HeaderCard>
-    );
+    return <ReadError title="Couldn't load the Milestone's progress" query={progressQuery} />;
   }
   const progress = progressQuery.data;
   if (!progress) {
     return (
       <HeaderCard>
-        <p className="flex items-center gap-2 text-body text-muted-foreground">
-          <Flag size={16} strokeWidth={2} aria-hidden="true" />
-          No Current Milestone. Every Milestone is Done or Dropped, or none is written yet.
-        </p>
+        <Empty className="gap-2 p-1">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <Flag aria-hidden="true" />
+            </EmptyMedia>
+            <EmptyTitle>No Current Milestone</EmptyTitle>
+            <EmptyDescription>
+              Every Milestone is Done or Dropped, or none is written yet. Add one on the Roadmap above.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       </HeaderCard>
     );
   }
@@ -98,10 +106,17 @@ function MilestoneProgress({ projectId, progress }: { projectId: string; progres
       <div className="flex flex-wrap items-start justify-between gap-x-7 gap-y-4">
         <div className="flex min-w-[min(100%,320px)] flex-1 flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2.5">
-            <Flag size={20} strokeWidth={2} aria-hidden="true" className="shrink-0 text-muted-foreground" />
-            <h2 id={headingId} className="text-milestone font-bold tracking-[-0.015em]">
-              {progress.title}
-            </h2>
+            {/* The flag stays beside the name however long it is; the pill and the controls wrap after it. */}
+            <div className="flex min-w-0 items-start gap-2.5">
+              <Flag size={20} strokeWidth={2} aria-hidden="true" className="mt-[0.3em] shrink-0 text-muted-foreground" />
+              <h2
+                id={headingId}
+                title={progress.title}
+                className="line-clamp-2 min-w-0 text-milestone font-bold tracking-[-0.015em] break-words"
+              >
+                {progress.title}
+              </h2>
+            </div>
             <StateBadge
               state={attention ?? progress.state}
               label={attention ? undefined : EPIC_STATE_WORDS[progress.state]}
@@ -134,16 +149,13 @@ function MilestoneProgress({ projectId, progress }: { projectId: string; progres
               milestone={{ id: progress.milestoneId, title: progress.title, state: progress.state }}
             />
           </div>
-          <p className="max-w-[72ch] text-[14.5px] leading-[1.45]">
-            <b className="font-bold">Exit test:</b>{" "}
-            {progress.exitTest ?? <span className="text-muted-foreground">not written yet</span>}
-          </p>
+          <ExitTest key={progress.milestoneId} exitTest={progress.exitTest} />
           <p className="text-small text-muted-foreground">
             {progress.nextMilestoneTitle ? `Next: ${progress.nextMilestoneTitle}` : "No Milestone after this one yet"}
           </p>
         </div>
 
-        <div className="grid grid-cols-[repeat(5,minmax(96px,auto))] gap-1.5" role="list" aria-label="Stories by state">
+        <div className="grid min-w-0 grid-cols-[auto_repeat(4,minmax(0,auto))] gap-1.5" role="list" aria-label="Stories by state">
           <LeadBox merged={counts.merged} total={counts.storiesTotal} />
           {BOX_ORDER.map((key) => BAR_SEGMENTS.find((s) => s.key === key) as BarSegment).map((segment) => (
             <CountBox
@@ -163,6 +175,60 @@ function MilestoneProgress({ projectId, progress }: { projectId: string; progres
 
       <StoryStateBar counts={counts} />
     </HeaderCard>
+  );
+}
+
+/**
+ * The Exit test as prose, two lines at most. When it runs longer, its label is the trigger of a Collapsible
+ * that unclamps it in place (DESIGN.md § Motion: a disclosure), and folds it back to two lines.
+ */
+function ExitTest({ exitTest }: { exitTest: string | null }) {
+  const [open, setOpen] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+  const textRef = useRef<HTMLParagraphElement>(null);
+  const textId = useId();
+
+  // Whether the clamp hides anything: measured while clamped, then kept while it is open.
+  useLayoutEffect(() => {
+    const element = textRef.current;
+    if (!element || open) return;
+    const measure = () => setOverflows(element.scrollHeight > element.clientHeight + 1);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [exitTest, open]);
+
+  const textClass = "m-0 max-w-[72ch] text-[14.5px] leading-[1.45] break-words";
+  if (exitTest === null) {
+    return (
+      <p className={textClass}>
+        <b className="font-bold">Exit test:</b> <span className="text-muted-foreground">not written yet</span>
+      </p>
+    );
+  }
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} disabled={!overflows && !open}>
+      <p ref={textRef} id={textId} data-slot="exit-test" className={cn(textClass, !open && "line-clamp-2")}>
+        {overflows || open ? (
+          <CollapsibleTrigger
+            aria-controls={textId}
+            className="group/exit mr-1 inline-flex items-center gap-0.5 rounded-sm align-baseline font-bold transition-colors hover:text-running"
+          >
+            <ChevronRight
+              aria-hidden="true"
+              size={14}
+              strokeWidth={2.5}
+              className="shrink-0 self-center text-muted-foreground transition-transform duration-(--duration-state) ease-(--ease) group-hover/exit:text-running group-data-[state=open]/exit:rotate-90"
+            />
+            Exit test:
+          </CollapsibleTrigger>
+        ) : (
+          <b className="font-bold">Exit test: </b>
+        )}
+        {exitTest}
+      </p>
+    </Collapsible>
   );
 }
 
@@ -222,7 +288,7 @@ function CountBox({
       </span>
       <span
         className={cn(
-          "type-condensed flex items-center gap-1.5 text-meta whitespace-nowrap",
+          "type-condensed flex items-start gap-1.5 text-meta leading-tight [&>svg]:mt-px [&>svg]:shrink-0",
           lit ? "text-attention-foreground" : "text-muted-foreground",
         )}
       >

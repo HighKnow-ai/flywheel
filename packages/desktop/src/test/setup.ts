@@ -32,6 +32,12 @@ if (typeof globalThis.ResizeObserver === "undefined") {
   globalThis.ResizeObserver = ResizeObserverStub as unknown as typeof ResizeObserver;
 }
 
+// jsdom has no `scrollIntoView`; cmdk (every Combobox and the command palette) scrolls its selected item into
+// view with it as soon as a list opens.
+if (typeof Element.prototype.scrollIntoView !== "function") {
+  Element.prototype.scrollIntoView = function scrollIntoView() {};
+}
+
 Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
   configurable: true,
   value: 800,

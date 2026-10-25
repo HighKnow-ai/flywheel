@@ -117,7 +117,30 @@ describe("SinceYouLastLooked", () => {
     boardVisit.mockResolvedValue(seen([event("story.state_changed", "Moved Story from ready to running", "FLY-4", "Feed")], 250));
     renderTimeline();
     fireEvent.click(await screen.findByRole("button", { name: /250 events since you last looked/ }));
-    expect(screen.getByText("The newest 1 of 250")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "The newest 1 of 250. The 249 older changes are already on the board: open a Story or an Epic to see where it stands.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("opens and closes on Collapsible, the one disclosure (issue #201)", async () => {
+    boardVisit.mockResolvedValue(seen([event("proposal.filed", "Proposed to create a story", "FLY-3", "Roster")]));
+    renderTimeline();
+    const toggle = await screen.findByRole("button", { name: /1 event since you last looked/ });
+    expect(toggle).toHaveAttribute("data-slot", "collapsible-trigger");
+    expect(toggle).toHaveAttribute("data-state", "closed");
+    expect(toggle.closest("section")).toHaveAttribute("data-slot", "collapsible");
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("data-state", "open");
+    const content = screen.getByRole("list", { name: "Since you last looked" }).closest("[data-slot=collapsible-content]");
+    expect(content).not.toBeNull();
+    expect(toggle).toHaveAttribute("aria-controls", content?.id);
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("data-state", "closed");
+    expect(screen.queryByRole("list", { name: "Since you last looked" })).toBeNull();
   });
 
   it("names every state in the glossary's words, never the core's snake case, and keeps any other sentence as it is", async () => {

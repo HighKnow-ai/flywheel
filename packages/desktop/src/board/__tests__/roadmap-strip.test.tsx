@@ -7,11 +7,16 @@
  * Issue #133: Revisit roadmap starts a roadmap Round; the Round's band says where it is, Dismiss closes it
  * with no change, and each Roadmap Proposal is a ghost row under the Milestone it lands on, with Accept,
  * Amend and Reject; a rejected one is struck through with its reason.
+ *
+ * Issue #201: a Roadmap of more than five Milestones opens folded to the row the board shows; "n Milestones"
+ * is the Collapsible's trigger, and the Developer's fold is remembered per project. Most cases below start
+ * unfolded, as the Developer left it; "the fold" covers folding itself.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StoryBoard } from "../StoryBoard";
+import { useRoadmapFold } from "../RoadmapStrip";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 import type {
   EpicDto,
@@ -115,6 +120,7 @@ async function rowOf(title: string) {
 beforeEach(() => {
   resetUiState();
   useUiStore.setState({ currentProjectId: "p1" });
+  useRoadmapFold.setState({ openByProject: { p1: true } });
   milestoneList.mockReset().mockResolvedValue(ROADMAP);
   milestoneMove.mockReset().mockResolvedValue(undefined);
   milestoneCreate.mockReset().mockResolvedValue(milestone("m6", "Relay", "shaping"));
@@ -189,6 +195,73 @@ describe("RoadmapStrip: one row per Milestone", () => {
     expect(within(await rowOf("Board and review")).getByRole("button", { name: /^Board and review,/ })).not.toHaveAttribute(
       "aria-current",
     );
+  });
+});
+
+describe("RoadmapStrip: the fold (issue #201)", () => {
+  function shownTitles(list: HTMLElement) {
+    return within(list).queryAllByRole("listitem").map((li) => li.getAttribute("data-milestone-title"));
+  }
+
+  it("opens a Roadmap of more than five Milestones folded to the Current row, under a \"6 Milestones\" trigger", async () => {
+    useRoadmapFold.setState({ openByProject: {} });
+    milestoneList.mockResolvedValue([...ROADMAP, milestone("m6", "Relay", "shaping")]);
+    renderBoard();
+    const region = await strip();
+    const trigger = await within(region).findByRole("button", { name: "6 Milestones" });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger).toHaveAttribute("data-slot", "collapsible-trigger");
+    const list = within(region).getByRole("list", { name: "Milestones in Roadmap order" });
+    expect(trigger).toHaveAttribute("aria-controls", list.id);
+    expect(shownTitles(list)).toEqual(["Shaping"]);
+    // The folded rows leave the tab order and the accessibility tree, and keep their place for the unfold.
+    const folded = list.querySelectorAll("li[data-folded]");
+    expect(folded).toHaveLength(5);
+    folded.forEach((li) => expect(li).toHaveAttribute("inert"));
+
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(shownTitles(list)).toEqual(["Clean cut", "Supervised execution", "Shaping", "Board and review", "One-week exit test", "Relay"]);
+    expect(useRoadmapFold.getState().openByProject).toEqual({ p1: true });
+
+    fireEvent.click(trigger);
+    expect(shownTitles(list)).toEqual(["Shaping"]);
+    expect(useRoadmapFold.getState().openByProject).toEqual({ p1: false });
+  });
+
+  it("folds to the picked Milestone's row once another is picked", async () => {
+    renderBoard();
+    fireEvent.click(within(await rowOf("Board and review")).getByRole("button", { name: /^Board and review,/ }));
+    fireEvent.click(within(await strip()).getByRole("button", { name: "5 Milestones" }));
+    const list = within(await strip()).getByRole("list", { name: "Milestones in Roadmap order" });
+    expect(shownTitles(list)).toEqual(["Board and review"]);
+  });
+
+  it("remembers each project's fold: an unfolded Roadmap stays unfolded", async () => {
+    useRoadmapFold.setState({ openByProject: { p1: true, p2: false } });
+    renderBoard();
+    const list = await within(await strip()).findByRole("list", { name: "Milestones in Roadmap order" });
+    await waitFor(() => expect(shownTitles(list)).toHaveLength(5));
+  });
+
+  it("opens a Roadmap of five Milestones or fewer whole, the fold still there to close", async () => {
+    useRoadmapFold.setState({ openByProject: {} });
+    renderBoard();
+    const region = await strip();
+    const list = await within(region).findByRole("list", { name: "Milestones in Roadmap order" });
+    await waitFor(() => expect(shownTitles(list)).toHaveLength(5));
+    expect(within(region).getByRole("button", { name: "5 Milestones" })).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("shows every row while a roadmap Round is open, since its changes are decided on them", async () => {
+    useRoadmapFold.setState({ openByProject: { p1: false } });
+    roadmapRoundRead.mockResolvedValue({ open: round(), proposals: [], last: null });
+    renderBoard();
+    const region = await strip();
+    const list = await within(region).findByRole("list", { name: "Milestones in Roadmap order" });
+    await waitFor(() => expect(shownTitles(list)).toHaveLength(5));
+    expect(within(region).queryByRole("button", { name: "5 Milestones" })).toBeNull();
+    expect(within(region).getByText("5 Milestones")).toBeInTheDocument();
   });
 });
 
@@ -280,7 +353,7 @@ describe("RoadmapStrip: drag and the keyboard move call milestone_move", () => {
 describe("RoadmapStrip: + Milestone", () => {
   it("adds a Milestone from a one-line outcome and picks it", async () => {
     renderBoard();
-    fireEvent.click(within(await strip()).getByRole("button", { name: "Add a Milestone" }));
+    fireEvent.click(await within(await strip()).findByRole("button", { name: "Add a Milestone" }));
     const input = screen.getByRole("textbox", { name: "New Milestone's outcome" });
     fireEvent.change(input, { target: { value: "  Relay  " } });
     fireEvent.submit(input.closest("form") as HTMLFormElement);
@@ -291,7 +364,7 @@ describe("RoadmapStrip: + Milestone", () => {
 
   it("Escape closes the field and gives the focus back to + Milestone", async () => {
     renderBoard();
-    const add = within(await strip()).getByRole("button", { name: "Add a Milestone" });
+    const add = await within(await strip()).findByRole("button", { name: "Add a Milestone" });
     fireEvent.click(add);
     expect(add).toHaveAttribute("aria-expanded", "true");
     fireEvent.keyDown(screen.getByRole("textbox", { name: "New Milestone's outcome" }), { key: "Escape" });

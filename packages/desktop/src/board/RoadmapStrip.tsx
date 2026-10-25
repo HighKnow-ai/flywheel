@@ -20,16 +20,27 @@
  *   whose Milestone header below carries the same control.
  * - **Confirm exit test** (issue #134, `ConfirmExitTest.tsx`): once every Epic of a Milestone is Done, the
  *   same slot carries Confirm exit test instead, again empty on the picked row, whose header carries it.
+ * - **Fold** (issue #201): a Roadmap of more than five Milestones opens folded to the one row the board shows
+ *   (the Current Milestone, or the one picked), so Needs you stays in the first viewport. "6 Milestones" in
+ *   the header is the Collapsible's trigger; the other rows grow back in place, in Roadmap order. The
+ *   Developer's own fold or unfold is remembered per project (`useRoadmapFold`, kept in localStorage). An open
+ *   roadmap Round shows every row, since its changes are decided on them.
  *
  * Server data stays in React Query under the board's key (`board:changed` keeps it live), and the strip
  * never reorders its own copy: the new order is what the core says after the move.
  */
 import { useEffect, useId, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, Flag, GripVertical, Plus } from "lucide-react";
+import { create } from "zustand";
+import { createJSONStorage, persist } from "zustand/middleware";
+import { ChevronDown, ChevronRight, Flag, GripVertical, Map as MapIcon, Plus } from "lucide-react";
 import { milestoneCreate, milestoneList, milestoneMove, type MilestoneDto } from "../adapters/tauri";
+import { ReadError } from "../components/ReadError";
 import { StateBadge } from "../components/StateBadge";
 import { Button } from "../components/ui/button";
+import { Collapsible, CollapsibleTrigger } from "../components/ui/collapsible";
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../components/ui/empty";
+import { Skeleton } from "../components/ui/skeleton";
 import { Input } from "../components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../components/ui/tooltip";
 import { useUiStore } from "../state/uiStore";
@@ -59,6 +70,37 @@ export function useMilestoneSelection(projectId: string): { requested: string | 
   const shown = requested ?? milestones?.find((m) => m.current)?.id ?? null;
   return { requested, shown };
 }
+
+/**
+ * A Roadmap longer than this opens folded to the row the board shows, until the Developer says otherwise. Five
+ * 36px rows sit above a clamped Milestone header with Needs you still in the first viewport at 1280 x 800; past
+ * that, the rows are what push it down.
+ */
+export const ROADMAP_FOLD_AFTER = 5;
+
+/**
+ * Whether each project's Roadmap is unfolded, as the Developer last left it (issue #201). UI state, so Zustand;
+ * remembered across launches in localStorage, which may be missing or refuse (a private window): then the
+ * choice lasts the session. Absent means "not chosen yet", and the Roadmap's length decides.
+ */
+interface RoadmapFoldState {
+  openByProject: Record<string, boolean>;
+  setOpen: (projectId: string, open: boolean) => void;
+}
+
+export const useRoadmapFold = create<RoadmapFoldState>()(
+  persist(
+    (set) => ({
+      openByProject: {},
+      setOpen: (projectId, open) => set((state) => ({ openByProject: { ...state.openByProject, [projectId]: open } })),
+    }),
+    {
+      name: "flywheel.roadmap-fold",
+      storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({ openByProject: state.openByProject }),
+    },
+  ),
+);
 
 /** A Done or Dropped Milestone keeps its place on the Roadmap. */
 function isClosed(milestone: MilestoneDto): boolean {
@@ -97,6 +139,14 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
   const handleHintId = useId();
   const rowHintId = useId();
   const formId = useId();
+  const listId = useId();
+  const chosenOpen = useRoadmapFold((state) => state.openByProject[projectId]);
+  const setFoldOpen = useRoadmapFold((state) => state.setOpen);
+  // More than five Milestones (past about 180px of rows) open folded until the Developer says otherwise; an open Round shows them all.
+  const foldable = milestones.length > 1 && !openRound;
+  const unfolded = !foldable || (chosenOpen ?? milestones.length <= ROADMAP_FOLD_AFTER);
+  const visible = (milestone: MilestoneDto) => unfolded || milestone.id === shown;
+  const firstVisible = milestones.findIndex(visible);
 
   useEffect(() => {
     const id = refocus.current;
@@ -148,6 +198,7 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
   const actionSlot = milestones.some((m) => m.state === "shaping" || milestoneExitTestConfirmable(m));
 
   return (
+    <Collapsible asChild open={unfolded} onOpenChange={(next) => setFoldOpen(projectId, next)} disabled={!foldable}>
     <section
       aria-labelledby={headingId}
       data-slot="roadmap-strip"
@@ -162,16 +213,34 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
         <h2 id={headingId} className="m-0 text-section font-semibold">
           Roadmap
         </h2>
-        {milestones.length > 0 && (
-          <span className="text-small text-muted-foreground tabular-nums">
-            {milestones.length === 1 ? "1 Milestone" : `${milestones.length} Milestones`}
-          </span>
-        )}
+        {milestones.length > 0 &&
+          (foldable ? (
+            // The fold's trigger: the count, which says what unfolding shows.
+            <CollapsibleTrigger asChild aria-controls={listId}>
+              <Button
+                variant="ghost"
+                size="xs"
+                className="-ml-1.5 text-small font-normal text-muted-foreground tabular-nums"
+              >
+                {`${milestones.length} Milestones`}
+                <ChevronDown
+                  aria-hidden="true"
+                  className={cn("transition-transform duration-(--duration-state) ease-(--ease)", !unfolded && "-rotate-90")}
+                />
+              </Button>
+            </CollapsibleTrigger>
+          ) : (
+            <span className="text-small text-muted-foreground tabular-nums">
+              {milestones.length === 1 ? "1 Milestone" : `${milestones.length} Milestones`}
+            </span>
+          ))}
         {!openRound && roundView?.last && <LastRoundNote round={roundView.last} now={Date.now()} />}
         <span className="ml-auto flex items-center gap-1.5">
           {!openRound && roadmap.isSuccess && milestones.length > 0 && <RevisitRoadmapButton projectId={projectId} />}
+          {/* On an empty Roadmap the Empty below carries the one add. */}
+          {milestones.length > 0 && (
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
             ref={addRef}
             aria-label="Add a Milestone"
@@ -182,6 +251,7 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
             <Plus aria-hidden="true" />
             Milestone
           </Button>
+          )}
         </span>
       </header>
       {openRound && <RoundBand projectId={projectId} round={openRound} proposals={proposals} />}
@@ -193,16 +263,31 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
         Alt with the Up or Down arrow moves it on the Roadmap.
       </p>
 
-      {roadmap.isError && <p className="m-0 px-4 py-3 text-body text-destructive-text">{errorText(roadmap.error)}</p>}
+      {roadmap.isPending && <Skeleton aria-label="Loading the Roadmap" className="mx-4 my-2 h-5 rounded-sm" />}
+      {roadmap.isError && <ReadError title="Couldn't load the Roadmap" query={roadmap} className="m-3 w-auto" />}
       {roadmap.isSuccess && milestones.length === 0 && !adding && (
-        <p className="m-0 px-4 py-3 text-body text-muted-foreground">
-          No Milestone yet. Add the first one: an outcome, with no date.
-        </p>
+        <Empty className="gap-3 p-5">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <MapIcon aria-hidden="true" />
+            </EmptyMedia>
+            <EmptyTitle>No Milestone yet</EmptyTitle>
+            <EmptyDescription>Add the first one: an outcome, with no date.</EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <Button size="sm" ref={addRef} aria-label="Add a Milestone" aria-expanded={false} onClick={() => setAdding(true)}>
+              <Plus aria-hidden="true" />
+              Milestone
+            </Button>
+          </EmptyContent>
+        </Empty>
       )}
 
       {milestones.length > 0 && (
-        <ol ref={listRef} aria-label="Milestones in Roadmap order" className="m-0 list-none p-0">
+        <ol ref={listRef} id={listId} aria-label="Milestones in Roadmap order" className="m-0 list-none p-0">
           {milestones.map((milestone, index) => {
+            // Folded, every row but the one the board shows shrinks to nothing and leaves the tab order.
+            const folded = !visible(milestone);
             const closed = isClosed(milestone);
             const selected = milestone.id === shown;
             const dropping = dropTarget === milestone.id && dragging !== null && dragging !== milestone.id;
@@ -234,15 +319,21 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
                   if (dropTarget !== milestone.id) setDropTarget(milestone.id);
                 }}
                 onDrop={(event) => onDrop(event, index)}
+                inert={folded}
+                aria-hidden={folded || undefined}
+                data-folded={folded || undefined}
                 className={cn(
-                  "group/milestone relative border-border",
-                  index > 0 && "border-t",
+                  // The fold grows and shrinks each row in place (DESIGN.md § Motion: a disclosure grows on the
+                  // overlay duration and leaves on the exit); under reduced motion it only fades.
+                  "group/milestone relative grid grid-rows-[1fr] transition-[grid-template-rows,opacity] duration-(--duration-overlay) ease-(--ease) motion-reduce:transition-opacity",
+                  folded && "grid-rows-[0fr] opacity-0 duration-(--duration-overlay-exit)",
                   dragging === milestone.id && "opacity-50",
                   // The drop line: where the dragged Milestone will land, above or below this row.
                   "data-[drop]:after:absolute data-[drop]:after:inset-x-2 data-[drop]:after:h-0.5 data-[drop]:after:rounded-full data-[drop]:after:bg-ring",
                   "data-[drop=before]:after:-top-px data-[drop=after]:after:-bottom-px",
                 )}
               >
+                <div className={cn("min-h-0 overflow-hidden border-border", index > firstVisible && "border-t")}>
                 <div
                   className={cn(
                     "flex min-h-9 items-center transition-[background-color] duration-(--duration-state) ease-(--ease)",
@@ -356,6 +447,7 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
                     ))}
                   </ul>
                 )}
+                </div>
               </li>
             );
           })}
@@ -390,6 +482,7 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
         {announcement}
       </p>
     </section>
+    </Collapsible>
   );
 }
 
