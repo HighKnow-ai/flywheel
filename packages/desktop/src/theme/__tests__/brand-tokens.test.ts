@@ -155,10 +155,13 @@ const KNOWN_TAGS = [
   "trak", "Zapf", "Silf", "Glat", "Gloc", "Feat", "Sill",
 ];
 
-function woff2Directory(buf: Buffer): { tags: string[]; dataStart: number; compressedSize: number } {
-  expect(buf.toString("latin1", 0, 4)).toBe("wOF2");
-  const numTables = buf.readUInt16BE(12);
-  const compressedSize = buf.readUInt32BE(20);
+const latin1 = (bytes: Uint8Array): string => String.fromCharCode(...bytes);
+
+function woff2Directory(buf: Uint8Array): { tags: string[]; dataStart: number; compressedSize: number } {
+  const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  expect(latin1(buf.subarray(0, 4))).toBe("wOF2");
+  const numTables = view.getUint16(12);
+  const compressedSize = view.getUint32(20);
   let at = 48;
   const base128 = () => {
     let value = 0;
@@ -173,7 +176,7 @@ function woff2Directory(buf: Buffer): { tags: string[]; dataStart: number; compr
   for (let i = 0; i < numTables; i += 1) {
     const flags = buf[at++];
     const index = flags & 0x3f;
-    const tag = index === 63 ? buf.toString("latin1", at, (at += 4)) : KNOWN_TAGS[index];
+    const tag = index === 63 ? latin1(buf.subarray(at, (at += 4))) : KNOWN_TAGS[index];
     const transform = flags >> 6;
     base128();
     const transformed = tag === "glyf" || tag === "loca" ? transform !== 3 : transform !== 0;
@@ -183,9 +186,10 @@ function woff2Directory(buf: Buffer): { tags: string[]; dataStart: number; compr
   return { tags, dataStart: at, compressedSize };
 }
 
-const woff2Tables = (buf: Buffer): string[] => woff2Directory(buf).tags;
+const woff2Tables = (buf: Uint8Array): string[] => woff2Directory(buf).tags;
 
-function woff2Sfnt(buf: Buffer): string {
+/** The decompressed font data, as latin1 text so a 4-byte tag can be searched for. */
+function woff2Sfnt(buf: Uint8Array): string {
   const { dataStart, compressedSize } = woff2Directory(buf);
-  return brotliDecompressSync(buf.subarray(dataStart, dataStart + compressedSize)).toString("latin1");
+  return new TextDecoder("latin1").decode(brotliDecompressSync(buf.subarray(dataStart, dataStart + compressedSize)));
 }

@@ -6,6 +6,7 @@ declare module "node:fs" {
 }
 declare module "node:zlib" {
   export function inflateSync(buf: Uint8Array): Uint8Array;
+  export function brotliDecompressSync(buf: Uint8Array): Uint8Array;
 }
 declare module "node:crypto" {
   export function createHash(alg: "sha1"): {
