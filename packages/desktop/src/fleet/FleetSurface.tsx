@@ -46,7 +46,7 @@ import { useUiStore } from "../state/uiStore";
 import { BlockedQueue } from "./BlockedQueue";
 import { ageText, useBlockedQueue, useFleet, useWaitingRounds } from "./useFleet";
 import { PageHeader, SurfaceBody } from "../shell/PageHeader";
-import { lampsFromFleet } from "../shell/AndonStrip";
+import { agentCount, lampsFromFleet } from "../shell/AndonStrip";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -556,11 +556,12 @@ function FleetTable({
   );
 }
 
-/** The header's count: agents as GLOSSARY.md counts them (a live session), then the list's length labelled
- * as runs, so it never reads as a second, disagreeing agent count. */
-export function fleetCountText(liveAgents: number, runs: number): string {
-  const agents = `${liveAgents} live ${liveAgents === 1 ? "agent" : "agents"}`;
-  return runs === 0 ? agents : `${agents} · ${runs} ${runs === 1 ? "run" : "runs"}`;
+/** The header's count: agents exactly as the strip counts them (`agentCount`, GLOSSARY.md: a live session,
+ * Story or shaping), then the rows that are not agents (runs that have ended: Stopped, failed, In review,
+ * done) labelled on their own, so the headline figure always matches the strip's. */
+export function fleetCountText(agents: number, endedRuns: number): string {
+  const head = `${agents} ${agents === 1 ? "agent" : "agents"}`;
+  return endedRuns === 0 ? head : `${head} · ${endedRuns} ended ${endedRuns === 1 ? "run" : "runs"}`;
 }
 
 type FleetView = "fleet" | "queue";
@@ -636,8 +637,7 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
         }
       : {},
   );
-  const liveAgents = rows.filter(isLiveRun).length;
-  const countText = fleetCountText(liveAgents, total);
+  const countText = fleetCountText(agentCount(rows, waitingRounds), total - rows.filter(isLiveRun).length);
 
   return (
     <Tabs
@@ -649,9 +649,14 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
         onBack={onClose}
         crumbs={[{ label: view === "queue" ? "Waiting on you" : "All agents" }]}
         actions={
-          // The counts live with what they count (the tab's own figure, the table's summary line), so the top
-          // bar holds only the switch and fits a 900px window beside the rail.
-          <TabsList aria-label="Fleet views" className="h-8.5 shrink-0">
+          <>
+            {/* The headline count, the strip's own figure. Waiting on you's count is its tab's. */}
+            {view === "fleet" && fleet.isSuccess && (
+              <span aria-live="polite" data-fleet-count className="shrink-0 text-small whitespace-nowrap text-muted-foreground tabular-nums">
+                {countText}
+              </span>
+            )}
+            <TabsList aria-label="Fleet views" className="h-8.5 shrink-0">
               <TabsTrigger value="fleet" className="px-2.5">
                 All agents
               </TabsTrigger>
@@ -661,7 +666,8 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
                   {waitingTotal}
                 </span>
               </TabsTrigger>
-          </TabsList>
+            </TabsList>
+          </>
         }
       />
       <TabsContent value="fleet" className="flex min-h-0 flex-1 flex-col">
@@ -687,14 +693,9 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
               />
             )
           )}
-          {fleet.isSuccess && (
-            <div className="mx-auto flex w-full max-w-[1240px] shrink-0 flex-wrap items-baseline gap-x-6 gap-y-1">
-              <span aria-live="polite" data-fleet-count className="mr-auto text-small text-muted-foreground tabular-nums">
-                {countText}
-              </span>
-              <FleetFooter visibleCostUsd={fleet.data?.visibleCostUsd ?? null} />
-            </div>
-          )}
+          <div className="mx-auto w-full max-w-[1240px] shrink-0 empty:hidden">
+            <FleetFooter visibleCostUsd={fleet.data?.visibleCostUsd ?? null} />
+          </div>
         </SurfaceBody>
       </TabsContent>
       <TabsContent value="queue" className="flex min-h-0 flex-1 flex-col">
