@@ -35,3 +35,15 @@ Merge and Reclaim already ran on a side connection. Now they also take the Story
 To make the commands reachable from integration tests, the desktop crate is now a library (`desktop_lib`) plus the `desktop` binary. `main.rs` still builds the app and owns `generate_handler!`.
 
 We rejected `#[tauri::command(async)]` on the unchanged sync functions. That moves the body off the main thread, but onto a runtime worker, so git there still starves the runtime that every async command shares.
+
+## Amendment: blocking waits count as process calls
+
+Decided by Claude under Cyril's delegation in [Starting shaping or a roadmap Round never blocks other IPC while the spawn floor waits](https://github.com/HighKnow-ai/flywheel/issues/235).
+
+A wait blocks the dispatch thread just as git does. That covers a `thread::sleep`, such as the sidecar's spawn floor, and a wait on a channel, a child or a thread (`.recv()` not awaited, `.recv_timeout(..)`, `.wait()`, `.join()`). The `command_threads` lint now seeds its fixpoint with these as well as with process spawns. The 12 commands it found are now async, and the wait runs on the blocking pool:
+- the shaping and roadmap launches: `epic_shape`, `shaping_continue`, `milestone_shape`, `milestone_shaping_continue`, `roadmap_revisit`, `epic_confirm_done`, `milestone_confirm_done`
+- `stage_close`, which waits on both an interrupt and the floor
+- `session_stop`, `session_discard` and `orphan_kill`, which wait on an acknowledgement or a recheck
+- `backend_capability_probe`
+
+The `scheduler_lock` lock lint now counts these waits too. It found one more lock holder: `orphan_kill` slept through its recheck under the board lock. It now runs on a side connection.

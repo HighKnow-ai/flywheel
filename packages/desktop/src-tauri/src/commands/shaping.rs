@@ -25,7 +25,7 @@
 
 use rusqlite::Connection;
 use serde::Serialize;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use flywheel_core::domain::round::{AnswerOutcome, RoundAnswer, RoundRelease};
 use flywheel_core::domain::session::ShapingSubject;
@@ -48,12 +48,26 @@ pub struct ShapingSessionDto {
 
 /// Shape on an Epic in Shaping (issue #122): start a shaping session on it.
 #[tauri::command]
-pub fn epic_shape(state: State<AppState>, app: AppHandle, epic_id: String) -> Result<ShapingSessionDto, String> {
+///
+/// Generic over the runtime so `tests/command_threads.rs` can drive it on Tauri's mock runtime.
+pub async fn epic_shape<R: tauri::Runtime>(app: AppHandle<R>, epic_id: String) -> Result<ShapingSessionDto, String> {
+    // Waits on the sidecar (the spawn floor, an acknowledgement or a probe): on the blocking
+    // pool, never the thread IPC dispatches on (issue #235).
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        epic_shape_blocking(&state, &app, epic_id)
+    })
+    .await
+    .map_err(|e| super::ipc_error("epic_shape:join", e))?
+}
+
+/// [`epic_shape`]'s body, on the blocking pool.
+fn epic_shape_blocking<R: tauri::Runtime>(state: &AppState, app: &AppHandle<R>, epic_id: String) -> Result<ShapingSessionDto, String> {
     let run_id = shape_epic(&state.db, &epic_id, flywheel_core::login_path::claude_bin, |repo_path, request| {
-        send_gated_spawn(&state, repo_path, request)
+        send_gated_spawn(state, repo_path, request)
     })?;
     let project_id = project_of_locked(&state.db, "epics", &epic_id);
-    emit_board_changed(&app, project_id.as_deref(), "session", Some(&run_id));
+    emit_board_changed(app, project_id.as_deref(), "session", Some(&run_id));
     Ok(ShapingSessionDto {
         id: run_id,
         epic_id,
@@ -416,12 +430,24 @@ pub(crate) fn handle_shaping_tool_request(app: &AppHandle, run_id: &str, request
 /// Round with its answers and tells the agent to call `round_wait` on the open one. Refused for an
 /// Epic with no Round yet (Shape starts that one) and, like Shape, for one already being shaped.
 #[tauri::command]
-pub fn shaping_continue(state: State<AppState>, app: AppHandle, epic_id: String) -> Result<ShapingSessionDto, String> {
+pub async fn shaping_continue(app: AppHandle, epic_id: String) -> Result<ShapingSessionDto, String> {
+    // Waits on the sidecar (the spawn floor, an acknowledgement or a probe): on the blocking
+    // pool, never the thread IPC dispatches on (issue #235).
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        shaping_continue_blocking(&state, &app, epic_id)
+    })
+    .await
+    .map_err(|e| super::ipc_error("shaping_continue:join", e))?
+}
+
+/// [`shaping_continue`]'s body, on the blocking pool.
+fn shaping_continue_blocking(state: &AppState, app: &AppHandle, epic_id: String) -> Result<ShapingSessionDto, String> {
     let run_id = continue_epic(&state.db, &epic_id, flywheel_core::login_path::claude_bin, |repo_path, request| {
-        send_gated_spawn(&state, repo_path, request)
+        send_gated_spawn(state, repo_path, request)
     })?;
     let project_id = project_of_locked(&state.db, "epics", &epic_id);
-    emit_board_changed(&app, project_id.as_deref(), "session", Some(&run_id));
+    emit_board_changed(app, project_id.as_deref(), "session", Some(&run_id));
     Ok(ShapingSessionDto {
         id: run_id,
         epic_id,
@@ -473,7 +499,19 @@ pub struct StageCloseDto {
 /// Stage's shaping session from a fresh packet. Human-only: the actor is resolved here, and the core
 /// refuses any other inside its transaction.
 #[tauri::command]
-pub fn stage_close(state: State<AppState>, app: AppHandle, stage_id: String) -> Result<StageCloseDto, String> {
+pub async fn stage_close(app: AppHandle, stage_id: String) -> Result<StageCloseDto, String> {
+    // Waits on the sidecar (the spawn floor, an acknowledgement or a probe): on the blocking
+    // pool, never the thread IPC dispatches on (issue #235).
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        stage_close_blocking(&state, &app, stage_id)
+    })
+    .await
+    .map_err(|e| super::ipc_error("stage_close:join", e))?
+}
+
+/// [`stage_close`]'s body, on the blocking pool.
+fn stage_close_blocking(state: &AppState, app: &AppHandle, stage_id: String) -> Result<StageCloseDto, String> {
     let dto = close_stage_and_shape(
         &state.db,
         &stage_id,
@@ -482,10 +520,10 @@ pub fn stage_close(state: State<AppState>, app: AppHandle, stage_id: String) -> 
             None => Ok(()),
         },
         flywheel_core::login_path::claude_bin,
-        |repo_path, request| send_gated_spawn(&state, repo_path, request),
+        |repo_path, request| send_gated_spawn(state, repo_path, request),
     )?;
     let project_id = project_of_locked(&state.db, "stages", &dto.closed_stage_id);
-    emit_board_changed(&app, project_id.as_deref(), "stage", Some(&dto.closed_stage_id));
+    emit_board_changed(app, project_id.as_deref(), "stage", Some(&dto.closed_stage_id));
     Ok(dto)
 }
 
@@ -639,12 +677,24 @@ impl MilestoneShapingSessionDto {
 
 /// Shape on a Milestone in Shaping (issue #132): start a shaping session on its exit test.
 #[tauri::command]
-pub fn milestone_shape(state: State<AppState>, app: AppHandle, milestone_id: String) -> Result<MilestoneShapingSessionDto, String> {
+pub async fn milestone_shape(app: AppHandle, milestone_id: String) -> Result<MilestoneShapingSessionDto, String> {
+    // Waits on the sidecar (the spawn floor, an acknowledgement or a probe): on the blocking
+    // pool, never the thread IPC dispatches on (issue #235).
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        milestone_shape_blocking(&state, &app, milestone_id)
+    })
+    .await
+    .map_err(|e| super::ipc_error("milestone_shape:join", e))?
+}
+
+/// [`milestone_shape`]'s body, on the blocking pool.
+fn milestone_shape_blocking(state: &AppState, app: &AppHandle, milestone_id: String) -> Result<MilestoneShapingSessionDto, String> {
     let run_id = shape_milestone(&state.db, &milestone_id, flywheel_core::login_path::claude_bin, |repo_path, request| {
-        send_gated_spawn(&state, repo_path, request)
+        send_gated_spawn(state, repo_path, request)
     })?;
     let project_id = project_of_locked(&state.db, "milestones", &milestone_id);
-    emit_board_changed(&app, project_id.as_deref(), "session", Some(&run_id));
+    emit_board_changed(app, project_id.as_deref(), "session", Some(&run_id));
     Ok(MilestoneShapingSessionDto::running(run_id, milestone_id))
 }
 
@@ -659,16 +709,24 @@ pub fn milestone_shaping_session(state: State<AppState>, milestone_id: String) -
 /// Continue shaping a Milestone (issue #132): [`shaping_continue`] for a Milestone whose Rounds
 /// outlived the session that posted them.
 #[tauri::command]
-pub fn milestone_shaping_continue(
-    state: State<AppState>,
-    app: AppHandle,
-    milestone_id: String,
-) -> Result<MilestoneShapingSessionDto, String> {
+pub async fn milestone_shaping_continue(app: AppHandle, milestone_id: String) -> Result<MilestoneShapingSessionDto, String> {
+    // Waits on the sidecar (the spawn floor, an acknowledgement or a probe): on the blocking
+    // pool, never the thread IPC dispatches on (issue #235).
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        milestone_shaping_continue_blocking(&state, &app, milestone_id)
+    })
+    .await
+    .map_err(|e| super::ipc_error("milestone_shaping_continue:join", e))?
+}
+
+/// [`milestone_shaping_continue`]'s body, on the blocking pool.
+fn milestone_shaping_continue_blocking(state: &AppState, app: &AppHandle, milestone_id: String) -> Result<MilestoneShapingSessionDto, String> {
     let run_id = continue_milestone(&state.db, &milestone_id, flywheel_core::login_path::claude_bin, |repo_path, request| {
-        send_gated_spawn(&state, repo_path, request)
+        send_gated_spawn(state, repo_path, request)
     })?;
     let project_id = project_of_locked(&state.db, "milestones", &milestone_id);
-    emit_board_changed(&app, project_id.as_deref(), "session", Some(&run_id));
+    emit_board_changed(app, project_id.as_deref(), "session", Some(&run_id));
     Ok(MilestoneShapingSessionDto::running(run_id, milestone_id))
 }
 

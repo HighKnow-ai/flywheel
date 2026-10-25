@@ -231,16 +231,27 @@ pub fn exhaustion_event_payload(repository: &str, command: &str, attempts: u32) 
 /// never gate each other. This is a real guarantee, not a tendency: [`wait_turn`](Self::wait_turn)
 /// sleeps the exact remainder (never a fixed sleep, never a probabilistic jitter alone) before
 /// ever returning control to its caller.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct SpawnFloor {
     last_started: Mutex<HashMap<String, Instant>>,
+    floor: Duration,
+}
+
+impl Default for SpawnFloor {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SpawnFloor {
     pub fn new() -> Self {
-        Self {
-            last_started: Mutex::new(HashMap::new()),
-        }
+        Self::with_floor(Duration::from_millis(SPAWN_FLOOR_MS))
+    }
+
+    /// A floor of `floor` instead of [`SPAWN_FLOOR_MS`]: a test that has to watch the wait (issue
+    /// #235) makes it long enough to see.
+    pub fn with_floor(floor: Duration) -> Self {
+        Self { last_started: Mutex::new(HashMap::new()), floor }
     }
 
     /// Returns immediately on the first call for `repo_key`. On a subsequent call for the SAME
@@ -253,7 +264,7 @@ impl SpawnFloor {
         let remaining = {
             let table = self.lock();
             table.get(repo_key).and_then(|&previous| {
-                let floor = Duration::from_millis(SPAWN_FLOOR_MS);
+                let floor = self.floor;
                 let elapsed = previous.elapsed();
                 if elapsed < floor {
                     Some(floor - elapsed)

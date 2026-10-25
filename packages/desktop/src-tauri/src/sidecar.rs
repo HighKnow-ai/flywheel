@@ -250,6 +250,22 @@ fn push_bounded_stderr_tail(tail: &mut String, bytes: &[u8], cap: usize) {
 }
 
 impl SidecarHandle {
+    /// A handle with no sidecar process behind it: every request fails ("sidecar process is not
+    /// running"), but a spawn request still waits out `spawn_floor` first. For tests that watch a
+    /// launch wait on the floor without a real sidecar (issue #235); the app only ever gets its
+    /// handle from [`spawn_sidecar`].
+    pub fn without_process(spawn_floor: flywheel_core::git_retry::SpawnFloor) -> Self {
+        SidecarHandle {
+            child: Mutex::new(None),
+            writers: Mutex::new(HashMap::new()),
+            pending_acks: Mutex::new(HashMap::new()),
+            pending_permission_requests: Mutex::new(HashMap::new()),
+            notified_persist_failures: Mutex::new(std::collections::HashSet::new()),
+            heartbeat_stop: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            spawn_floor,
+        }
+    }
+
     /// Send one newline-delimited JSON request to the sidecar's stdin (a `spawn`/`interrupt`/
     /// `kill` request, built by the caller).
     pub fn send_request(&self, request_json: &str) -> anyhow::Result<()> {

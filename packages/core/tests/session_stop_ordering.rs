@@ -27,7 +27,8 @@ fn is_whole_line_comment(line: &str) -> bool {
     line.trim_start().starts_with("//")
 }
 
-/// Within `source`, find `pub fn session_stop` and return the index (relative to that line) of
+/// Within `source`, find `fn session_stop_blocking` (`session_stop`'s body, on the blocking pool) and
+/// return the index (relative to that line) of
 /// the first non-comment line containing `interrupt_run` and of the first non-comment line
 /// containing `.lock()`, scanning the following 30 lines — comfortably more than the function's
 /// current body length.
@@ -35,8 +36,8 @@ fn interrupt_and_lock_indices(source: &str) -> (Option<usize>, Option<usize>, Ve
     let lines: Vec<&str> = source.lines().collect();
     let fn_idx = lines
         .iter()
-        .position(|line| line.contains("pub fn session_stop"))
-        .unwrap_or_else(|| panic!("expected to find `pub fn session_stop` in the given source"));
+        .position(|line| line.contains("fn session_stop_blocking("))
+        .unwrap_or_else(|| panic!("expected to find `fn session_stop_blocking` in the given source"));
 
     let window_end = (fn_idx + 30).min(lines.len());
     let window: Vec<&str> = lines[fn_idx..window_end].to_vec();
@@ -66,11 +67,11 @@ fn session_stop_resolves_the_interrupt_before_locking_the_shared_db_mutex() {
 
     assert!(
         interrupt_idx.is_some(),
-        "expected a non-comment call to `interrupt_run` within 30 lines of `pub fn session_stop`, region:\n{window_text}"
+        "expected a non-comment call to `interrupt_run` within 30 lines of `fn session_stop_blocking`, region:\n{window_text}"
     );
     assert!(
         lock_idx.is_some(),
-        "expected a non-comment call to `.lock()` within 30 lines of `pub fn session_stop`, region:\n{window_text}"
+        "expected a non-comment call to `.lock()` within 30 lines of `fn session_stop_blocking`, region:\n{window_text}"
     );
     assert!(
         interrupt_idx.unwrap() < lock_idx.unwrap(),
@@ -85,7 +86,7 @@ fn a_reordered_fixture_trips_the_ordering_gate() {
     // Proves the gate is falsifiable — not just structurally present, but actually detects a
     // reordered call in a fixture, mirroring app_exit_ordering.rs's own seeded-violation test.
     let reordered = "\
-pub fn session_stop(
+fn session_stop_blocking(
     state: State<AppState>,
     app: AppHandle,
     session_id: String,

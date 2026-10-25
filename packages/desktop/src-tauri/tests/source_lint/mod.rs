@@ -4,9 +4,10 @@
 //! from the source, and every call made while that guard is alive. A call that can reach a git or
 //! process spawn is a lock holder: every IPC read waits behind it.
 //!
-//! [`commands_on_the_ipc_thread`]: every `#[tauri::command]` that reaches a spawn other than inside
-//! a `spawn_blocking(..)` (or `thread::spawn(..)`) argument. A sync command runs on the main thread,
-//! and an async one's body on a runtime worker: either way git there stalls IPC dispatch.
+//! [`commands_on_the_ipc_thread`]: every `#[tauri::command]` that reaches a spawn or a blocking wait
+//! ([`blocking_names`], issue #235) other than inside a `spawn_blocking(..)` (or `thread::spawn(..)`)
+//! argument. A sync command runs on the main thread, and an async one's body on a runtime worker:
+//! either way git or a sleep there stalls IPC dispatch.
 //!
 //! Text-level and deliberately simple, in the house style of `handler_roster.rs`:
 //! - comments, string and char literals, and `#[cfg(test)]` items are blanked first;
@@ -303,6 +304,46 @@ pub fn spawning_names(files: &[(String, String)]) -> BTreeMap<String, Option<Str
 
 /// [`spawning_names`] with `skip` in place of [`NOT_A_SPAWN`].
 pub fn spawning_names_skipping(files: &[(String, String)], skip: &[&str]) -> BTreeMap<String, Option<String>> {
+    reaching_names(files, skip, spawns_directly)
+}
+
+/// Whether `text[from..to]` itself blocks its thread on something other than a process (issue
+/// #235): a `thread::sleep`, or a wait on a channel, a child or a thread (`.recv()` that is not
+/// awaited, `.recv_timeout(`, `.wait()`, `.join()` with no argument).
+pub fn blocks_directly(text: &str, from: usize, to: usize) -> bool {
+    let body: String = text[from..to].split_whitespace().collect::<Vec<_>>().join("");
+    ["thread::sleep(", ".recv_timeout(", ".wait()", ".join()"].iter().any(|s| body.contains(s))
+        || body.match_indices(".recv()").any(|(at, _)| !body[at + ".recv()".len()..].starts_with(".await"))
+}
+
+/// Every function that blocks the thread it runs on: it reaches a process spawn or a blocking wait
+/// ([`blocks_directly`]), by the same fixpoint as [`spawning_names`].
+pub fn blocking_names(files: &[(String, String)]) -> BTreeMap<String, Option<String>> {
+    let skip: Vec<&str> = NOT_A_SPAWN.iter().chain(NOT_BLOCKING).map(|(n, _)| *n).collect();
+    blocking_names_skipping(files, &skip)
+}
+
+/// [`blocking_names`] with `skip` in place of [`NOT_A_SPAWN`] and [`NOT_BLOCKING`].
+pub fn blocking_names_skipping(files: &[(String, String)], skip: &[&str]) -> BTreeMap<String, Option<String>> {
+    reaching_names(files, skip, |text, from, to| spawns_directly(text, from, to) || blocks_directly(text, from, to))
+}
+
+/// `(name, reason)`: names a blocking function in the tree also carries ([`blocks_directly`]), but
+/// whose every call from a command resolves to one that does not block. As with [`NOT_A_SPAWN`],
+/// each must be a real collision, and a test keeps it so.
+pub const NOT_BLOCKING: &[(&str, &str)] = &[(
+    "collect",
+    "`proc.rs`'s `Drain::collect` waits on a pipe reader inside the bounded process wait; every \
+     `.collect()` a command makes is an iterator's",
+)];
+
+/// The fixpoint behind [`spawning_names`] and [`blocking_names`]: every function whose own body
+/// satisfies `seed`, or that calls one that does, outside work handed to another thread.
+fn reaching_names(
+    files: &[(String, String)],
+    skip: &[&str],
+    seed: fn(&str, usize, usize) -> bool,
+) -> BTreeMap<String, Option<String>> {
     let skip: BTreeSet<&str> = skip.iter().copied().collect();
     let fns: Vec<(Function, Vec<String>, bool)> = files
         .iter()
@@ -323,7 +364,7 @@ pub fn spawning_names_skipping(files: &[(String, String)], skip: &[&str]) -> BTr
                     let blank = " ".repeat(e - s);
                     body.replace_range(s - f.body_open..e - f.body_open, &blank);
                 }
-                let direct = spawns_directly(&body, 0, body.len());
+                let direct = seed(&body, 0, body.len());
                 (f, called, direct)
             })
         })
@@ -621,7 +662,7 @@ pub struct IpcThreadSpawn {
 impl std::fmt::Display for IpcThreadSpawn {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let kind = if self.is_async { "async command" } else { "sync command (main thread)" };
-        write!(f, "{}:{} {} {} calls {} off the blocking pool", self.file, self.line, kind, self.command, self.callee)
+        write!(f, "{}:{} {} {} calls {} on its dispatch thread", self.file, self.line, kind, self.command, self.callee)
     }
 }
 
@@ -651,8 +692,9 @@ fn offloaded(text: &str, from: usize, to: usize) -> Vec<(usize, usize)> {
     spans
 }
 
-/// Every `#[tauri::command]` in `files` (already stripped) that calls a spawning function, or
-/// spawns itself, outside a `spawn_blocking(..)` / `thread::spawn(..)` argument.
+/// Every `#[tauri::command]` in `files` (already stripped) that calls a function in `blocking`
+/// ([`blocking_names`]), or spawns or blocks itself, outside a `spawn_blocking(..)` /
+/// `thread::spawn(..)` argument.
 pub fn commands_on_the_ipc_thread(
     files: &[(String, String)],
     spawning: &BTreeMap<String, Option<String>>,
@@ -669,8 +711,14 @@ pub fn commands_on_the_ipc_thread(
                 if inside(at) {
                     continue;
                 }
+                let after = text[at + callee.len()..].split_whitespace().collect::<String>();
+                let method = text[..at].trim_end().ends_with('.');
                 let direct = callee == "new" && text[..at].ends_with("Command::")
-                    || (callee == "spawn" || callee == "output") && text[..at].ends_with('.');
+                    || (callee == "spawn" || callee == "output") && method
+                    || callee == "sleep" && text[..at].ends_with("thread::")
+                    || callee == "recv_timeout" && method
+                    || (callee == "wait" || callee == "join") && method && after.starts_with("()")
+                    || callee == "recv" && method && after.starts_with("()") && !after.starts_with("().await");
                 if spawning.contains_key(&callee) || direct {
                     let line = text[..at].matches('\n').count() + 1;
                     out.insert(IpcThreadSpawn { file: file.clone(), line, command: f.name.clone(), is_async, callee });

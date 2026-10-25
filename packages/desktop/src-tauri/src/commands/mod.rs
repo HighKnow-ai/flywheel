@@ -66,8 +66,8 @@ pub(crate) fn ipc_error(context: &str, e: impl std::fmt::Display) -> String {
 /// emitter with genuinely no project scope says so explicitly, and the renderer refreshes
 /// everything rather than dropping the event. `tests/board_changed_payload.rs` fails the build if
 /// any other module names the event string, or calls this without declaring its scope.
-pub fn emit_board_changed(
-    app: &tauri::AppHandle,
+pub fn emit_board_changed<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
     project_id: Option<&str>,
     entity: &str,
     id: Option<&str>,

@@ -206,7 +206,7 @@ fn tree() -> Vec<(String, String)> {
 }
 
 fn report(files: &[(String, String)]) -> Vec<String> {
-    let spawning = lint::spawning_names(files);
+    let spawning = lint::blocking_names(files);
     lint::holders(files, &spawning).iter().map(|h| format!("{h}  [{}]", lint::chain(&spawning, &h.callee))).collect()
 }
 
@@ -215,7 +215,7 @@ fn no_code_path_holds_the_board_lock_across_a_git_or_process_call() {
     let listed = report(&tree());
     assert!(
         listed.is_empty(),
-        "{} calls reach git or a process with the board lock held. Read what the call needs under the \
+        "{} calls reach git, a process or a blocking wait with the board lock held. Read what the call needs under the \
          lock, release it, and run the rest with no connection or on a connection of its own:\n{}",
         listed.len(),
         listed.join("\n")
