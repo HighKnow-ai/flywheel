@@ -170,12 +170,18 @@ export function parseUsageLimit(text: string): string | null | undefined {
   return match[1] ? new Date(Number(match[1]) * 1000).toISOString() : null;
 }
 
-/** When the limit resets, as a clock time: "16:00" today, "Mon 16:00" on another day. */
+const RESET_CLOCK = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+const RESET_WEEKDAY = new Intl.DateTimeFormat("en-GB", { weekday: "short" });
+const RESET_DATE = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
+
+/** When the limit resets, as a clock time in the app's own words: "16:00" today, "Mon 16:00" within the week
+ * either side, "26 Oct 16:00" further off. */
 export function formatResetTime(resetsAt: string, now: number = Date.now()): string {
   const at = new Date(resetsAt);
-  const time = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(at);
+  const time = RESET_CLOCK.format(at);
   if (at.toDateString() === new Date(now).toDateString()) return time;
-  return `${new Intl.DateTimeFormat(undefined, { weekday: "short" }).format(at)} ${time}`;
+  const days = Math.abs(at.getTime() - now) / 86_400_000;
+  return `${days < 6 ? RESET_WEEKDAY.format(at) : RESET_DATE.format(at)} ${time}`;
 }
 
 /** The usage-limit line: "Usage limit reached · resets 16:00", or "· reset at 16:00" once that time has passed. */

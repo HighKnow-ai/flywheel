@@ -1191,7 +1191,7 @@ describe("SessionSurface status from the stored session row (issue #110)", () =>
 
     const ending = await screen.findByTestId("session-ending");
     // How, then when: a relative time with the absolute one on its <time> and in a Tooltip (RelativeTime).
-    expect(ending).toHaveTextContent(/^Ended: handed off \S/);
+    expect(ending).toHaveTextContent(/^Ended \S.* · handed off$/);
     expect(ending.querySelector("time")).toHaveAttribute("datetime", "2026-10-19T10:40:00.000Z");
     expect(screen.getByTestId("session-clock")).toHaveTextContent("Duration 40m 00s");
     expect(screen.getByText("Completed")).toBeInTheDocument();
@@ -1206,7 +1206,7 @@ describe("SessionSurface status from the stored session row (issue #110)", () =>
     );
 
     const ending = await screen.findByTestId("session-ending");
-    expect(ending).toHaveTextContent(/^Ended: stopped by you \S/);
+    expect(ending).toHaveTextContent(/^Ended \S.* · stopped by you$/);
     expect(screen.getByTestId("session-clock")).toHaveTextContent("Duration 15m 00s");
     expect(screen.getByText("Interrupted")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
@@ -1220,7 +1220,7 @@ describe("SessionSurface status from the stored session row (issue #110)", () =>
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByTestId("session-ending")).toHaveTextContent("Ended: crash");
+    expect(await screen.findByTestId("session-ending")).toHaveTextContent(/· crash$/);
     expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
   });
 

@@ -12,8 +12,8 @@
 export type ToolKind = "read" | "edit" | "write" | "run" | "search" | "web" | "board" | "agent" | "question" | "other";
 
 /**
- * A metric's tone. `failed` is a call that reported failure: it stays neutral ink, told apart by its icon
- * and word. `failed-check` is a failed Check, the one failure that is red (direction.md § Colour). `ok` is a
+ * A metric's tone. `failed` is a call that reported failure: the feed draws it as the destructive StateBadge
+ * (issue #205). `failed-check` is a failed Check, in red ink (direction.md § Colour). `ok` is a
  * command that finished cleanly, set in ink like the mockup's "passed" (never green: there is none).
  */
 export type MetricTone = "neutral" | "ok" | "failed" | "failed-check";

@@ -194,14 +194,16 @@ function SessionMeta({
       {ending && (
         <>
           <span aria-hidden="true">·</span>
+          {/* When, then how: "Ended 8h ago · usage limit", the absolute time in RelativeTime's Tooltip. */}
           <span className="whitespace-nowrap" data-testid="session-ending">
-            {`Ended: ${ending.reason}`}
+            {"Ended"}
             {ending.at && (
               <>
                 {" "}
                 <RelativeTime at={ending.at} />
               </>
             )}
+            {` · ${ending.reason}`}
           </span>
         </>
       )}
@@ -817,11 +819,12 @@ export function SessionSurface({
             >
               <ToggleGroupItem value="structured" aria-label="Structured">
                 <ListTree aria-hidden="true" />
-                Structured
+                {/* In a narrow window the icons carry the choice, so the Story's title keeps its room. */}
+                <span className="max-lg:sr-only">Structured</span>
               </ToggleGroupItem>
               <ToggleGroupItem value="raw" aria-label="Raw">
                 <FileText aria-hidden="true" />
-                Raw
+                <span className="max-lg:sr-only">Raw</span>
               </ToggleGroupItem>
             </ToggleGroup>
 
@@ -897,7 +900,8 @@ export function SessionSurface({
           // A transcript reads from the top of its card, like the Story it serves; follow-the-tail keeps the
           // newest row in view once it outgrows the pane. A short run is a few rows under the header, never
           // a few rows under a blank page (critique 2026-10, minor observation).
-          className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-4"
+          // A request card is a band across the card's foot, so nothing pads beneath it (issue #205).
+          className={cn("flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pt-4", footerRequests.length > 0 ? "pb-0" : "pb-4")}
         >
           <RequestInCard.Provider value={true}>
           <div className="shrink-0">
