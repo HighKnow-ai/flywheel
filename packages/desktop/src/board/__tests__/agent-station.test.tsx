@@ -15,6 +15,7 @@ const sessionsForStory = vi.fn();
 const sessionLogWindow = vi.fn();
 const stopSession = vi.fn();
 const blockedSummary = vi.fn();
+const worktreeSummary = vi.fn();
 
 vi.mock("../../adapters/tauri", async () => {
   const actual = await vi.importActual<typeof import("../../adapters/tauri")>("../../adapters/tauri");
@@ -27,6 +28,7 @@ vi.mock("../../adapters/tauri", async () => {
     sessionLogWindow: (...args: unknown[]) => sessionLogWindow(...args),
     stopSession: (...args: unknown[]) => stopSession(...args),
     blockedSummary: () => blockedSummary(),
+    worktreeSummary: (...args: unknown[]) => worktreeSummary(...args),
     taskList: () => Promise.resolve([]),
     criterionList: () => Promise.resolve([]),
     storyContextPacketSize: () => Promise.resolve({ bytes: 400, approxTokens: 100, overSoftLimit: false }),
@@ -81,6 +83,7 @@ beforeEach(() => {
   sessionLogWindow.mockReset().mockResolvedValue({ entries: LOG, offset: 0, limit: 50, total: LOG.length });
   stopSession.mockReset().mockResolvedValue({ status: "interrupted", sidecarWarning: null });
   blockedSummary.mockReset().mockResolvedValue({ blockedStoryIds: [], blockedCount: 0 });
+  worktreeSummary.mockReset().mockResolvedValue(null);
 });
 
 describe("the agent station (Story #118)", () => {
@@ -98,6 +101,19 @@ describe("the agent station (Story #118)", () => {
     expect(lines[3]).toHaveTextContent("npm test");
     expect(lines[3]).toHaveTextContent(/running · /);
     expect(station.innerHTML).not.toContain("mcp__");
+  });
+
+  it("reads a path in the Story's worktree relative to it, as the feed does (#205)", async () => {
+    const root = "/Users/dev/Flywheel/FLY/FLY-4";
+    worktreeSummary.mockResolvedValue({ branch: "story/fly-4", path: root, status: "clean" });
+    const log = [call("z", "Edit", { file_path: `${root}/src/state/keyboard.ts`, old_string: "a", new_string: "b" })];
+    sessionLogWindow.mockResolvedValue({ entries: log, offset: 0, limit: 50, total: log.length });
+    renderStory();
+    const station = await screen.findByRole("region", { name: "Live agent" });
+    const tail = await within(station).findByRole("list", { name: "Last tool calls" });
+    await waitFor(() => expect(tail).toHaveTextContent("src/state/keyboard.ts"));
+    expect(tail.textContent).not.toContain(root);
+    expect(worktreeSummary).toHaveBeenCalledWith("s1");
   });
 
   it("names the session and the agent's pace: session n, how long, last activity", async () => {
