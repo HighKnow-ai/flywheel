@@ -11,7 +11,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Bot, CircleCheck, ListChecks, Terminal } from "lucide-react";
-import { blockedSummary, storyGet, storyMakeReadyOffer, type StoryDto } from "../adapters/tauri";
+import { blockedSummary, storyGet, storyMakeReadyOffer, worktreeSummary, type StoryDto } from "../adapters/tauri";
 import { CriteriaList, checkPasses, useCriteria } from "./CriteriaList";
 import {
   AnswerControl,
@@ -178,7 +178,7 @@ function useNow(): number {
 /** The live tail: the last few lines of the session, worded as the feed words them, the call in flight
  * with its running clock. On graphite the list takes the `dark` scope, so running ink and a failed Check's
  * red read in their dark-ground values (direction.md § Colour: the brand hue is lifted on dark grounds). */
-function LiveTail({ rows, waitingOnYou }: { rows: FeedRowData[]; waitingOnYou: boolean }) {
+function LiveTail({ rows, waitingOnYou, root }: { rows: FeedRowData[]; waitingOnYou: boolean; root: string | null }) {
   const tail = stationTail(rows);
   // While the session waits on you, the unanswered call is held, not running: it never wears the clock.
   const liveKey = waitingOnYou ? null : findLiveCallKey(rows);
@@ -194,7 +194,7 @@ function LiveTail({ rows, waitingOnYou }: { rows: FeedRowData[]; waitingOnYou: b
       {tail.map((row) =>
         row.kind === "tool_call" ? (
           <li key={row.key} className="flex min-w-0 items-center gap-2.5 py-1" data-live={row.key === liveKey ? "true" : undefined}>
-            <ToolCallLine row={row} live={row.key === liveKey} surface={waitingOnYou ? "card" : "strip"} />
+            <ToolCallLine row={row} live={row.key === liveKey} surface={waitingOnYou ? "card" : "strip"} root={root} />
           </li>
         ) : (
           <li key={row.key} className="flex min-w-0 items-center gap-2.5 py-1" data-turn="true">
@@ -237,6 +237,12 @@ function LiveStation({
   // The same read as the session list, so the ordinal matches what it shows (newest first).
   const sessions = useStorySessions(projectId, story.id).data ?? [];
   const feedQuery = useSessionFeed(sessionId);
+  // The Story's worktree, against which the tail's paths and commands read relative, as the feed's do (#205).
+  const { data: worktree } = useQuery({
+    queryKey: ["session-worktree", story.id],
+    queryFn: () => worktreeSummary(story.id).catch(() => null),
+    retry: false,
+  });
   const entries = useMemo(() => feedQuery.data?.pages.flatMap((page) => page.entries) ?? [], [feedQuery.data]);
   const rows = useMemo(() => buildFeedRows(entries), [entries]);
   const now = useNow();
@@ -292,7 +298,7 @@ function LiveStation({
           <StopControl story={story} sessionId={sessionId} onStrip={!waitingOnYou} />
         </span>
       </div>
-      <LiveTail rows={rows} waitingOnYou={waitingOnYou} />
+      <LiveTail rows={rows} waitingOnYou={waitingOnYou} root={worktree?.path ?? null} />
     </section>
   );
 }
