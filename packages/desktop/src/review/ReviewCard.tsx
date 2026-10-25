@@ -344,7 +344,7 @@ function RequestChangesComposer({
             send();
           }
         }}
-        className="max-h-60"
+        className="max-h-[30dvh]"
       />
       {adrPoints.length > 0 && (
         <div className="flex min-w-0 flex-col gap-1">
@@ -815,9 +815,9 @@ export function ReviewCard({ projectId, story, onMerged }: ReviewCardProps) {
       {review && composing === null && (
         <footer className={footerClass}>
           <div className={cn("flex flex-wrap items-center justify-end gap-x-4 gap-y-2", footerInner)}>
-            <p aria-live="polite" className="m-0 mr-auto flex min-w-0 flex-1 basis-60 items-baseline gap-2 text-small">
+            <p aria-live="polite" className="m-0 mr-auto flex min-w-32 flex-1 basis-0 items-baseline gap-2 text-small">
               {merging ? (
-                <span className="min-w-0 text-muted-foreground">{`Merging ${story.key}: writing the merge commit, then removing the worktree.`}</span>
+                <span className="line-clamp-2 min-w-0 text-muted-foreground">{`Merging ${story.key}: writing the merge commit, then removing the worktree.`}</span>
               ) : blockers.length > 0 ? (
                 <>
                   <span title={blockers[0]} className="min-w-0 truncate text-foreground">
@@ -828,7 +828,7 @@ export function ReviewCard({ projectId, story, onMerged }: ReviewCardProps) {
                   )}
                 </>
               ) : (
-                <span className="min-w-0 text-muted-foreground">
+                <span className="line-clamp-2 min-w-0 text-muted-foreground">
                   {review.failingChecks.length > 0
                     ? "Every criterion is accepted. A Check has not passed: merging overrides it, on the record."
                     : "Every criterion is accepted and every Check passed. Merge writes the merge commit on the base branch and removes the worktree."}

@@ -163,7 +163,7 @@ const bigTasks: TaskDto[] = Array.from({ length: 24 }, (_, i) => ({
 const check = (id: string, command: string, result: string) => ({ id, command, timeoutSecs: 600, result, commitSha: "7c1e9fa", stale: result === "stale", outputTail: null });
 const bigCriteria: AcceptanceCriterionDto[] = [
   ["An exported Acme template opens in Excel without a repair prompt", "pnpm --filter @presales/export test -- --run src/xlsx/__tests__/acme-template-roundtrip.test.ts --reporter=verbose", "passed"],
-  ["Data validation, conditional formatting and column widths survive an export unchanged", "pnpm --filter @presales/export test -- --run src/xlsx/__tests__/preserve-formatting.test.ts", "failed"],
+  ["Data validation, conditional formatting and column widths survive an export unchanged", "pnpm --filter @presales/export test -- --run src/xlsx/__tests__/preserve-formatting.test.ts --reporter=verbose --testTimeout=120000 --bail=1 --no-color", "failed"],
   ["No cell outside the answer column changes, byte for byte, in sheet XML", "node scripts/diff-workbook.mjs fixtures/rfp/acme-2026-10-14.xlsx out/acme-2026-10-14.answered.xlsx --only-column=D", "not_run"],
   ["An answer that starts with = is written as text", "pnpm --filter @presales/export test -- formula-injection", "timed_out"],
   ["Merged answer cells hold the answer once, in their top-left cell", "pnpm --filter @presales/export test -- merged-cells", "stale"],

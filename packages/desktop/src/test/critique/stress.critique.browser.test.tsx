@@ -219,8 +219,21 @@ describe.runIf(CRITIQUE_RUN)("Stress screens", () => {
     await bigBoard(() => useUiStore.getState().openStory(BIG, REVIEW_STORY.id));
     const card = await screen.findByRole("region", { name: "Review" });
     await userEvent.click((await within(card).findAllByRole("button", { name: new RegExp(`^Merge ${REVIEW_STORY.key}`) }))[0]);
-    await screen.findByRole("alertdialog");
+    const dialog = await screen.findByRole("alertdialog");
     await capture("s18-stress-merge-confirm");
+    // Issue #207: once a known defect, now held. The failing Check's command runs past 150 characters, and at
+    // 900 x 600 the confirm, its command and its buttons stay inside the window.
+    await page.viewport(900, 600);
+    await settle(250);
+    const command = within(dialog).getByText(/preserve-formatting\.test\.ts/, { selector: "code" });
+    expect(command.textContent?.length ?? 0).toBeGreaterThanOrEqual(150);
+    for (const element of [dialog, command, ...within(dialog).getAllByRole("button")]) {
+      const box = element.getBoundingClientRect();
+      expect(box.left).toBeGreaterThanOrEqual(0);
+      expect(box.right).toBeLessThanOrEqual(window.innerWidth);
+      expect(box.bottom).toBeLessThanOrEqual(window.innerHeight);
+    }
+    await page.viewport(1440, 900);
   });
 
   it("s19 Merge on clean data: every criterion accepted, one Check still failing, the confirmation", async () => {
