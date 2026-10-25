@@ -685,3 +685,23 @@ describe("the rail collapses to icons (issue #200)", () => {
     expect(sidebar.querySelectorAll("[title]")).toHaveLength(0);
   });
 });
+
+describe("the rail's All agents figure is the strip's agent count (issues #199, #200)", () => {
+  it("counts live Story sessions and live shaping sessions, never a finished one", async () => {
+    fleetListMock.mockResolvedValue({
+      rows: [
+        fleetRow({ sessionId: "r-run" }),
+        fleetRow({ sessionId: "r-wait", storyId: "s-2", fleetState: "blocked", runStatus: "blocked" }),
+        fleetRow({ sessionId: "r-done", storyId: "s-3", runStatus: "completed", fleetState: "awaiting_review" }),
+      ],
+      totalRows: 3,
+      visibleCostUsd: null,
+    });
+    fleetWaitingRoundsMock.mockResolvedValue([
+      { roundId: "round-1", roundNumber: 2, sessionId: "shaping-1", projectId: "proj-1", epicId: "e-8", epicKey: "FLY-8", epicTitle: "Epic shaping" },
+    ]);
+    renderWithClient(<ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />);
+    const fleet = screen.getByRole("button", { name: "Open fleet" });
+    await waitFor(() => expect(fleet.querySelector('[data-count="agents"]')).toHaveTextContent("3"));
+  });
+});

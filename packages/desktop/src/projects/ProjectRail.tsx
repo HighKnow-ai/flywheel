@@ -16,8 +16,9 @@
  * The Waiting-on-you count is the queue's own read (one entry per waiting request, plus one per shaping Round
  * a live session is held on, issue #124), so the figure and the list cannot disagree. A project's figure is
  * its Needs-you item count (issue #156), read under the board column's own key, always neutral; what in it
- * is Waiting on you shows as its own row under the project. All agents counts live sessions, the fleet's
- * own read, so the sidebar, the andon strip and All agents cannot disagree. Counts are numerals or nothing,
+ * is Waiting on you shows as its own row under the project. All agents counts agents as GLOSSARY.md defines
+ * them (live sessions, Story or shaping) through the andon strip's own `agentCount`, so the sidebar, the
+ * strip and All agents cannot disagree. Counts are numerals or nothing,
  * never a raw dot and never a visible zero.
  *
  * ⌘B (shadcn's own SidebarProvider binding) collapses the rail to icons; every row then names itself in a
@@ -93,7 +94,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { notify } from "@/lib/notify";
 import { cn } from "@/lib/utils";
 import { useRegisterProjectFlow, useRegistrationErrorToast } from "./RegisterProjectFlow";
-import { lampsFromFleet } from "../shell/AndonStrip";
+import { agentCount, lampsFromFleet } from "../shell/AndonStrip";
 import { useUiStore } from "../state/uiStore";
 import { isRoundHere, useOpenWaitingRound, usePlaceBoardId, usePlaceShapingId, waitingRoundWords } from "../fleet/waitingRound";
 
@@ -459,6 +460,7 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
   const needsYouLists = useNeedsYouLists(projects.map((project) => project.id));
   const fleetRows = useFleet().data?.rows ?? [];
   const liveSessions = fleetRows.filter(isLiveSession);
+  const agents = agentCount(fleetRows, waitingRounds);
   // The strip's own rule for Stopped, so the sidebar and the lamps agree.
   const stoppedRows = lampsFromFleet(fleetRows)
     .filter((lamp) => lamp.tone === "stopped")
@@ -562,7 +564,7 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
                 <SidebarMenuButton
                   aria-label="Open fleet"
                   tooltip={rowTooltip(
-                    liveSessions.length > 0 ? `All agents · ${liveSessions.length} live` : "All agents",
+                    agents > 0 ? `All agents · ${agents}` : "All agents",
                     "Every agent across every project",
                     collapsed,
                   )}
@@ -572,10 +574,10 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
                 >
                   <Activity aria-hidden="true" />
                   <span className="flex-1">All agents</span>
-                  {liveSessions.length > 0 && (
-                    // An agent is a live session (GLOSSARY.md), the same count the andon strip makes.
+                  {agents > 0 && (
+                    // An agent is a live session, Story or shaping (GLOSSARY.md "Agent"): the strip's own count (#199).
                     <span data-count="agents" className="text-small font-semibold text-muted-foreground tabular-nums">
-                      {liveSessions.length}
+                      {agents}
                     </span>
                   )}
                 </SidebarMenuButton>
