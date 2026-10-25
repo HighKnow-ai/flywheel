@@ -94,7 +94,9 @@ export function PageHeader({ crumbs, onBack, actions, className }: PageHeaderPro
 }
 
 /** The ground every surface's content sits in: the floor, padded to the header's gutter. It is the surface's
- * scroll container, so a virtualised list inside it (the board, #116) takes it by `ref`. */
+ * scroll container, so a virtualised list inside it (the board, #116) takes it by `ref`. It is positioned so it
+ * is the containing block of the absolutely positioned things in it (every `sr-only` label): they scroll and clip
+ * with it instead of lying on the document far below the window and making the window scroll (issue #191). */
 export function SurfaceBody({ className, ...props }: ComponentProps<"div">) {
-  return <div className={cn("min-h-0 flex-1 overflow-y-auto px-5 pb-5", className)} {...props} />;
+  return <div className={cn("relative min-h-0 flex-1 overflow-y-auto px-5 pb-5", className)} {...props} />;
 }

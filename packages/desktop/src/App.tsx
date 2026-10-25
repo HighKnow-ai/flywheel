@@ -18,6 +18,7 @@ import { OrphanRecoveryModal } from "./recovery/OrphanRecoveryModal";
 import { SessionSurface } from "./session/SessionSurface";
 import { SettingsSurface } from "./settings/SettingsSurface";
 import { AndonStrip } from "./shell/AndonStrip";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { CommandPalette } from "./shell/CommandPalette";
 import { activeSurface, dispatchAction, useGlobalBindings, type ActionId } from "./state/keyboard";
 import { useMenuLayerSync } from "./state/menuSync";
@@ -246,18 +247,21 @@ function AppShell() {
   }
   return (
     <>
-      <div id="app-root" className="flex h-full bg-background text-foreground">
+      {/* The shell is shadcn's layout: the provider, the rail as its Sidebar, the main pane as its SidebarInset.
+          It is exactly the window, positioned and clipped, so nothing laid out inside it can make the window
+          scroll and carry the rail away with it; only the main pane's own scroller moves (issue #191). */}
+      <SidebarProvider id="app-root" className="relative h-full min-h-0 overflow-clip bg-background text-foreground">
         <ProjectRail
           projects={projectsQuery.data}
           currentProjectId={project.id}
           onSelect={(selected) => setCurrentProjectId(selected.id)}
         />
-        <div className="flex min-w-0 flex-1 flex-col">
+        <SidebarInset className="min-h-0 min-w-0">
           {/* The andon strip: one lamp per live session, on every screen (direction.md). */}
           <AndonStrip />
-          <main className="flex min-h-0 flex-1 flex-col">{renderSurface()}</main>
-        </div>
-      </div>
+          <div className="flex min-h-0 flex-1 flex-col">{renderSurface()}</div>
+        </SidebarInset>
+      </SidebarProvider>
       <CommandPalette projects={projectsQuery.data} currentProjectId={project.id} />
       <OrphanRecoveryModal />
       <LaunchSheet
