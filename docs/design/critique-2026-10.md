@@ -13,6 +13,23 @@ is the evidence the next Story (#103, "Pick Flywheel's new visual world") design
 screens do today, why each of Cyril's five complaints happens, and which screens and states a new world
 has to cover.
 
+## After HighKnow's tokens (#196), October 2026
+
+Issue #196 moved Flywheel onto HighKnow's tokens, its Public Sans face and the mark in its real colours
+([ADR 0021](../adr/0021-highknow-tokens-are-the-source-and-public-sans-is-the-face.md), [`direction.md`](direction.md#from-highknow)).
+The same harness and fixture re-shot the rail and board (01), the Story view (03) and the review card (73), in
+both schemes, against `main` before the change and the branch after it. Files are in
+[`critique-2026-10/brand-196/`](critique-2026-10/brand-196/), `before/` and `after/`.
+
+| | Before | After |
+|---|---|---|
+| Rail and board, light | ![](critique-2026-10/brand-196/before/01-board-light.webp) | ![](critique-2026-10/brand-196/after/01-board-light.webp) |
+| Rail and board, dark | ![](critique-2026-10/brand-196/before/01-board-dark.webp) | ![](critique-2026-10/brand-196/after/01-board-dark.webp) |
+| Story view, light | ![](critique-2026-10/brand-196/before/03-story-tasks-light.webp) | ![](critique-2026-10/brand-196/after/03-story-tasks-light.webp) |
+| Story view, dark | ![](critique-2026-10/brand-196/before/03-story-tasks-dark.webp) | ![](critique-2026-10/brand-196/after/03-story-tasks-dark.webp) |
+| Review card, light | ![](critique-2026-10/brand-196/before/73-review-card-ready-light.webp) | ![](critique-2026-10/brand-196/after/73-review-card-ready-light.webp) |
+| Review card, dark | ![](critique-2026-10/brand-196/before/73-review-card-ready-dark.webp) | ![](critique-2026-10/brand-196/after/73-review-card-ready-dark.webp) |
+
 ## After the restyle (#107), October 2026
 
 Issue #107, Epic #97. The same harness, the same fixture data and the same 1440 × 900 WebKit window as the
