@@ -33,7 +33,7 @@ const TEXT_PAIRS: Record<string, Pair[]> = {
   "primary button": [["primaryForeground", "primary"]],
   "running pill": [["running", "runningMuted"]],
   "link or running text": [["running", "card"]],
-  "Waiting on you": [["attentionForeground", "attention"], ["foreground", "attentionMuted"], ["mutedForeground", "attentionMuted"]],
+  "Waiting on you": [["attentionForeground", "attention"], ["foreground", "attentionMuted"], ["mutedForeground", "attentionMuted"], ["subtleForeground", "attentionMuted"]],
   "Stopped or failed": [["destructiveForeground", "destructive"]],
   "destructive text": [["destructiveText", "card"]],
   "neutral state pill": [["secondaryForeground", "secondary"], ["mutedForeground", "secondary"]],

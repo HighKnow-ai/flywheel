@@ -47,7 +47,7 @@ colors:
   dark-destructive-text: "#ff6b82"
   dark-secondary: "#23262b"
   dark-muted-foreground: "#a0a6b1"
-  dark-subtle-foreground: "#80868f"
+  dark-subtle-foreground: "#90969f"
   dark-border: "#2c2f36"
   dark-input: "#6e7480"
   dark-ring: "#7d99ff"

@@ -66,7 +66,7 @@ Each token keeps the variable name shadcn/ui uses, so its generated components t
 | `--secondary` / `--muted` | `#f4f5f7` | `#23262b` | neutral pills, secondary button ground, inset panels |
 | `--secondary-foreground` | `#12151c` HK | `#eceef1` | |
 | `--muted-foreground` | `#4a5261` HK | `#a0a6b1` | secondary text |
-| `--subtle-foreground` | `#676d79` | `#80868f` | meta, chevrons, timestamps |
+| `--subtle-foreground` | `#676d79` | `#90969f` | meta, chevrons, timestamps |
 | `--accent` | `#eef0f3` | `#23262b` | hover |
 | `--accent-foreground` | `#12151c` HK | `#eceef1` | |
 | `--border` | `#cdd2dd` HK | `#2c2f36` | card edges, row rules, region edges |
@@ -124,7 +124,7 @@ Measured with the WCAG 2 formula on the values above. `theme/__tests__/contrast.
 | Body text on the floor | `#12151c` on `#e6e8ec` | 14.89:1 | `#eceef1` on `#0b0c0e` | 16.83:1 |
 | Secondary text (muted-foreground on card) | `#4a5261` on `#ffffff` | 7.86:1 | `#a0a6b1` on `#1a1c20` | 6.97:1 |
 | Secondary text on the floor | `#4a5261` on `#e6e8ec` | 6.41:1 | `#a0a6b1` on `#0b0c0e` | 8:1 |
-| Meta and chevrons (subtle-foreground on card) | `#676d79` on `#ffffff` | 5.2:1 | `#80868f` on `#1a1c20` | 4.65:1 |
+| Meta and chevrons (subtle-foreground on card) | `#676d79` on `#ffffff` | 5.2:1 | `#90969f` on `#1a1c20` | 5.73:1 |
 | Primary button | `#ffffff` on `#3c64dd` | 5.17:1 | `#ffffff` on `#3c64dd` | 5.17:1 |
 | Running pill text | `#22409c` on `#eef1fd` | 8.17:1 | `#7d99ff` on `#19213a` | 5.96:1 |
 | Link or Running text on card | `#22409c` on `#ffffff` | 9.2:1 | `#7d99ff` on `#1a1c20` | 6.4:1 |
