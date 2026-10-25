@@ -205,7 +205,7 @@ Generated into `packages/desktop/src/components/ui/` by the shadcn CLI. The code
 4. **Rows that need you are tinted** `attention-muted`. The selected row is `running-muted`.
 5. **Depth:** cards use `--border` plus the card shadow. Popovers and dialogs use `0 8px 24px rgb(15 20 30 / 0.16)`. No glow anywhere, except the lit bulb of a lamp, whose glow is its meaning.
 6. **Spacing:** 4px base; 8 inside a group, 12 to 16 between groups, 20 between regions. Rows are 44px, sidebar rows 36px.
-7. **Motion:** one curve, HighKnow's `ease-out-quint` `cubic-bezier(0.16, 1, 0.3, 1)` (`--ease-out-quint`, aliased as `--ease`), 160ms for state changes and 240ms for a lamp lighting. A live dot may pulse. Under `prefers-reduced-motion` nothing animates.
+7. **Motion:** one curve, HighKnow's `ease-out-quint` `cubic-bezier(0.16, 1, 0.3, 1)` (`--ease-out-quint`, aliased as `--ease`), and one duration per job: 120ms feedback, 160ms state, 240ms a lamp lighting (the one authored moment), 260ms an overlay or disclosure arriving and 180ms leaving (DESIGN.md § Motion). A live dot may pulse. Under `prefers-reduced-motion` nothing moves, but colour and opacity still cross-fade (ADR 0023).
 8. **Browser surfaces:** selection uses `--primary` with white text, scrollbars are thin `--border` thumbs, and the caret is `--running`.
 
 ## Click and navigation model

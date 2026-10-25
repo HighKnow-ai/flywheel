@@ -18,7 +18,7 @@ export default mergeConfig(
   base,
   defineConfig({
     test: {
-      // Read by `board/__tests__/browser/motion.browser.test.tsx`, which fails if the engine did
+      // Read by `components/__tests__/browser/motion.browser.test.tsx`, which fails if the engine did
       // not actually land in the setting this config claims.
       env: { VITE_EXPECT_MOTION: "reduce" },
       browser: {

@@ -32,6 +32,7 @@ const WorktreeInventory = React.lazy(() =>
   import("./fleet/WorktreeInventory").then((m) => ({ default: m.WorktreeInventory })),
 );
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "@/components/ui/sonner";
 import { useColorScheme } from "./theme/colorScheme";
 import "./styles/globals.css";
 import "./App.css";
@@ -288,6 +289,9 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider delayDuration={400}>
         <AppShell />
+        {/* After-action feedback (DESIGN.md § Feedback): the one Toaster, bottom-right, clear of the andon
+            strip. Screens fire toasts through `lib/notify.ts`. */}
+        <Toaster />
       </TooltipProvider>
     </QueryClientProvider>
   );

@@ -2,6 +2,7 @@ import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 import { Slot } from "radix-ui"
+import { Spinner } from "@/components/ui/spinner"
 
 /*
  * Every action (direction.md § Components, rule 2). One filled primary per region, brand blue. The only
@@ -45,26 +46,77 @@ const buttonVariants = cva(
   }
 )
 
+/** Whether a child is the button's leading icon: an `<svg>` or a component element (a Lucide glyph, `Icon`). */
+function isIcon(child: React.ReactNode): child is React.ReactElement<{ className?: string }> {
+  return React.isValidElement(child) && (child.type === "svg" || typeof child.type !== "string")
+}
+
+/**
+ * The children of a pending button (DESIGN.md § Feedback): the Spinner takes the leading icon's place, at the
+ * icon's own size classes, so the label stays and the width does not move. A button with no icon gains the
+ * Spinner before its label; give a button that can be pending an icon (Buttons carry an icon and a word).
+ */
+function withSpinner(children: React.ReactNode): React.ReactNode {
+  const items = React.Children.toArray(children)
+  const [first, ...rest] = items
+  const leading = isIcon(first) ? first : null
+  const spinner = (
+    <Spinner
+      key="spinner"
+      role={undefined}
+      aria-label={undefined}
+      aria-hidden="true"
+      className={leading?.props.className}
+      {...(leading && "data-icon" in (leading.props as object)
+        ? { "data-icon": (leading.props as { "data-icon"?: string })["data-icon"] }
+        : {})}
+    />
+  )
+  return leading ? [spinner, ...rest] : [spinner, ...items]
+}
+
 function Button({
   className,
   variant = "default",
   size = "default",
   asChild = false,
+  loading = false,
+  children,
+  onClick,
   ...props
 }: React.ComponentProps<"button"> &
   VariantProps<typeof buttonVariants> & {
     asChild?: boolean
+    /**
+     * Pending: shows the Spinner in place of the icon, keeps the label and the width, sets `aria-busy`, and
+     * swallows clicks. The button stays focusable (`aria-disabled`, not `disabled`), so focus is not lost
+     * mid-action. Not available with `asChild`.
+     */
+    loading?: boolean
   }) {
   const Comp = asChild ? Slot.Root : "button"
+  const pending = loading && !asChild
 
   return (
     <Comp
       data-slot="button"
       data-variant={variant}
       data-size={size}
-      className={cn(buttonVariants({ variant, size, className }))}
+      data-loading={pending || undefined}
+      aria-busy={pending || undefined}
+      aria-disabled={pending || props["aria-disabled"] || undefined}
+      className={cn(buttonVariants({ variant, size, className }), pending && "cursor-progress")}
+      onClick={
+        pending
+          ? (event: React.MouseEvent<HTMLButtonElement>) => {
+              event.preventDefault()
+            }
+          : onClick
+      }
       {...props}
-    />
+    >
+      {pending ? withSpinner(children) : children}
+    </Comp>
   )
 }
 

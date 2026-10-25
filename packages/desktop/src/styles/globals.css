@@ -103,12 +103,22 @@
   --space-xl: 32px;
   --space-2xl: 48px;
 
-  /* Motion (direction rule 7): one curve, HighKnow's ease-out-quint, 160ms for a state change, 240ms for a
-     lamp lighting. `--ease` stays the name the screens use; `--ease-out-quint` is the shared token. */
+  /* Motion (DESIGN.md § Motion, direction rule 7): one curve, HighKnow's ease-out-quint, and one duration per
+     job. The lamp lighting is the one authored moment; everything else is feedback and continuity.
+       feedback      120ms  a press, a hover, a check ticking: acknowledgement, never latency
+       state         160ms  a value changing in place: a pill, a row tint, a chevron turning
+       lamp          240ms  a lamp lighting on the andon strip
+       overlay       260ms  an overlay arriving or a disclosure opening (layout)
+       overlay-exit  180ms  the same leaving: exits are faster than entrances
+     `--ease` stays the name the screens use; `--ease-out-quint` is the shared token. Every Tailwind
+     `transition*` utility defaults to the state duration on this curve (`@theme inline` below). */
   --ease-out-quint: cubic-bezier(0.16, 1, 0.3, 1);
   --ease: var(--ease-out-quint);
+  --duration-feedback: 120ms;
   --duration-state: 160ms;
   --duration-lamp: 240ms;
+  --duration-overlay: 260ms;
+  --duration-overlay-exit: 180ms;
 }
 
 /*
@@ -252,6 +262,9 @@
   --text-lead--line-height: 1;
 
   --ease-flywheel: var(--ease);
+  /* A bare `transition-colors` (or any `transition*`) runs on the state duration and the one curve. */
+  --default-transition-duration: var(--duration-state);
+  --default-transition-timing-function: var(--ease);
 }
 
 @layer base {
@@ -437,17 +450,98 @@
   color: var(--muted-foreground);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  :root {
-    --duration-state: 0s;
-    --duration-lamp: 0s;
+/*
+ * A disclosure (components/ui/collapsible.tsx) opens by growing to the height Radix measures and closes by
+ * shrinking back, on the overlay durations. `overflow: hidden` is held only while the height moves, so a
+ * focus ring inside an open disclosure is never clipped.
+ */
+@keyframes disclosure-open {
+  from {
+    height: 0;
+    overflow: hidden;
+  }
+  to {
+    height: var(--radix-collapsible-content-height);
+    overflow: hidden;
+  }
+}
+
+@keyframes disclosure-close {
+  from {
+    height: var(--radix-collapsible-content-height);
+    overflow: hidden;
+  }
+  to {
+    height: 0;
+    overflow: hidden;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+/* In the components layer, so a screen's own `animate-*` utility can still override it. */
+@layer components {
+  [data-slot="collapsible-content"][data-state="open"] {
+    animation: disclosure-open var(--duration-overlay) var(--ease);
   }
 
+  [data-slot="collapsible-content"][data-state="closed"] {
+    animation: disclosure-close var(--duration-overlay-exit) var(--ease);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    [data-slot="collapsible-content"][data-state="open"] {
+      animation: fade-in var(--duration-state) var(--ease);
+    }
+
+    [data-slot="collapsible-content"][data-state="closed"] {
+      animation: fade-out var(--duration-feedback) var(--ease);
+    }
+  }
+}
+
+/*
+ * Reduced motion keeps meaning (DESIGN.md § Motion): spatial movement goes, short opacity and colour
+ * cross-fades stay. The durations are untouched, so a hover tint, a pill changing state and an overlay
+ * fading in all still read; what goes is every translate, scale, rotate and height change.
+ *   - Overlays (tw-animate-css's enter/exit) lose their slide and zoom and keep their fade.
+ *   - A transition on transform snaps the movement and keeps the colour and opacity parts.
+ *   - A disclosure opens and closes as a cross-fade, not a height change.
+ *   - The Spinner breathes instead of turning, so pending still reads.
+ */
+@media (prefers-reduced-motion: reduce) {
   *,
   ::before,
   ::after {
-    animation-duration: 0s !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0s !important;
+    --tw-enter-translate-x: 0 !important;
+    --tw-enter-translate-y: 0 !important;
+    --tw-enter-scale: 1 !important;
+    --tw-enter-rotate: 0 !important;
+    --tw-exit-translate-x: 0 !important;
+    --tw-exit-translate-y: 0 !important;
+    --tw-exit-scale: 1 !important;
+    --tw-exit-rotate: 0 !important;
+    scroll-behavior: auto !important;
+  }
+
+  .transition,
+  .transition-all,
+  .transition-transform {
+    transition-property: color, background-color, border-color, outline-color, text-decoration-color, fill,
+      stroke, opacity, box-shadow !important;
+  }
+
+  .animate-spin {
+    animation: agent-pulse 1.2s var(--ease) infinite;
   }
 }
