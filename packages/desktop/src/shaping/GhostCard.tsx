@@ -15,6 +15,7 @@
  * card keeps what was turned down and why, without competing with the live field.
  */
 import { useId, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { Label } from "@/components/ui/label";
 import { useQueryClient } from "@tanstack/react-query";
 import { proposalAccept, proposalAmend, proposalReject, type ProposalDto } from "../adapters/tauri";
 import { Input } from "@/components/ui/input";
@@ -194,12 +195,12 @@ export function ProposalDecision({
             };
             return (
               <div key={f.name} className="flex min-w-0 flex-col gap-1">
-                <label
+                <Label
                   htmlFor={id}
                   className={f.hideLabel ? "sr-only" : "text-meta font-semibold text-muted-foreground"}
                 >
                   {f.label}
-                </label>
+                </Label>
                 {f.multiline ? (
                   <Textarea {...common} onChange={(e) => setDraft((d) => ({ ...d, [f.name]: e.target.value }))} />
                 ) : (

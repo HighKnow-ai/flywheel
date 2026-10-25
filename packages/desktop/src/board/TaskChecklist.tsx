@@ -14,6 +14,7 @@
  * A new Task is typed into one Input Group with its Add button inside.
  */
 import { StateBadge } from "../components/StateBadge";
+import { Label } from "@/components/ui/label";
 import { useRef, useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, ChevronRight, CircleSlash, Ellipsis, NotebookText, Pencil, Plus } from "lucide-react";
@@ -283,8 +284,8 @@ function TaskRow({
                 </DropdownMenu>
                 <PopoverContent align="end" className="w-80 p-3" aria-label={`Drop ${task.title}`}>
                   <form onSubmit={confirmDrop} className="flex flex-col gap-2">
-                    <label
-                      className="flex flex-col gap-1.5 text-small font-semibold"
+                    <Label
+                      className="flex-col items-stretch gap-1.5 text-small leading-(--text-small--line-height) font-semibold"
                       htmlFor={`drop-reason-${task.id}`}
                     >
                       Why drop this Task?
@@ -297,7 +298,7 @@ function TaskRow({
                         className="h-7.5 font-normal"
                         autoFocus
                       />
-                    </label>
+                    </Label>
                     <div className="flex justify-end gap-1.5">
                       <Button type="button" size="sm" variant="ghost" onClick={() => setDropping(false)}>
                         Cancel

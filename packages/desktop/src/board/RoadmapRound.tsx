@@ -16,6 +16,7 @@
  *   holds", dismissed or decided.
  */
 import { useId, useRef, useState, type FormEvent } from "react";
+import { Label } from "@/components/ui/label";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleMinus, Compass, Hand, ListPlus, LoaderCircle, RotateCcw, SquareTerminal, X } from "lucide-react";
 import {
@@ -511,9 +512,9 @@ function PendingRow({ projectId, proposal }: { projectId: string; proposal: Road
           >
             {fields.map((f, i) => (
               <div key={f.key} className="flex min-w-0 flex-col gap-1">
-                <label htmlFor={`${fieldIds}-${f.key}`} className="text-meta font-semibold text-muted-foreground">
+                <Label htmlFor={`${fieldIds}-${f.key}`} className="text-meta font-semibold text-muted-foreground">
                   {f.required ? f.label : `${f.label} (optional)`}
-                </label>
+                </Label>
                 <Input
                   id={`${fieldIds}-${f.key}`}
                   value={draft[f.key] ?? ""}

@@ -162,7 +162,7 @@ export const BINDINGS: Binding[] = [
     key: "o",
     meta: true,
     shift: true,
-    label: "Register Project…",
+    label: "Register project…",
   },
   { id: "create-story", region: "global", key: "n", meta: true, label: "New Story" },
   { id: "create-epic", region: "global", key: "n", meta: true, shift: true, label: "New Epic" },

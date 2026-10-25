@@ -14,6 +14,7 @@
  * - `useSettle`: the short running-tint cross-fade on a field whose text an accepted Proposal just rewrote.
  */
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode, type Ref } from "react";
+import { Label } from "@/components/ui/label";
 import { Ban, Check, CircleDashed, PenLine, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -163,9 +164,9 @@ export function RejectReasonForm({
         onReject(given === "" ? null : given);
       }}
     >
-      <label htmlFor={reasonId} className="sr-only">
+      <Label htmlFor={reasonId} className="sr-only">
         Why not? (optional)
-      </label>
+      </Label>
       <Input
         id={reasonId}
         value={why}

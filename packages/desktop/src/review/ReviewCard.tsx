@@ -34,6 +34,7 @@
  * refused Merge shows the core's reason as written.
  */
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { Label } from "@/components/ui/label";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Check,
@@ -326,9 +327,9 @@ function RequestChangesComposer({
 
   return (
     <div className="flex w-full flex-col gap-2">
-      <label htmlFor={id} className="text-small font-semibold">
+      <Label htmlFor={id} className="text-small font-semibold">
         What should change?
-      </label>
+      </Label>
       <p id={`${id}-hint`} className="m-0 text-meta text-muted-foreground">
         One review point per line. The agent adds a Task for each, in the same worktree, before it goes on.
       </p>
@@ -459,9 +460,12 @@ function CriterionRow({
             <Check aria-hidden="true" className="pointer-events-none absolute inset-0 m-auto size-3.5 text-running" />
           )}
         </span>
-        <label htmlFor={id} className="min-w-0 flex-1 cursor-pointer text-body font-semibold break-words">
+        <Label
+          htmlFor={id}
+          className="block min-w-0 flex-1 cursor-pointer text-body leading-(--text-body--line-height) font-semibold break-words"
+        >
           {criterion.statement}
-        </label>
+        </Label>
       </div>
       <div className="flex min-w-0 flex-wrap items-center gap-2 pl-7">
         {criterion.check ? (

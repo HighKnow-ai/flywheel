@@ -14,6 +14,7 @@
  * the agent posts a Round and the developer answers it.
  */
 import { useId, useState } from "react";
+import { Label } from "@/components/ui/label";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookA, Check, Layers, PenLine, ScrollText, X } from "lucide-react";
 import {
@@ -364,7 +365,9 @@ function SpecField({
   return (
     <div className="flex min-w-0 flex-col gap-1.5 border-b border-border px-5 py-3.5 last:border-b-0">
       <dt className="flex min-h-6 items-center gap-2 text-meta font-semibold text-muted-foreground">
-        <label htmlFor={fieldId}>{label}</label>
+        <Label htmlFor={fieldId} className="text-meta font-semibold">
+          {label}
+        </Label>
         {!editing && (
           <Button
             variant="ghost"

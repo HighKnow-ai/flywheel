@@ -14,6 +14,7 @@
  * says so (ReadError); the empty state shows only once the read succeeded with nothing in it.
  */
 import { useState, type FormEvent } from "react";
+import { Label } from "@/components/ui/label";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil, Plus, SquareTerminal, X } from "lucide-react";
 import { checkRemove, checkSet, criterionList, type AcceptanceCriterionDto, type CheckDto } from "../adapters/tauri";
@@ -178,7 +179,7 @@ function CriterionRow({
       </span>
       {editing ? (
         <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-2">
-          <label className="flex min-w-56 flex-1 flex-col gap-1.5 text-small text-muted-foreground">
+          <Label className="min-w-56 flex-1 flex-col items-stretch gap-1.5 text-small leading-(--text-small--line-height) font-normal text-muted-foreground">
             {`Check command for criterion ${number}`}
             <Input
               value={command}
@@ -187,7 +188,7 @@ function CriterionRow({
               className="font-mono text-small"
               autoFocus
             />
-          </label>
+          </Label>
           <Button type="submit" size="sm" loading={busy} disabled={command.trim() === ""}>
             <SquareTerminal aria-hidden="true" />
             Save Check

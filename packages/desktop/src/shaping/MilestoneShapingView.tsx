@@ -17,6 +17,7 @@
  * Every read is keyed under the project, so the one `board:changed` subscription keeps it live.
  */
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { Label } from "@/components/ui/label";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Check, Flag, PenLine, X } from "lucide-react";
 import {
@@ -223,9 +224,9 @@ function MilestoneCard({
       <dl className="m-0 flex min-w-0 flex-col">
         <div className="flex min-w-0 flex-col gap-1.5 border-b border-border px-5 py-3.5">
           <dt className="flex min-h-6 items-center gap-2 text-meta font-semibold text-muted-foreground">
-            <label id={exitTestId} htmlFor={exitTestFieldId}>
+            <Label id={exitTestId} htmlFor={exitTestFieldId} className="text-meta font-semibold">
               Exit test
-            </label>
+            </Label>
             {editable && !exitTestEdit.editing && (
               <EditButton edit={exitTestEdit} value={milestone.exitTest ?? ""} label="Exit test" className="ml-auto" />
             )}

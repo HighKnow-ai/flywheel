@@ -16,6 +16,7 @@
  * it, answered Yes or No, and final once answered.
  */
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { Label } from "@/components/ui/label";
 import { Ban, Check, CircleCheck, FileText, PenLine, ScrollText, Send, X } from "lucide-react";
 import type { AdrDraftDto, RoundQuestionDto } from "../adapters/tauri";
 import { Button } from "@/components/ui/button";
@@ -155,9 +156,9 @@ function PlainQuestionCard({ question: q, open, onAccept, onAnswer }: QuestionCa
               <span className="text-muted-foreground"> · Because {lowerFirst(q.because)}</span>
             </span>
           </p>
-          <label htmlFor={fieldId} className="sr-only">
+          <Label htmlFor={fieldId} className="sr-only">
             Your answer to question {q.number}
-          </label>
+          </Label>
           <Textarea
             id={fieldId}
             value={draft}

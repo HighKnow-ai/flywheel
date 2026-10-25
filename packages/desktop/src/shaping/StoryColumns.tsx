@@ -23,6 +23,7 @@
  * since each is a card of its own.
  */
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type RefObject } from "react";
+import { Label } from "@/components/ui/label";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowDown,
@@ -791,9 +792,9 @@ function GhostColumn({
 
       {mode === "amending" ? (
         <form className="flex min-w-0 flex-col gap-2" onSubmit={submitAmend}>
-          <label htmlFor={titleId} className="text-meta font-semibold text-muted-foreground">
+          <Label htmlFor={titleId} className="text-meta font-semibold text-muted-foreground">
             Title
-          </label>
+          </Label>
           {/* The whole title in sight while it is edited: it grows with its words, and Enter never breaks it. */}
           <Textarea
             id={titleId}
@@ -809,9 +810,9 @@ function GhostColumn({
               onEditKey(e);
             }}
           />
-          <label htmlFor={descriptionId} className="text-meta font-semibold text-muted-foreground">
+          <Label htmlFor={descriptionId} className="text-meta font-semibold text-muted-foreground">
             Description
-          </label>
+          </Label>
           <Textarea
             id={descriptionId}
             className="resize-none"
@@ -823,9 +824,9 @@ function GhostColumn({
           />
           {runsAfterSomething && (
             <>
-              <label htmlFor={whyId} className="text-meta font-semibold text-muted-foreground">
+              <Label htmlFor={whyId} className="text-meta font-semibold text-muted-foreground">
                 Why it runs after {runsAfter ?? "the other Story"}
-              </label>
+              </Label>
               <Input
                 id={whyId}
                 value={why}
@@ -1003,9 +1004,9 @@ function GhostCriterion({
       <ProposedBadge>Proposed criterion</ProposedBadge>
       {mode === "amending" ? (
         <form className="flex min-w-0 flex-col gap-2" onSubmit={submitAmend}>
-          <label htmlFor={statementId} className="text-meta font-semibold text-muted-foreground">
+          <Label htmlFor={statementId} className="text-meta font-semibold text-muted-foreground">
             Criterion
-          </label>
+          </Label>
           <Textarea
             id={statementId}
             className="min-h-16 resize-none text-small"
@@ -1016,9 +1017,9 @@ function GhostCriterion({
             onChange={(e) => setStatement(e.target.value)}
             onKeyDown={onEditKey}
           />
-          <label htmlFor={commandId} className="text-meta font-semibold text-muted-foreground">
+          <Label htmlFor={commandId} className="block text-meta font-semibold text-muted-foreground">
             Check command <span className="font-normal">(blank: judged at review)</span>
-          </label>
+          </Label>
           <Input
             id={commandId}
             value={command}

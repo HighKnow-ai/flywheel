@@ -728,7 +728,7 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
             <SidebarMenu className="gap-0.5">
               <SidebarMenuItem>
                 <SidebarMenuButton
-                  aria-label="Register Project…"
+                  aria-label="Register project…"
                   tooltip={rowTooltip("Register project…", "Register a git repository as a project", collapsed)}
                   onClick={() => void registerProjectFlow()}
                   className={cn(rowClass, "text-muted-foreground")}
