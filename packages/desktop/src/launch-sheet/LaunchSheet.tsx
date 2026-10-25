@@ -1,11 +1,11 @@
 /**
  * The launch sheet (D-27, 02-UI-SPEC.md "Launch sheet"): a briefing gate, not a confirmation
  * dialog. Issue #210: it is a shadcn Dialog, so it arrives and leaves with the shared overlay motion,
- * and its Start Work button shows the ⌘↩ shortcut it answers to.
+ * and its Start work button shows the ⌘↩ shortcut it answers to.
  *
  * Mounted once at the `App.tsx` level and driven entirely by `state/uiStore.ts`'s
  * `launchSheetStoryId`: `null` renders nothing, a Story id opens the sheet against that Story.
- * Before Start Work fires it only reads (the Story itself) — it mutates nothing, creates no
+ * Before Start work fires it only reads (the Story itself) — it mutates nothing, creates no
  * worktree, writes no trigger row and starts no process, so opening and even Cancelling the sheet
  * costs nothing (T-02-21's "nothing happens until the primary action fires" property). Whether the
  * Story may start is the Rust core's decision: a refused start is shown as the core's own words.
@@ -115,7 +115,7 @@ export function LaunchSheet({ storyId, onClose, onStarted }: LaunchSheetProps) {
   }
 
   const story = storyQuery.data;
-  const headerLabel = `Start Work on ${story?.key ?? ""}`;
+  const headerLabel = `Start work on ${story?.key ?? ""}`;
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && handleCancel()}>
@@ -160,7 +160,7 @@ export function LaunchSheet({ storyId, onClose, onStarted }: LaunchSheetProps) {
             </Button>
             <Button type="button" onClick={handleSubmit} loading={starting} aria-keyshortcuts="Meta+Enter">
               <Play aria-hidden="true" />
-              Start Work
+              Start work
               {/* The shortcut, shown where it applies (critique F54): ⌘↩ starts from anywhere in the sheet. */}
               <KbdGroup aria-hidden="true" className="ml-1">
                 <Kbd className="bg-primary-foreground/20 text-primary-foreground">⌘</Kbd>

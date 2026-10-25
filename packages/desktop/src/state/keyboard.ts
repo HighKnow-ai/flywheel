@@ -200,7 +200,7 @@ export const BINDINGS: Binding[] = [
   { id: "delete-item", region: "board-list", key: "Backspace", meta: true, label: "Delete" },
   // `w`/`l` — neither collides with the eight letters above (`j k o c s p a m`), verified at test
   // time from this table rather than restated (02-03-PLAN.md Task 3).
-  { id: "start-work", region: "board-list", key: "w", label: "Start Work" },
+  { id: "start-work", region: "board-list", key: "w", label: "Start work" },
   // D-133: `r` is taken, `v` is the free letter that reads as review. Deliberately NOT in
   // `REVIEW_SURFACE_ACTION_IDS` — it is dispatched from the board, so it must fall through to the
   // board clause of `bindingAllowedInLayer`.

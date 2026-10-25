@@ -269,7 +269,8 @@ export function RoundBand({
             </span>
             <Button
               size="sm"
-              variant="outline"
+              // It rejects every undecided change, so it wears the destructive red ink (DESIGN.md § Buttons).
+              variant="destructive"
               aria-describedby={warningId}
               loading={dismissing}
               onClick={() => void dismiss()}

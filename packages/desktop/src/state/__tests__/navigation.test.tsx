@@ -222,7 +222,7 @@ describe("selecting or opening a Story never opens its session", () => {
   it("the launch sheet's Start lands on the Story, not on the new session", async () => {
     useUiStore.setState({ launchSheetStoryId: "s-run" });
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Start Work" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Start work" }));
     await waitFor(() => expect(startSession).toHaveBeenCalledWith("s-run"));
     await waitFor(() => expect(useUiStore.getState().currentStoryId).toBe("s-run"));
     expect(useUiStore.getState().activeSessionId).toBeNull();

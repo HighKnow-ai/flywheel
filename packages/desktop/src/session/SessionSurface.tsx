@@ -248,7 +248,7 @@ export interface SessionSurfaceProps {
   storyId?: string | null;
   /** The run's status when this surface first mounts. A caller that already knows it (the fleet,
    * whose row is showing a `failed` run) passes it here so the surface agrees with that row from the
-   * first frame; `"running"` is only the no-information fallback, used right after Start Work when
+   * first frame; `"running"` is only the no-information fallback, used right after Start work when
    * nothing but a live session is possible (Phase 10 plan 10-01, RESEARCH Pitfall 7 — nothing
    * re-reads the status on mount, so a terminal run opened without this reads "Running" for good). */
   initialStatus?: RunStatus | null;

@@ -102,22 +102,17 @@ export function StoryBoard({ projectId, projectName }: StoryBoardProps) {
           <RoadmapStrip projectId={projectId} />
           <ConfirmExitTestOutcome />
           <MilestoneHeader projectId={projectId} milestoneId={selection.requested} />
-          {wide ? (
-            <div className="grid grid-cols-[400px_minmax(0,1fr)] items-start gap-5">
-              <NeedsYouColumn projectId={projectId} />
-              {/* Since you last looked (#167) sits between Needs you and the roster: atop the roster's column. */}
-              <div className="flex min-w-0 flex-col gap-4">
-                <SinceYouLastLooked projectId={projectId} />
-                <StoryRoster projectId={projectId} selection={selection} scrollElement={scrollElement} />
-              </div>
-            </div>
-          ) : (
-            <>
-              {/* What changed since the last visit (#167), folded, just above the roster. */}
+          {/* One tree in both layouts, so crossing the breakpoint never remounts the roster and the dialogs it
+              owns (a Write a Story draft, a Resume note) survive a resize. Narrow, both wrappers are
+              display: contents and Since you last looked (#167) sits folded just above the roster; wide, it
+              sits between Needs you and the roster, atop the roster's column. */}
+          <div className={wide ? "grid grid-cols-[400px_minmax(0,1fr)] items-start gap-5" : "contents"}>
+            {wide && <NeedsYouColumn projectId={projectId} />}
+            <div className={wide ? "flex min-w-0 flex-col gap-4" : "contents"}>
               <SinceYouLastLooked projectId={projectId} />
               <StoryRoster projectId={projectId} selection={selection} scrollElement={scrollElement} />
-            </>
-          )}
+            </div>
+          </div>
         </div>
       </SurfaceBody>
       {/* The triage drawer (#162), opened by Needs you's Triage and an Epic's "n Proposals". */}
