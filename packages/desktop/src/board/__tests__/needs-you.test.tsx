@@ -16,6 +16,11 @@ import { NeedsYouList, NeedsYouSheetButton } from "../NeedsYou";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 import type { NeedsYouItemDto } from "../../adapters/tauri";
 
+const notifySuccess = vi.fn();
+vi.mock("@/lib/notify", () => ({
+  notify: { success: (...args: unknown[]) => notifySuccess(...args), error: vi.fn(), dismiss: vi.fn() },
+}));
+
 const needsYouList = vi.fn();
 const answerPermissionRequest = vi.fn();
 const storyResume = vi.fn();
@@ -117,6 +122,7 @@ function cardOf(id: string): HTMLElement {
 
 beforeEach(() => {
   resetUiState();
+  notifySuccess.mockReset();
   needsYouList.mockReset();
   needsYouList.mockResolvedValue(RANKED);
   answerPermissionRequest.mockReset();
@@ -255,7 +261,7 @@ describe("Needs you", () => {
 
   it("fills only the first card's primary action; every other is an outline (one filled primary per region)", async () => {
     await cards();
-    const filled = Array.from(document.querySelectorAll('[data-item-id] [data-variant="default"]'));
+    const filled = Array.from(document.querySelectorAll('[data-item-id] [data-slot="button"][data-variant="default"]'));
     expect(filled).toHaveLength(1);
     expect(filled[0]).toHaveAccessibleName("Resume FLY-3");
     expect(within(cardOf("4")).getByRole("button", { name: "Recreate the worktree of FLY-4" })).toHaveAttribute("data-variant", "outline");
@@ -482,5 +488,69 @@ describe("Needs you: judged-on changes", () => {
     await cards();
     fireEvent.click(within(cardOf("p-1")).getByRole("button", { name: "Accept the Amend criterion on FLY-p-1" }));
     expect(await within(cardOf("p-1")).findByRole("alert")).toHaveTextContent("a closed Story's criteria stay as they are");
+  });
+});
+
+describe("Needs you: loading, empty, failed, and what an action did (issue #203)", () => {
+  it("shows Skeleton cards while the first read is under way", async () => {
+    needsYouList.mockImplementation(() => new Promise(() => {}));
+    renderList();
+    const skeleton = await waitFor(() => {
+      const found = document.querySelector('[data-slot="needs-you-skeleton"]');
+      expect(found).not.toBeNull();
+      return found as HTMLElement;
+    });
+    expect(skeleton).toHaveAttribute("aria-busy", "true");
+    expect(skeleton.querySelectorAll('[data-slot="card"]')).toHaveLength(3);
+    expect(screen.queryByText("Nothing needs you")).toBeNull();
+  });
+
+  it("shows Empty, never a blank column, when nothing needs you", async () => {
+    needsYouList.mockResolvedValue([]);
+    renderList();
+    await screen.findByText("Nothing needs you");
+    expect(document.querySelector('[data-slot="needs-you-empty"]')).not.toBeNull();
+    expect(document.querySelector('[data-slot="needs-you-skeleton"]')).toBeNull();
+  });
+
+  it("shows ReadError when the read fails, and Try again reads again", async () => {
+    needsYouList.mockRejectedValue(new Error("core restarting"));
+    renderList();
+    expect(await screen.findByText("Couldn't load Needs you")).toBeInTheDocument();
+    expect(document.querySelector('[data-slot="read-error"]')).not.toBeNull();
+    needsYouList.mockResolvedValue(RANKED);
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("list", { name: "Needs you, most urgent first" })).toBeInTheDocument();
+  });
+
+  it("draws each item on a Card, its record an Item", async () => {
+    const list = await cards();
+    for (const li of list) expect(li.querySelector(':scope > [data-slot="card"]')).not.toBeNull();
+    expect(within(cardOf("3")).getByRole("button", { name: "Open Story FLY-3 Story 3" })).toHaveAttribute("data-slot", "item");
+  });
+
+  it("says in a toast that a missing worktree was recreated", async () => {
+    await cards();
+    fireEvent.click(within(cardOf("4")).getByRole("button", { name: "Recreate the worktree of FLY-4" }));
+    await waitFor(() => expect(notifySuccess).toHaveBeenCalledWith("Recreated FLY-4's worktree", expect.anything()));
+  });
+
+  it("Accept and Reject on a judged-on change say what happened in a toast", async () => {
+    needsYouList.mockResolvedValue([AMEND_CRITERION, AMEND_SPEC]);
+    await cards();
+    fireEvent.click(within(cardOf("p-1")).getByRole("button", { name: "Accept the Amend criterion on FLY-p-1" }));
+    await waitFor(() =>
+      expect(notifySuccess).toHaveBeenCalledWith("Accepted the Amend criterion on FLY-p-1", { description: "Filed by FLY-p-1's session" }),
+    );
+    const spec = cardOf("p-2");
+    fireEvent.click(within(spec).getByRole("button", { name: "Reject the Amend Epic spec on FLY-E2" }));
+    fireEvent.click(within(spec).getByRole("button", { name: "Reject" }));
+    await waitFor(() => expect(notifySuccess).toHaveBeenCalledWith("Rejected the Amend Epic spec on FLY-E2", expect.anything()));
+  });
+
+  it("every card's age reads in the meta role, the attention tint included (critique F50, settled by #223)", async () => {
+    await cards();
+    expect(cardOf("1").querySelector("time")).toHaveClass("text-subtle-foreground");
+    expect(cardOf("3").querySelector("time")).toHaveClass("text-subtle-foreground");
   });
 });
