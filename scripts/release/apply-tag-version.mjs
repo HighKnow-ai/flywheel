@@ -32,7 +32,7 @@ const stampJson = (rel) => {
 };
 
 // Only the first `version = "..."` inside [package]. The dependency lines and comments in this file
-// carry pinned strings (=2.11.5, =2.4.0) that a file-wide substitution would rewrite.
+// carry pinned strings (=2.11.6, =2.4.0) that a file-wide substitution would rewrite.
 const stampCargo = (rel) => {
   const file = path.join(root, rel);
   let table = "";

@@ -17,7 +17,7 @@ path = "src/lib.rs"
 tauri-build = { version = "=2.6.3", features = [] }
 
 [dependencies]
-tauri = { version = "=2.11.5", features = [] }
+tauri = { version = "=2.11.6", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.40", features = ["bundled"] }
@@ -34,7 +34,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 flywheel-core = { path = "../../core" }
 tauri-plugin-dialog = "2.7.3"
 # D-181 (Phase 10 plan 10-07): OS notifications, emitted by the Rust core only. Pinned to 2.4.0 so the
-# phase stays on `tauri = "=2.11.5"`; the window is granted nothing from this plugin (D-175).
+# phase stays on the `tauri = "=2.11.x"` line; the window is granted nothing from this plugin (D-175).
 tauri-plugin-notification = "=2.4.0"
 # D-113: the Rust core's periodic git-truth tick needs a tokio runtime and `app.emit`, which
 # `packages/core` (sync, no `AppHandle`) does not have — so the desktop crate, which already owns
@@ -48,4 +48,4 @@ tokio-cron-scheduler = "0.15"
 [dev-dependencies]
 tempfile = "3"
 # Issue #220: `tauri::test::mock_app` gives a test the managed `AppState` a command takes as `State`.
-tauri = { version = "=2.11.5", features = ["test"] }
+tauri = { version = "=2.11.6", features = ["test"] }
