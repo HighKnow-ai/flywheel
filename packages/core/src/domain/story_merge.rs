@@ -208,8 +208,11 @@ pub fn merge_story(conn: &mut Connection, actor_id: &str, story_id: &str, option
     // The ADRs the branch adds, read now: the worktree is gone after the git step. One accepted in
     // shaping keeps its Epic Proposal.
     let shaped: Vec<String> = accepted_epic_adrs(conn, &story.epic_id)?.into_iter().map(|(_, d)| d.path).collect();
-    let new_adrs: Vec<String> =
-        new_adr_paths(&git::review_files(repo, &base_tip, &head)?).into_iter().filter(|p| !shaped.contains(p)).collect();
+    // Relative to the project, as ADR links are, also for a project in a subdirectory of its repository.
+    let new_adrs: Vec<String> = new_adr_paths(&git::project_review_files(repo, &base_tip, &head)?)
+        .into_iter()
+        .filter(|p| !shaped.contains(p))
+        .collect();
 
     // The git step. Everything above wrote nothing.
     let message = format!("Merge {}: {}\n\nMerged in Flywheel from {}.", story.key, story.title, worktree.branch);

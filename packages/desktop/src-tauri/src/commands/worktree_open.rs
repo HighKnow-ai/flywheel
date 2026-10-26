@@ -49,7 +49,8 @@ pub async fn worktree_open(
         let worktree = flywheel_core::domain::worktree::worktree_for_story(&conn, &story_id)
             .map_err(|e| e.to_string())?
             .ok_or_else(|| format!("no worktree exists for Story {story_id:?}"))?;
-        (argv, worktree.path)
+        // The project's directory in the worktree, the same one the argv names.
+        (argv, worktree.project_dir().to_string_lossy().into_owned())
         // The lock guard drops here, at the end of this block — before the spawn below.
     };
 

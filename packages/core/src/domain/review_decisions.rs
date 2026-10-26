@@ -347,7 +347,9 @@ pub fn accepted_epic_adrs(conn: &Connection, epic_id: &str) -> anyhow::Result<Ve
 
 /// The file at `path` in `rev`, or `None` when it cannot be read there.
 fn file_at(repo: &Path, rev: &str, path: &str) -> Option<String> {
-    git::git_at(repo, &["show", &format!("{rev}:{path}")]).ok().map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+    // `rev:./path` names `path` relative to `repo`, where `rev:path` would name it from the
+    // repository's root: the two differ for a project in a subdirectory of its repository.
+    git::git_at(repo, &["show", &format!("{rev}:./{path}")]).ok().map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 /// The ADR's `# ` heading in `text`, or its file name when it has none.
@@ -425,7 +427,10 @@ pub fn review_decisions(conn: &Connection, story_id: &str) -> anyhow::Result<Rev
     let decisions = review.as_ref().map(|r| stored_adr_decisions(&r.adr_decisions)).unwrap_or_default();
     let (Some(base), Some(head)) = (base, head) else { return Ok(ReviewDecisions { changes: Vec::new(), decisions }) };
 
-    let mut changes: Vec<DecisionChange> = git::review_files(repo, &base, &head)?
+    // Paths relative to the project, so a project registered at a subdirectory of a larger
+    // repository reads its own `docs/adr/` and `GLOSSARY.md` (cymarechal/highknow-mvp#551).
+    let prefix = git::project_subdir(repo)?;
+    let mut changes: Vec<DecisionChange> = git::project_review_files(repo, &base, &head)?
         .into_iter()
         .filter_map(|f| {
             let kind = DecisionKind::of(&f.path)?;
@@ -446,7 +451,9 @@ pub fn review_decisions(conn: &Connection, story_id: &str) -> anyhow::Result<Rev
 
     // Wording or supersede?: an existing ADR with a changed line other than its Status: line.
     for change in changes.iter_mut().filter(|c| c.kind == DecisionKind::Adr && matches!(c.status.as_str(), "M" | "R")) {
-        let patch = git::review_patch(repo, &base, &head, &change.path, change.old_path.as_deref())?;
+        let from_top = |p: &str| if prefix.is_empty() { p.to_string() } else { format!("{prefix}/{p}") };
+        let old_path = change.old_path.as_deref().map(from_top);
+        let patch = git::review_patch(repo, &base, &head, &from_top(&change.path), old_path.as_deref())?;
         if rewords(&patch) {
             change.flags.push(DecisionFlag::WordingOrSupersede);
         }

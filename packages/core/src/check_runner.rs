@@ -1,4 +1,4 @@
-//! Running one Check (docs/mvp-spec.md §4.4): a shell command run from the worktree root in plain
+//! Running one Check (docs/mvp-spec.md §4.4): a shell command run from the project's root in plain
 //! shell, with network allowed and outside the PATH shim's deny-list. Exit 0 passes; a Check still
 //! running at its timeout is killed and labelled timed out, never failed.
 //!

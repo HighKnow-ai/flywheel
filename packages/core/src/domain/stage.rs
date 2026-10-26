@@ -122,7 +122,7 @@ impl StageKind {
                 "the Stories are sliced. For each Story, write its Acceptance criteria: observable statements of \
                  what is true once it ships, each with the Check command that proves it, or judged at review when \
                  no command can. Propose each criterion with `propose_criterion`: the Story's key, the statement \
-                 and, when a command can prove it, `check`, the shell command run from the worktree root that \
+                 and, when a command can prove it, `check`, the shell command run from the project's root that \
                  exits 0 once it holds; leave `check` out when the criterion is judged at review. It is answered \
                  at once; keep writing without waiting for the developer's decision. Every Story still in \
                  Shaping needs at least one criterion before the developer can close this Stage, which makes the \

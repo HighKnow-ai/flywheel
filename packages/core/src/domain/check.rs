@@ -1,6 +1,6 @@
 //! Checks and their runs (docs/mvp-spec.md §4.4).
 //!
-//! A Check is a shell command attached to one Acceptance criterion, run from the worktree root;
+//! A Check is a shell command attached to one Acceptance criterion, run from the project's root;
 //! exit 0 passes and the timeout defaults to ten minutes. Only the developer edits a Check: the
 //! Story agent can neither change nor delete one, so [`set_check`] and [`remove_check`] refuse any
 //! actor but a human.
