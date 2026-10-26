@@ -95,6 +95,10 @@ pub struct SessionDto {
 pub struct StartRunOutcome {
     pub run_id: String,
     pub worktree_path: String,
+    /// Where the session runs: the project's directory in the worktree. It is `worktree_path`
+    /// itself unless the project is a subdirectory of a larger repository
+    /// (cymarechal/highknow-mvp#551).
+    pub working_dir: String,
     /// The Story's own branch, checked out in `worktree_path`.
     pub branch: String,
     pub prompt: String,
@@ -104,7 +108,7 @@ pub struct StartRunOutcome {
 /// `&mut Connection`. Performs, in exactly this order:
 /// 1. `start_session` (the worktree and the session row).
 /// 2. `build_context_packet`, with the instruction as its resume note.
-/// 3. the `SELECT path, branch FROM worktrees WHERE id = ?1` read for the worktree path and branch.
+/// 3. the read of the session's worktree: its path, the project's directory in it, and its branch.
 ///
 /// Steps 2-3 run AFTER the session row exists, so an error from either closes that row `failed`
 /// before it propagates (D-REV-46): a `running` row with no session behind it would read as live
@@ -119,22 +123,22 @@ pub(crate) fn start_session_recording_first(
     let run = flywheel_core::domain::session::start_session(conn, story_id, permission_mode, human_actor_id)
         .map_err(|e| e.to_string())?;
 
-    let built = (|| -> Result<(String, String, String), String> {
+    let built = (|| -> Result<(String, String, String, String), String> {
         let prompt = flywheel_core::context_packet::build_context_packet(conn, story_id, instruction)
             .map_err(|e| e.to_string())?;
-        let (worktree_path, branch): (String, String) = conn
-            .query_row("SELECT path, branch FROM worktrees WHERE id = ?1", rusqlite::params![run.worktree_id], |row| {
-                Ok((row.get(0)?, row.get(1)?))
-            })
-            .map_err(|e| e.to_string())?;
-        Ok((prompt, worktree_path, branch))
+        // A Story has one worktree, and `start_session` just ensured it.
+        let worktree = flywheel_core::domain::worktree::worktree_for_story(conn, story_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("the worktree of the session just started on Story {story_id:?} is gone"))?;
+        let working_dir = worktree.project_dir().to_string_lossy().into_owned();
+        Ok((prompt, worktree.path, working_dir, worktree.branch))
     })();
-    let (prompt, worktree_path, branch) = match built {
+    let (prompt, worktree_path, working_dir, branch) = match built {
         Ok(v) => v,
         Err(why) => return Err(fail_launch(conn, &run.id, why)),
     };
 
-    Ok(StartRunOutcome { run_id: run.id, worktree_path, branch, prompt })
+    Ok(StartRunOutcome { run_id: run.id, worktree_path, working_dir, branch, prompt })
 }
 
 /// Close a session whose launch failed after its row was inserted, and hand `why` back for the
@@ -269,7 +273,7 @@ pub(crate) fn spawn_request(
     env: &std::collections::HashMap<String, String>,
     kind: SessionKind,
 ) -> serde_json::Value {
-    spawn_request_in(&outcome.run_id, &outcome.worktree_path, &outcome.prompt, env, kind)
+    spawn_request_in(&outcome.run_id, &outcome.working_dir, &outcome.prompt, env, kind)
 }
 
 /// [`spawn_request`] for a session that runs in `cwd`: a Story session's worktree, or the project's
@@ -2142,6 +2146,7 @@ pub(crate) mod tests {
         StartRunOutcome {
             run_id: "01J0000000000000000000000".to_string(),
             worktree_path: "/abs/worktree".to_string(),
+            working_dir: "/abs/worktree".to_string(),
             branch: "story/fly-1".to_string(),
             prompt: "p".to_string(),
         }
@@ -2863,6 +2868,12 @@ pub(crate) mod tests {
     /// from. Returns the connection, the human actor id, the project id, the Story id, and the
     /// repository's own `TempDir` (kept alive by the caller for the test's duration).
     pub(crate) fn seeded_git_conn_with_story() -> (Connection, String, String, String, tempfile::TempDir) {
+        seeded_git_conn_with_story_at("")
+    }
+
+    /// [`seeded_git_conn_with_story`] for a project registered at `subdir` of the repository
+    /// (cymarechal/highknow-mvp#551); '' is the repository's root.
+    pub(crate) fn seeded_git_conn_with_story_at(subdir: &str) -> (Connection, String, String, String, tempfile::TempDir) {
         let repo_dir = tempfile::tempdir().expect("failed to create scratch repo dir");
         let repo_path = repo_dir.path();
 
@@ -2880,7 +2891,10 @@ pub(crate) mod tests {
         run(&["config", "user.name", "Fixture"]);
         std::fs::write(repo_path.join("README.md"), "fixture repo\n")
             .expect("failed to write README");
-        run(&["add", "README.md"]);
+        let project_path = if subdir.is_empty() { repo_path.to_path_buf() } else { repo_path.join(subdir) };
+        std::fs::create_dir_all(&project_path).expect("failed to create the project's directory");
+        std::fs::write(project_path.join("PROJECT.md"), "the project\n").expect("failed to write PROJECT.md");
+        run(&["add", "-A"]);
         run(&["commit", "-m", "initial commit"]);
 
         let dir = tempfile::tempdir().expect("failed to create scratch db dir");
@@ -2896,7 +2910,7 @@ pub(crate) mod tests {
             &mut conn,
             &actor_id,
             "Test Project",
-            &repo_path.to_string_lossy(),
+            &project_path.to_string_lossy(),
             "FLY",
             "main",
         )
@@ -3078,6 +3092,48 @@ pub(crate) mod tests {
                 })
                 .unwrap();
             assert_eq!(recorded, "acceptEdits");
+        });
+    }
+
+    /// cymarechal/highknow-mvp#551: a project registered at a subdirectory of a larger repository.
+    /// The worktree is the whole repository's, and the session runs in the project's directory in
+    /// it; the Gated-action shim still knows the worktree as a whole.
+    #[test]
+    fn a_project_in_a_subdirectory_starts_its_session_in_that_subdirectory_of_the_worktree() {
+        with_scratch_dirs(|| {
+            let (mut conn, actor, _p, story, _repo) = seeded_git_conn_with_story_at("flywheel");
+            flywheel_core::domain::story::set_story_state(
+                &mut conn,
+                &actor,
+                &story,
+                flywheel_core::domain::story::StoryState::Ready,
+            )
+            .unwrap();
+            let db = std::sync::Mutex::new(conn);
+            let mut sent = None;
+            start_ready_story(&db, &story, "", found_claude, |_, _| Ok(()), |_repo, request| {
+                sent = Some(request.clone());
+                Ok(())
+            })
+            .expect("a Ready Story in a subdirectory starts");
+
+            let conn = db.lock().unwrap();
+            let worktree = flywheel_core::domain::worktree::worktree_for_story(&conn, &story).unwrap().unwrap();
+            let root = std::path::Path::new(&worktree.path);
+            assert!(root.join("README.md").is_file(), "the worktree is the whole repository's");
+            let project_dir = root.join("flywheel");
+            assert!(project_dir.join("PROJECT.md").is_file(), "the project sits at the same subdirectory");
+            let sent = sent.expect("one spawn request was sent");
+            assert_eq!(
+                sent["worktreePath"],
+                serde_json::Value::String(project_dir.to_string_lossy().into_owned()),
+                "the session runs in the project's directory"
+            );
+            assert_eq!(
+                sent["env"][flywheel_core::destructive::WORKTREE_ENV],
+                serde_json::Value::String(worktree.path.clone()),
+                "the shim's own worktree is the whole worktree"
+            );
         });
     }
 

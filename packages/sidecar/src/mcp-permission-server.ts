@@ -161,7 +161,7 @@ export const BOARD_TOOL_DEFINITIONS = [
   {
     name: "checks_run",
     description:
-      "Run your Story's Checks now, for feedback only: each runs from the worktree root, one at a time, and nothing is recorded. Answers with each Check's command, result (passed, failed, timed_out) and output tail. Checks can take minutes. You cannot edit or delete a Check: only the developer can.",
+      "Run your Story's Checks now, for feedback only: each runs from the project's root, one at a time, and nothing is recorded. Answers with each Check's command, result (passed, failed, timed_out) and output tail. Checks can take minutes. You cannot edit or delete a Check: only the developer can.",
     inputSchema: { type: "object", properties: {} },
   },
   {
@@ -212,7 +212,7 @@ export const BOARD_TOOL_DEFINITIONS = [
   {
     name: "propose",
     description:
-      "Propose a change to the board that you learned of while working your Story, with one line on why and one line of evidence (what you saw: a file and line, a failing command, a test). `kind` is one of: new_story (title; description; criteria: at least one { statement, check? }, each an observable statement of what is true once it ships and, when a command can prove it, the shell command run from the worktree root that exits 0 once it holds: a follow-up Story in your Epic, at the end of its order, which the developer makes Ready once accepted), amend_criterion (criterion_id; the whole new statement; check_command, the shell command that proves it, if it changes), amend_epic_spec (field: problem, scope, out_of_scope or exit_test; the field's whole new text), reorder_story (story: a key such as FLY-12; `after` or `before` another Story's key, or neither for the end), retire_story (story: a Story of your Epic still in Shaping or Ready; a started Story is the developer's to drop) or new_epic (title; problem: it goes after the Current Milestone). Only your own Epic and its Stories. This call is answered at once with the Proposal's id: keep working, do not wait for the decision, and do not depend on it. You may hold at most 3 open Proposals: to file a 4th, withdraw one with proposal_withdraw; to merge two, withdraw both and file the combined one. A Proposal repeating one already pending (the same kind on the same target, or a New Story or New Epic with the same title) is flagged a duplicate in the answer and holds no slot; accepting the original closes it. Each decision reaches your next session's packet. Proposals never cover ADRs or glossary terms: write those in your diff.",
+      "Propose a change to the board that you learned of while working your Story, with one line on why and one line of evidence (what you saw: a file and line, a failing command, a test). `kind` is one of: new_story (title; description; criteria: at least one { statement, check? }, each an observable statement of what is true once it ships and, when a command can prove it, the shell command run from the project's root that exits 0 once it holds: a follow-up Story in your Epic, at the end of its order, which the developer makes Ready once accepted), amend_criterion (criterion_id; the whole new statement; check_command, the shell command that proves it, if it changes), amend_epic_spec (field: problem, scope, out_of_scope or exit_test; the field's whole new text), reorder_story (story: a key such as FLY-12; `after` or `before` another Story's key, or neither for the end), retire_story (story: a Story of your Epic still in Shaping or Ready; a started Story is the developer's to drop) or new_epic (title; problem: it goes after the Current Milestone). Only your own Epic and its Stories. This call is answered at once with the Proposal's id: keep working, do not wait for the decision, and do not depend on it. You may hold at most 3 open Proposals: to file a 4th, withdraw one with proposal_withdraw; to merge two, withdraw both and file the combined one. A Proposal repeating one already pending (the same kind on the same target, or a New Story or New Epic with the same title) is flagged a duplicate in the answer and holds no slot; accepting the original closes it. Each decision reaches your next session's packet. Proposals never cover ADRs or glossary terms: write those in your diff.",
     inputSchema: {
       type: "object",
       properties: {
@@ -237,7 +237,7 @@ export const BOARD_TOOL_DEFINITIONS = [
                 type: "string",
                 minLength: 1,
                 maxLength: 2000,
-                description: "The shell command that proves it, run from the worktree root; leave out when it is judged at review.",
+                description: "The shell command that proves it, run from the project's root; leave out when it is judged at review.",
               },
             },
             required: ["statement"],
@@ -422,7 +422,7 @@ export const SHAPING_TOOL_DEFINITIONS = [
   {
     name: "propose_criterion",
     description:
-      "Propose one Acceptance criterion for a Story of the Epic you are shaping, in the Write the Acceptance criteria Stage: an observable statement of what is true once the Story ships. When a command can prove it, give `check`: the shell command, run from the worktree root, that exits 0 once the criterion holds (such as `cargo test -p core --test parser`). Leave `check` out when no command can prove it: the criterion is then judged at review. The criterion shows under its Story as a ghost card, for the developer to accept, amend or reject; nothing is written until they do. This call is answered at once with the Proposal's id: keep writing criteria, do not wait for the decision. Every Story still in Shaping needs at least one criterion before the Stage can close.",
+      "Propose one Acceptance criterion for a Story of the Epic you are shaping, in the Write the Acceptance criteria Stage: an observable statement of what is true once the Story ships. When a command can prove it, give `check`: the shell command, run from the project's root, that exits 0 once the criterion holds (such as `cargo test -p core --test parser`). Leave `check` out when no command can prove it: the criterion is then judged at review. The criterion shows under its Story as a ghost card, for the developer to accept, amend or reject; nothing is written until they do. This call is answered at once with the Proposal's id: keep writing criteria, do not wait for the decision. Every Story still in Shaping needs at least one criterion before the Stage can close.",
     inputSchema: {
       type: "object",
       properties: {
@@ -432,7 +432,7 @@ export const SHAPING_TOOL_DEFINITIONS = [
           type: "string",
           minLength: 1,
           maxLength: 2000,
-          description: "The shell command that proves it, run from the worktree root; leave out when it is judged at review.",
+          description: "The shell command that proves it, run from the project's root; leave out when it is judged at review.",
         },
       },
       required: ["story", "statement"],

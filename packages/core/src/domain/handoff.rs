@@ -26,7 +26,7 @@
 //! session may call either tool. Neither tool can edit or delete a Check: [`check::set_check`] and
 //! [`check::remove_check`] are human-only.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::Context;
@@ -186,7 +186,11 @@ pub struct CheckPlan {
     pub session_id: Option<String>,
     pub project_id: String,
     pub story_id: String,
-    pub worktree_path: PathBuf,
+    /// The project's directory in the Story's worktree ([`Worktree::project_dir`]): the Checks run
+    /// there, and the commit and the diff are read from there.
+    ///
+    /// [`Worktree::project_dir`]: crate::domain::worktree::Worktree::project_dir
+    pub project_dir: PathBuf,
     pub checks: Vec<PlannedCheck>,
     /// A hand-off's base branch, whose diff against the branch the review records; `None` for a
     /// feedback run, which records nothing.
@@ -240,8 +244,9 @@ fn live_session(conn: &Connection, session_id: &str) -> anyhow::Result<(String, 
 fn plan(conn: &Connection, session_id: Option<&str>, story_id: String, project_id: String, for_review: bool) -> anyhow::Result<CheckPlan> {
     let worktree = crate::domain::worktree::worktree_for_story(conn, &story_id)?
         .context("this Story has no worktree to run its Checks in")?;
-    let worktree_path = PathBuf::from(worktree.path);
-    anyhow::ensure!(worktree_path.is_dir(), "this Story's worktree is missing from disk");
+    anyhow::ensure!(Path::new(&worktree.path).is_dir(), "this Story's worktree is missing from disk");
+    let project_dir = worktree.project_dir();
+    anyhow::ensure!(project_dir.is_dir(), "the project's directory is missing from this Story's worktree");
     let checks = check::checks_for_story(conn, &story_id)?
         .into_iter()
         .map(|c| PlannedCheck { check_id: c.id, command: c.command, timeout_secs: c.timeout_secs })
@@ -251,7 +256,7 @@ fn plan(conn: &Connection, session_id: Option<&str>, story_id: String, project_i
         session_id: session_id.map(str::to_string),
         project_id,
         story_id,
-        worktree_path,
+        project_dir,
         checks,
         review_base,
         check_objections: Value::Array(Vec::new()),
@@ -445,7 +450,8 @@ fn tally(batch: &CheckBatch) -> (usize, usize, usize) {
     (count(CheckResult::Passed), count(CheckResult::Failed), count(CheckResult::TimedOut))
 }
 
-/// Run every planned Check from the worktree root, one at a time, each to the end: a failure or a
+/// Run every planned Check from the project's directory in the worktree (its root, unless the
+/// project is a subdirectory of its repository), one at a time, each to the end: a failure or a
 /// timeout never stops the rest. Holds no database connection. The commit is read once, before
 /// the first Check runs, and so is a hand-off's diff against its base branch.
 pub fn run_checks(plan: &CheckPlan) -> anyhow::Result<CheckBatch> {
@@ -457,11 +463,11 @@ pub fn run_checks(plan: &CheckPlan) -> anyhow::Result<CheckBatch> {
 /// it as "Running 8 Checks · 3/8".
 pub fn run_checks_reporting(plan: &CheckPlan, mut on_progress: impl FnMut(usize, usize)) -> anyhow::Result<CheckBatch> {
     let total = plan.checks.len();
-    let commit_sha = check::worktree_head(&plan.worktree_path).context("could not read the branch's commit")?;
+    let commit_sha = check::worktree_head(&plan.project_dir).context("could not read the branch's commit")?;
     let diff = plan
         .review_base
         .as_deref()
-        .map(|base| read_review_diff(&plan.worktree_path, base, &commit_sha))
+        .map(|base| read_review_diff(&plan.project_dir, base, &commit_sha))
         .transpose()
         .context("could not read the branch's diff against its base branch")?;
     on_progress(0, total);
@@ -472,7 +478,7 @@ pub fn run_checks_reporting(plan: &CheckPlan, mut on_progress: impl FnMut(usize,
         .map(|(index, c)| {
             let started_at = now();
             let timeout = Duration::from_secs(u64::try_from(c.timeout_secs).unwrap_or(1).max(1));
-            let (result, exit_code, output_tail) = match run_shell_check(&plan.worktree_path, &c.command, timeout) {
+            let (result, exit_code, output_tail) = match run_shell_check(&plan.project_dir, &c.command, timeout) {
                 Ok(run) => match run.outcome {
                     ShellOutcome::Exited(Some(0)) => (CheckResult::Passed, Some(0), run.output_tail),
                     ShellOutcome::Exited(code) => (CheckResult::Failed, code.map(i64::from), run.output_tail),

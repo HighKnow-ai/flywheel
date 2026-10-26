@@ -74,10 +74,10 @@ You are the agent of one Story on a Flywheel board. This packet is everything yo
 rebuilt from the board and the Story's worktree for every session, so nothing from an earlier \
 session's conversation reaches you except what is written here.
 
-- Work only inside this Story's worktree, your current directory. Do not touch other branches or \
-worktrees.
+- Work only inside this Story's worktree. Your current directory is the project's root in it. Do \
+not touch other branches or worktrees.
 - The Story's Acceptance criteria are what you are judged on. Each Check is a shell command run from \
-the worktree root at hand-off; exit 0 passes. You cannot edit or delete a Check. If you think one is \
+the project's root at hand-off; exit 0 passes. You cannot edit or delete a Check. If you think one is \
 wrong, say so in the hand-off's `check_objections`, naming its criterion by its number below; the \
 developer reads it beside that Check at review.
 - Keep the Task checklist current through the Flywheel board tools. If it is empty, first read the \
@@ -138,7 +138,9 @@ pub fn build_context_packet(conn: &Connection, story_id: &str, resume_note: &str
     let repo_path: String =
         conn.query_row("SELECT repo_path FROM projects WHERE id = ?1", params![story.project_id], |r| r.get(0))?;
     let worktree = worktree_for_story(conn, story_id)?;
-    let worktree_dir = worktree.as_ref().map(|w| PathBuf::from(&w.path)).filter(|p| p.is_dir());
+    // The project's directory in the worktree: its root, or the subdirectory the project was
+    // registered at in a larger repository, where its ADRs and glossary live.
+    let worktree_dir = worktree.as_ref().map(|w| w.project_dir()).filter(|p| p.is_dir());
     let head = worktree_dir.as_deref().and_then(head_sha);
 
     let mut out = String::new();

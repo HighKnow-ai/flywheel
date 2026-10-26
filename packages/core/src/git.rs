@@ -170,6 +170,18 @@ pub fn worktree_add(
     )
 }
 
+/// Where `project_path` sits in its repository, relative to the repository's root and without a
+/// trailing slash: '' when the project is the repository's root, `flywheel` when it is registered
+/// at `<repo>/flywheel` (cymarechal/highknow-mvp#551). A worktree of the repository holds the
+/// project at the same place, so this is what joins a worktree's root to the project's directory.
+/// `git rev-parse --show-prefix` rather than stripping `--show-toplevel` from the path, because
+/// the two can differ by a symlink or by case on a case-insensitive filesystem; git's own answer
+/// cannot.
+pub fn project_subdir(project_path: &Path) -> anyhow::Result<String> {
+    let output = git_at(project_path, &["rev-parse", "--show-prefix"])?;
+    Ok(String::from_utf8_lossy(&output.stdout).trim_end_matches(['\n', '\r']).trim_end_matches('/').to_string())
+}
+
 /// The raw stdout of `git worktree list` in `repo_path`, one line per worktree. Callers that need
 /// to assert a specific worktree is listed parse/search this text themselves — this function does
 /// no parsing of its own, since the tracer test's assertion is "the derived branch appears in the
@@ -258,9 +270,30 @@ pub struct ReviewFile {
 /// This is additive: [`diff_stat_and_names`] keeps its `--no-renames` semantics and its `--stat`
 /// text because `drift.rs` depends on exactly those.
 pub fn review_files(repo_path: &Path, base: &str, head: &str) -> anyhow::Result<Vec<ReviewFile>> {
+    changed_files(repo_path, base, head, false)
+}
+
+/// [`review_files`] for the project at `project_dir` alone: only the files under it, each path
+/// relative to it (`git diff --relative`). For a project at its repository's root this is the same
+/// list; for one registered at a subdirectory of a larger repository
+/// (cymarechal/highknow-mvp#551) it is what reads `docs/adr/` and `GLOSSARY.md` as the project's
+/// own, where [`review_files`] names them `flywheel/docs/adr/...`.
+pub fn project_review_files(project_dir: &Path, base: &str, head: &str) -> anyhow::Result<Vec<ReviewFile>> {
+    changed_files(project_dir, base, head, true)
+}
+
+fn changed_files(repo_path: &Path, base: &str, head: &str, relative: bool) -> anyhow::Result<Vec<ReviewFile>> {
     let range = format!("{base}...{head}");
-    let names = git_at(repo_path, &["diff", "-z", "--name-status", "-M", &range])?;
-    let nums = git_at(repo_path, &["diff", "-z", "--numstat", "-M", &range])?;
+    let read = |format: &str| {
+        let mut args = vec!["diff", "-z", format, "-M"];
+        if relative {
+            args.push("--relative");
+        }
+        args.push(&range);
+        git_at(repo_path, &args)
+    };
+    let names = read("--name-status")?;
+    let nums = read("--numstat")?;
     let names = String::from_utf8_lossy(&names.stdout).into_owned();
     let nums = String::from_utf8_lossy(&nums.stdout).into_owned();
 
@@ -327,9 +360,11 @@ pub fn review_files(repo_path: &Path, base: &str, head: &str) -> anyhow::Result<
 /// as the second pathspec): with rename detection on and a pathspec naming only the new path, git
 /// has no old side to pair it with and reports the file as newly added, losing the rename.
 ///
-/// `--literal-pathspecs` is a git global option, so it is the first element of `args` (after the
-/// `-C <path>` pair [`spawn_git`] prepends); it stops a file named like a pathspec magic string
-/// from being interpreted. `--no-ext-diff`/`--no-textconv` keep repository config from running
+/// `path` and `old_path` are relative to the repository's root, as [`review_files`] names them,
+/// whatever directory `repo_path` is: each pathspec carries `:(top,literal)`, so the patch is the
+/// same read from a worktree's root or from a project registered at a subdirectory of its
+/// repository (cymarechal/highknow-mvp#551), and a file named like a pathspec magic string is
+/// still read as itself. `--no-ext-diff`/`--no-textconv` keep repository config from running
 /// helpers while reading.
 pub fn review_patch(
     repo_path: &Path,
@@ -345,21 +380,10 @@ pub fn review_patch(
         bail!("review_patch refused: path must not contain a NUL byte");
     }
     let range = format!("{base}...{head}");
-    let mut args = vec![
-        "--literal-pathspecs",
-        "diff",
-        "--no-color",
-        "--no-ext-diff",
-        "--no-textconv",
-        "-U3",
-        "-M",
-        range.as_str(),
-        "--",
-        path,
-    ];
-    if let Some(old) = old_path {
-        args.push(old);
-    }
+    let pathspecs: Vec<String> =
+        std::iter::once(path).chain(old_path).map(|p| format!(":(top,literal){p}")).collect();
+    let mut args = vec!["diff", "--no-color", "--no-ext-diff", "--no-textconv", "-U3", "-M", range.as_str(), "--"];
+    args.extend(pathspecs.iter().map(String::as_str));
     let out = git_at(repo_path, &args)?;
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }

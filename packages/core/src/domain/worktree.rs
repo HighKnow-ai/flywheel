@@ -29,6 +29,22 @@ pub struct Worktree {
     pub branch: String,
     pub base_branch: String,
     pub status: String,
+    /// Where the project sits inside the worktree, relative to `path`: '' for a project at its
+    /// repository's root, `flywheel` for one registered at `<repo>/flywheel`
+    /// (cymarechal/highknow-mvp#551). Read through [`Worktree::project_dir`].
+    pub subdir: String,
+}
+
+impl Worktree {
+    /// The project's directory in this worktree: where the agent starts, the Checks run and the
+    /// editor opens. `path` itself stays the worktree's root, which git work on the worktree uses.
+    pub fn project_dir(&self) -> PathBuf {
+        if self.subdir.is_empty() {
+            PathBuf::from(&self.path)
+        } else {
+            Path::new(&self.path).join(&self.subdir)
+        }
+    }
 }
 
 fn row_to_worktree(row: &rusqlite::Row) -> rusqlite::Result<Worktree> {
@@ -40,17 +56,18 @@ fn row_to_worktree(row: &rusqlite::Row) -> rusqlite::Result<Worktree> {
         branch: row.get(4)?,
         base_branch: row.get(5)?,
         status: row.get(6)?,
+        subdir: row.get(7)?,
     })
 }
 
 const WORKTREE_SELECT_SQL: &str =
-    "SELECT id, story_id, project_id, path, branch, base_branch, status FROM worktrees WHERE story_id = ?1";
+    "SELECT id, story_id, project_id, path, branch, base_branch, status, subdir FROM worktrees WHERE story_id = ?1";
 
 /// Every `worktrees` row currently `status = 'active'` — [`reconcile_worktrees`]'s own candidate
 /// set. Only `active` rows are ever examined (a row already `stale`/`merged`/`abandoned` is left
 /// alone), matching `<behavior>`'s "only active rows are candidates" rule.
 const ACTIVE_WORKTREES_SELECT_SQL: &str =
-    "SELECT id, story_id, project_id, path, branch, base_branch, status FROM worktrees WHERE status = 'active'";
+    "SELECT id, story_id, project_id, path, branch, base_branch, status, subdir FROM worktrees WHERE status = 'active'";
 
 /// The existing worktree row for `story_id`, if one has ever been created — the existence check
 /// `ensure_worktree` performs BEFORE opening a transaction or touching git (RESEARCH.md Pitfall 2).
@@ -112,6 +129,8 @@ pub fn ensure_worktree(conn: &mut Connection, story_id: &str, actor_id: &str) ->
 
     let branch = story_branch_name(&story_key, &story_title);
     let base_branch = base_ref_for_story(conn, story_id)?;
+    let subdir = git::project_subdir(Path::new(&repo_path))
+        .with_context(|| format!("failed to read where the project sits in its repository for Story {story_id:?}"))?;
 
     let worktree_path = worktree_root().join(&key_prefix).join(&story_key);
 
@@ -137,9 +156,9 @@ pub fn ensure_worktree(conn: &mut Connection, story_id: &str, actor_id: &str) ->
     let tx = conn.transaction()?;
     tx.execute(
         "INSERT INTO worktrees (
-            id, story_id, project_id, path, branch, base_branch, status, created_by, created_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', ?7, ?8)",
-        params![id, story_id, project_id, worktree_path_str, branch, base_branch, actor_id, now],
+            id, story_id, project_id, path, branch, base_branch, status, created_by, created_at, subdir
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', ?7, ?8, ?9)",
+        params![id, story_id, project_id, worktree_path_str, branch, base_branch, actor_id, now, subdir],
     )
     .context("failed to insert worktree row")?;
 
@@ -175,6 +194,7 @@ pub fn ensure_worktree(conn: &mut Connection, story_id: &str, actor_id: &str) ->
         branch,
         base_branch,
         status: "active".to_string(),
+        subdir,
     })
 }
 
@@ -714,19 +734,22 @@ pub fn resolve_open_argv(conn: &Connection, story_id: &str, surface: OpenSurface
         .ok_or_else(|| anyhow::anyhow!("no worktree exists for Story {story_id:?}"))?;
 
     let template = open_command_template(conn, surface)?;
+    // The editor and the terminal open where the agent works: the project's directory in the
+    // worktree, which is the worktree's root unless the project is a subdirectory of its repository.
+    let dir = worktree.project_dir().to_string_lossy().into_owned();
 
     let mut argv: Vec<String> = Vec::new();
     let mut token_found = false;
     for element in template.split_whitespace() {
         if element.contains(WORKTREE_PATH_TOKEN) {
             token_found = true;
-            argv.push(element.replace(WORKTREE_PATH_TOKEN, &worktree.path));
+            argv.push(element.replace(WORKTREE_PATH_TOKEN, &dir));
         } else {
             argv.push(element.to_string());
         }
     }
     if !token_found {
-        argv.push(worktree.path.clone());
+        argv.push(dir);
     }
 
     Ok(argv)

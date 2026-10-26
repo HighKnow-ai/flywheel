@@ -188,7 +188,7 @@ Every Story session starts fresh from a fixed, ordered packet, stable parts firs
 
 ### 4.4 Checks
 
-- **What a Check is:** a shell command run from the worktree root. Exit 0 passes. The timeout defaults to 10 min, and a timeout is labelled *timed out*, not *failed*.
+- **What a Check is:** a shell command run from the project's root. Exit 0 passes. The timeout defaults to 10 min, and a timeout is labelled *timed out*, not *failed*.
 - **Who can edit it:** only Cyril, at any time. The Story agent can't edit or delete a Check. If it thinks one is wrong, it says so in its hand-off. A Check may name a test that doesn't exist yet.
 - **The run of record:** at hand-off, Flywheel runs every Check in the worktree, one at a time, in plain shell, with network allowed and not under the deny-list. A failing Check doesn't stop the rest from running. The agent can run Checks any time for feedback, but those runs aren't recorded.
 - **Results** are *not run*, *passed*, *failed* or *timed out*. Each is tied to the commit it ran against and marked *stale* if the branch moves. A result shows as the criterion's chip on the roster and the review card.
