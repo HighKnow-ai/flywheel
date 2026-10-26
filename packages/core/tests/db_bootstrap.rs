@@ -10,8 +10,8 @@
 //! - Backing up a path that does not yet exist is a no-op that returns `Ok` and writes no file.
 //! - Inserting an actor with `type` outside `human|agent|system` returns an error from SQLite.
 
-use core::db::backup::backup_database_file;
-use core::db::{apply_pragmas, migration_sources, open_and_migrate};
+use flywheel_core::db::backup::backup_database_file;
+use flywheel_core::db::{apply_pragmas, migration_sources, open_and_migrate};
 use rusqlite::Connection;
 use std::fs;
 
@@ -192,8 +192,8 @@ fn app_data_dir_override_redirects_the_database_and_backups() {
     // writes this variable while it is set here.
     unsafe { std::env::set_var("FLYWHEEL_APP_DATA_DIR", dir.path()) };
 
-    let db_path = core::db::default_db_path().expect("default_db_path should succeed");
-    let backups_dir = core::db::default_backups_dir().expect("default_backups_dir should succeed");
+    let db_path = flywheel_core::db::default_db_path().expect("default_db_path should succeed");
+    let backups_dir = flywheel_core::db::default_backups_dir().expect("default_backups_dir should succeed");
 
     // SAFETY: see the set_var call above.
     unsafe { std::env::remove_var("FLYWHEEL_APP_DATA_DIR") };
@@ -212,7 +212,7 @@ fn absent_app_data_dir_override_leaves_the_os_app_data_location_in_use() {
     // SAFETY: the mutex above serialises every caller in this binary.
     unsafe { std::env::remove_var("FLYWHEEL_APP_DATA_DIR") };
 
-    let db_path = core::db::default_db_path().expect("default_db_path should succeed");
+    let db_path = flywheel_core::db::default_db_path().expect("default_db_path should succeed");
 
     drop(guard);
 
@@ -237,7 +237,7 @@ fn non_empty_relative_app_data_dir_override_is_rejected_by_name() {
     // SAFETY: the mutex above serialises every caller in this binary.
     unsafe { std::env::set_var("FLYWHEEL_APP_DATA_DIR", "relative/scratch/path") };
 
-    let result = core::db::default_db_path();
+    let result = flywheel_core::db::default_db_path();
 
     // SAFETY: see the set_var call above.
     unsafe { std::env::remove_var("FLYWHEEL_APP_DATA_DIR") };
@@ -264,7 +264,7 @@ fn empty_app_data_dir_override_is_ignored_rather_than_resolving_relative() {
     // SAFETY: the mutex above serialises every caller in this binary.
     unsafe { std::env::set_var("FLYWHEEL_APP_DATA_DIR", "") };
 
-    let db_path = core::db::default_db_path().expect("default_db_path should succeed");
+    let db_path = flywheel_core::db::default_db_path().expect("default_db_path should succeed");
 
     // SAFETY: see the set_var call above.
     unsafe { std::env::remove_var("FLYWHEEL_APP_DATA_DIR") };

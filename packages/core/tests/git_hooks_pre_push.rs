@@ -10,10 +10,10 @@
 //! D-63 — THE ONLY REMOTE THIS FILE MAY EVER TOUCH IS THE LOCAL BARE REPOSITORY EACH FIXTURE
 //! CREATES INSIDE ITS OWN SCRATCH DIRECTORY. Never a network remote, never a named upstream.
 
-use core::destructive::DestructiveCategory;
-use core::domain::actor::local_human_actor_id;
-use core::domain::project::{register_project, relocate_project};
-use core::git_hooks::{
+use flywheel_core::destructive::DestructiveCategory;
+use flywheel_core::domain::actor::local_human_actor_id;
+use flywheel_core::domain::project::{register_project, relocate_project};
+use flywheel_core::git_hooks::{
     hooks_dir_for_repo, install_pre_push_hook, interception_layers_for, pre_push_hook_script,
     uninstall_commit_msg_hook, uninstall_pre_push_hook, PrePushInstall, PRE_PUSH_MARKER,
 };
@@ -130,7 +130,7 @@ fn register(worktree_root: &Path, runtime_dir: &Path, work_path: &Path, key_pref
         let db_path = db_dir.path().join("flywheel.db");
         let backups_dir = db_dir.path().join("backups");
         std::mem::forget(db_dir);
-        let mut conn = core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
+        let mut conn = flywheel_core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
         let actor_id = local_human_actor_id(&conn).expect("seeded human actor should exist");
         let project = register_project(&mut conn, &actor_id, work_path, "Git Hooks Fixture", key_prefix)
             .expect("register_project should succeed");
@@ -143,12 +143,12 @@ fn register(worktree_root: &Path, runtime_dir: &Path, work_path: &Path, key_pref
 const HOSTILE_PATH: &str = "/usr/bin:/bin";
 
 /// Spawn `git <args>` in `repo` through the SYSTEM git binary resolved once via
-/// [`core::shim::resolve_real_git`] (an absolute-path invocation, so Rust's own program lookup
+/// [`flywheel_core::shim::resolve_real_git`] (an absolute-path invocation, so Rust's own program lookup
 /// never consults `PATH` either), with `PATH` overridden to [`HOSTILE_PATH`] and
 /// `FLYWHEEL_PERMISSION_SOCKET` removed from the child's environment — proving the refusal below
 /// does not depend on either.
 fn run_git_hostile(repo: &Path, args: &[&str]) -> Output {
-    let real_git = core::shim::resolve_real_git().expect("resolve_real_git should succeed in this environment");
+    let real_git = flywheel_core::shim::resolve_real_git().expect("resolve_real_git should succeed in this environment");
     Command::new(&real_git)
         .current_dir(repo)
         .env("PATH", HOSTILE_PATH)
@@ -162,7 +162,7 @@ fn run_git_hostile(repo: &Path, args: &[&str]) -> Output {
 /// Task 2's own socket arms set this to a mock server's bound path, still with the hostile `PATH`
 /// so every socket arm continues to prove the gate does not depend on PATH at all.
 fn run_git_hostile_with_socket(repo: &Path, args: &[&str], socket_path: &Path) -> Output {
-    let real_git = core::shim::resolve_real_git().expect("resolve_real_git should succeed in this environment");
+    let real_git = flywheel_core::shim::resolve_real_git().expect("resolve_real_git should succeed in this environment");
     Command::new(&real_git)
         .current_dir(repo)
         .env("PATH", HOSTILE_PATH)
@@ -438,7 +438,7 @@ fn relocating_to_a_fresh_clone_installs_the_pre_push_gate_at_the_new_path() {
         let db_path = db_dir.path().join("flywheel.db");
         let backups_dir = db_dir.path().join("backups");
         std::mem::forget(db_dir);
-        let mut conn = core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
+        let mut conn = flywheel_core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
         let actor_id = local_human_actor_id(&conn).expect("seeded human actor should exist");
 
         let project = register_project(&mut conn, &actor_id, &fixture.work_path, "Relocate Fixture", "GHP13")
@@ -499,7 +499,7 @@ fn a_refusal_never_fails_relocation() {
         let db_path = db_dir.path().join("flywheel.db");
         let backups_dir = db_dir.path().join("backups");
         std::mem::forget(db_dir);
-        let mut conn = core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
+        let mut conn = flywheel_core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
         let actor_id = local_human_actor_id(&conn).expect("seeded human actor should exist");
 
         let project = register_project(&mut conn, &actor_id, &fixture.work_path, "Relocate Refusal Fixture", "GHP14")
@@ -544,7 +544,7 @@ fn an_install_error_never_fails_relocation() {
         let db_path = db_dir.path().join("flywheel.db");
         let backups_dir = db_dir.path().join("backups");
         std::mem::forget(db_dir);
-        let mut conn = core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
+        let mut conn = flywheel_core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
         let actor_id = local_human_actor_id(&conn).expect("seeded human actor should exist");
 
         let project = register_project(&mut conn, &actor_id, &fixture.work_path, "Relocate Error Fixture", "GHP15")
@@ -556,9 +556,9 @@ fn an_install_error_never_fails_relocation() {
         // repos are plain directories), so this is also what keeps that test honest.
         let non_git_dir = scratch.path().join("relocate-error-target");
         std::fs::create_dir_all(&non_git_dir).expect("failed to create the non-git relocation target");
-        core::marker::write_marker(
+        flywheel_core::marker::write_marker(
             &non_git_dir,
-            &core::marker::ProjectMarker { project_id: project.id.clone(), project_key: project.key_prefix.clone() },
+            &flywheel_core::marker::ProjectMarker { project_id: project.id.clone(), project_key: project.key_prefix.clone() },
         )
         .expect("write_marker should succeed");
 
@@ -581,7 +581,7 @@ fn relocating_twice_to_the_same_clone_is_idempotent() {
         let db_path = db_dir.path().join("flywheel.db");
         let backups_dir = db_dir.path().join("backups");
         std::mem::forget(db_dir);
-        let mut conn = core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
+        let mut conn = flywheel_core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
         let actor_id = local_human_actor_id(&conn).expect("seeded human actor should exist");
 
         let project = register_project(&mut conn, &actor_id, &fixture.work_path, "Relocate Idempotency Fixture", "GHP16")
@@ -729,7 +729,7 @@ fn a_refusal_never_fails_registration() {
         let db_path = db_dir.path().join("flywheel.db");
         let backups_dir = db_dir.path().join("backups");
         std::mem::forget(db_dir);
-        let mut conn = core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
+        let mut conn = flywheel_core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
         let actor_id = local_human_actor_id(&conn).expect("seeded human actor should exist");
 
         let project = register_project(&mut conn, &actor_id, &fixture.work_path, "Refused Project", "GHP6")
@@ -775,7 +775,7 @@ fn a_refusal_never_fails_registration_over_a_preexisting_pre_push() {
         let db_path = db_dir.path().join("flywheel.db");
         let backups_dir = db_dir.path().join("backups");
         std::mem::forget(db_dir);
-        let mut conn = core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
+        let mut conn = flywheel_core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
         let actor_id = local_human_actor_id(&conn).expect("seeded human actor should exist");
 
         let project = register_project(&mut conn, &actor_id, &fixture.work_path, "Refused Project 2", "GHP8")

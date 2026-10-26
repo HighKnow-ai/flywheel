@@ -8,7 +8,7 @@
 //! so these pin the three outcomes and run the near-timeout case repeatedly to make a regression
 //! likely to surface; they are not a deterministic reproducer.
 
-use core::proc::output_with_timeout;
+use flywheel_core::proc::output_with_timeout;
 use std::process::Command;
 use std::time::Duration;
 

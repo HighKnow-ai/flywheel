@@ -8,22 +8,22 @@
 
 mod common;
 
-use core::domain::actor::local_human_actor_id;
-use core::domain::milestone::{self, roadmap, set_milestone_state, MilestoneState};
-use core::domain::proposal::{
+use flywheel_core::domain::actor::local_human_actor_id;
+use flywheel_core::domain::milestone::{self, roadmap, set_milestone_state, MilestoneState};
+use flywheel_core::domain::proposal::{
     accept_proposal_amended, accept_proposal_released, get_proposal, proposals_in_round, reject_proposal_released,
 };
-use core::domain::roadmap_round::{
+use flywheel_core::domain::roadmap_round::{
     dismiss_roadmap_round, get_roadmap_round, latest_roadmap_round, open_roadmap_round, open_roadmap_round_for,
     RoadmapTrigger, DISMISSED_REASON,
 };
-use core::domain::session::{
+use flywheel_core::domain::session::{
     interrupt_session, live_shaping_session, mark_abandoned, start_shaping_session, ShapingSubject,
 };
-use core::domain::session_kind::SessionKind;
-use core::domain::shaping_tool::{apply_shaping_tool_call, ShapingToolCall, ShapingToolOutcome};
-use core::domain::{epic, story};
-use core::roadmap_packet::build_roadmap_packet;
+use flywheel_core::domain::session_kind::SessionKind;
+use flywheel_core::domain::shaping_tool::{apply_shaping_tool_call, ShapingToolCall, ShapingToolOutcome};
+use flywheel_core::domain::{epic, story};
+use flywheel_core::roadmap_packet::build_roadmap_packet;
 use rusqlite::Connection;
 use serde_json::{json, Value};
 
@@ -45,11 +45,11 @@ fn fixture() -> Fixture {
     std::fs::create_dir_all(&adr_dir).unwrap();
     std::fs::write(adr_dir.join("0001-board-holds-work.md"), "# The board holds the work\n\nStatus: accepted\n").unwrap();
     let dir = tempfile::tempdir().unwrap();
-    let mut conn = core::db::open_and_migrate(&dir.path().join("flywheel.db"), &dir.path().join("backups")).unwrap();
+    let mut conn = flywheel_core::db::open_and_migrate(&dir.path().join("flywheel.db"), &dir.path().join("backups")).unwrap();
     std::mem::forget(dir);
     let human = local_human_actor_id(&conn).unwrap();
     let project =
-        core::domain::project::create_project(&mut conn, &human, "Threadfin", &checkout.path().to_string_lossy(), "FLY", "main")
+        flywheel_core::domain::project::create_project(&mut conn, &human, "Threadfin", &checkout.path().to_string_lossy(), "FLY", "main")
             .unwrap();
     let m_done = milestone::create_milestone(&mut conn, &project.id, &human, "Clean cut", Some("v0.1 is gone")).unwrap();
     let m_current =
@@ -173,7 +173,7 @@ fn every_session_lifecycle_path_ends_a_roadmap_session_and_keeps_its_round() {
     assert!(mark_abandoned(&mut f.conn, &s, &f.human, None).unwrap());
     // Close, as the sidecar reports a clean exit
     let s = revisit(&mut f);
-    core::domain::session::apply_session_closed(
+    flywheel_core::domain::session::apply_session_closed(
         &mut f.conn,
         &json!({ "type": "session_closed", "runId": s, "reason": "completed" }),
     )
@@ -190,7 +190,7 @@ fn the_launch_reconciler_names_a_live_roadmap_session_as_the_roadmap() {
     let mut f = fixture();
     let s = revisit(&mut f);
     // No run descriptor: a dead process, so the reconciler abandons it.
-    let orphans = core::domain::session::reconcile_sessions(&mut f.conn, &f.human).unwrap();
+    let orphans = flywheel_core::domain::session::reconcile_sessions(&mut f.conn, &f.human).unwrap();
     assert!(orphans.is_empty());
     let status: String = f.conn.query_row("SELECT status FROM sessions WHERE id = ?1", [&s], |r| r.get(0)).unwrap();
     assert_eq!(status, "abandoned");
@@ -413,8 +413,8 @@ fn round_wait_is_held_and_waiting_on_you_until_the_last_decision_closes_the_roun
     assert!(matches!(held, ShapingToolOutcome::Held { .. }), "{held:?}");
     let round = get_roadmap_round(&f.conn, &id).unwrap().unwrap();
     assert!(round.waiting_on_you);
-    assert_eq!(core::query::fleet::waiting_rounds(&f.conn, 10).unwrap().iter().filter(|r| r.round_id == id).count(), 1);
-    assert_eq!(core::query::permissions::blocked_count_for_project(&f.conn, &f.project_id).unwrap(), 1);
+    assert_eq!(flywheel_core::query::fleet::waiting_rounds(&f.conn, 10).unwrap().iter().filter(|r| r.round_id == id).count(), 1);
+    assert_eq!(flywheel_core::query::permissions::blocked_count_for_project(&f.conn, &f.project_id).unwrap(), 1);
 
     let decided = reject_proposal_released(&mut f.conn, &f.human, &b, Some("Later")).unwrap();
     let release = decided.release.expect("the last decision releases the held round_wait");
@@ -426,7 +426,7 @@ fn round_wait_is_held_and_waiting_on_you_until_the_last_decision_closes_the_roun
     let round = get_roadmap_round(&f.conn, &id).unwrap().unwrap();
     assert_eq!(round.state, "closed");
     assert!(!round.waiting_on_you);
-    assert_eq!(core::query::permissions::blocked_count_for_project(&f.conn, &f.project_id).unwrap(), 0);
+    assert_eq!(flywheel_core::query::permissions::blocked_count_for_project(&f.conn, &f.project_id).unwrap(), 0);
 }
 
 #[test]
@@ -462,7 +462,7 @@ fn dismiss_closes_the_round_with_no_change_and_rejects_what_was_undecided() {
     call(&mut f, &s, "req-w", "round_wait", json!({})).unwrap();
     let id = round_id(&f);
 
-    let agent = core::domain::session::agent_actor_id(&f.conn).unwrap();
+    let agent = flywheel_core::domain::session::agent_actor_id(&f.conn).unwrap();
     assert!(dismiss_roadmap_round(&mut f.conn, &agent, &id).is_err(), "Dismiss is the developer's alone");
 
     let out = dismiss_roadmap_round(&mut f.conn, &f.human, &id).unwrap();
@@ -524,6 +524,6 @@ fn a_dropped_epic_leaves_the_milestones_epic_count() {
     let dock = epic::epics_in_milestone(&f.conn, &f.m_current).unwrap().pop().unwrap();
     let p = propose(&mut f, &s, json!({ "change": "drop_epic", "epic_id": dock.id, "why": "Folded into Rounds" }));
     accept(&mut f, &p);
-    let progress = core::query::progress::milestone_progress(&f.conn, &f.project_id, None).unwrap().unwrap();
+    let progress = flywheel_core::query::progress::milestone_progress(&f.conn, &f.project_id, None).unwrap().unwrap();
     assert_eq!(progress.epics_total, 1, "the dropped Epic is closed, not progress");
 }

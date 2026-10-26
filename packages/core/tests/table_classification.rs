@@ -1,12 +1,12 @@
 //! FNC-02 / D-22: every table the migrated database holds is classified in
-//! `core::schema_classification::TABLE_CLASSES`, and every classification names a table the
+//! `flywheel_core::schema_classification::TABLE_CLASSES`, and every classification names a table the
 //! database holds. The check reads `sqlite_master`, not the migration text, because a migration is
 //! SQL and a new table reaches the database without the compiler ever seeing it.
 //!
 //! Self-contained: carries its own scratch-database helper rather than sharing one.
 
-use core::db::open_and_migrate;
-use core::schema_classification::TABLE_CLASSES;
+use flywheel_core::db::open_and_migrate;
+use flywheel_core::schema_classification::TABLE_CLASSES;
 use rusqlite::Connection;
 
 /// FTS5 creates these implicitly for every virtual table; no migration can name them on its own.
@@ -47,7 +47,7 @@ fn database_tables(conn: &Connection) -> Vec<String> {
 
     let search_indexes: Vec<&str> = TABLE_CLASSES
         .iter()
-        .filter(|(_, class)| *class == core::schema_classification::TableClass::SearchIndex)
+        .filter(|(_, class)| *class == flywheel_core::schema_classification::TableClass::SearchIndex)
         .map(|(name, _)| *name)
         .collect();
 
@@ -86,7 +86,7 @@ fn every_table_in_the_database_is_classified_and_every_classification_exists() {
     let (unclassified, stale) = offenders(&conn);
     assert!(
         unclassified.is_empty() && stale.is_empty(),
-        "FNC-02: the schema and core::schema_classification::TABLE_CLASSES disagree.\n\
+        "FNC-02: the schema and flywheel_core::schema_classification::TABLE_CLASSES disagree.\n\
          In the database but not classified (classify the new table): {unclassified:?}\n\
          Classified but not in the database (remove the stale entry): {stale:?}"
     );

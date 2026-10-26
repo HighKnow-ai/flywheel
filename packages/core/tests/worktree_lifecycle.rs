@@ -9,8 +9,8 @@ mod common;
 
 use common::with_scratch_worktree_root;
 
-use core::domain::session::{close_session, start_session, SessionStatus};
-use core::domain::worktree::ensure_worktree;
+use flywheel_core::domain::session::{close_session, start_session, SessionStatus};
+use flywheel_core::domain::worktree::ensure_worktree;
 
 #[test]
 fn a_worktree_survives_two_runs() {
@@ -44,7 +44,7 @@ fn a_worktree_survives_two_runs() {
             "the uncommitted file's contents must be byte-identical after a second run started"
         );
 
-        let listing = core::git::worktree_list(repo_dir.path()).expect("worktree_list should succeed");
+        let listing = flywheel_core::git::worktree_list(repo_dir.path()).expect("worktree_list should succeed");
         let matching_lines: Vec<&str> = listing.lines().filter(|l| l.contains(&worktree_1.branch)).collect();
         assert_eq!(
             matching_lines.len(),

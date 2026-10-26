@@ -7,10 +7,10 @@ mod common;
 
 use std::path::Path;
 
-use core::domain::epic::{create_epic, set_epic_state, update_epic, EpicSpec, EpicState};
-use core::domain::milestone::create_milestone;
-use core::domain::project::create_project;
-use core::shaping_packet::build_epic_shaping_packet;
+use flywheel_core::domain::epic::{create_epic, set_epic_state, update_epic, EpicSpec, EpicState};
+use flywheel_core::domain::milestone::create_milestone;
+use flywheel_core::domain::project::create_project;
+use flywheel_core::shaping_packet::build_epic_shaping_packet;
 use rusqlite::Connection;
 
 const SECTION_HEADINGS: [&str; 7] = [
@@ -46,9 +46,9 @@ fn fixture() -> Fixture {
 
     let dir = common::scratch_dir();
     let mut conn =
-        core::db::open_and_migrate(&dir.path().join("flywheel.db"), &dir.path().join("backups")).unwrap();
+        flywheel_core::db::open_and_migrate(&dir.path().join("flywheel.db"), &dir.path().join("backups")).unwrap();
     std::mem::forget(dir);
-    let actor_id = core::domain::actor::local_human_actor_id(&conn).unwrap();
+    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).unwrap();
     let project =
         create_project(&mut conn, &actor_id, "Threadfin", &repo.path().to_string_lossy(), "FLY", "main").unwrap();
     let m = create_milestone(&mut conn, &project.id, &actor_id, "Shaping", Some("An idea becomes Ready Stories")).unwrap();
@@ -203,9 +203,9 @@ fn an_unknown_epic_is_an_error() {
 
 mod milestone_packet {
     use super::*;
-    use core::domain::adr_link::{link_adr, AdrLinkTarget};
-    use core::domain::milestone::{move_milestone, set_milestone_state, MilestoneState};
-    use core::shaping_packet::build_milestone_shaping_packet;
+    use flywheel_core::domain::adr_link::{link_adr, AdrLinkTarget};
+    use flywheel_core::domain::milestone::{move_milestone, set_milestone_state, MilestoneState};
+    use flywheel_core::shaping_packet::build_milestone_shaping_packet;
 
     const MILESTONE_HEADINGS: [&str; 6] = [
         "## Standing instructions",

@@ -23,10 +23,10 @@
 //! - `register_project` writes the marker file only after its database transaction has
 //!   committed — a rejected registration leaves no marker behind.
 
-use core::db::{apply_pragmas, open_and_migrate};
-use core::domain::actor::local_human_actor_id;
-use core::domain::project::{list_projects, reconcile_projects, register_project, relocate_project};
-use core::marker::{read_marker, write_marker, ProjectMarker};
+use flywheel_core::db::{apply_pragmas, open_and_migrate};
+use flywheel_core::domain::actor::local_human_actor_id;
+use flywheel_core::domain::project::{list_projects, reconcile_projects, register_project, relocate_project};
+use flywheel_core::marker::{read_marker, write_marker, ProjectMarker};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
 

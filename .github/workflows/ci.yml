@@ -123,7 +123,7 @@ jobs:
 
       # The uat_session_env, uat_fleet_ops, uat_roadmap_ops, uat_shaping_ops and uat_review_ops harness binaries and flywheel-shim. Not the desktop
       # crate, so no externalBin staging is needed here.
-      - run: cargo build -p core -p flywheel-shim
+      - run: cargo build -p flywheel-core -p flywheel-shim
 
       # The offline UAT (docs/mvp-spec.md §9): zero tokens, no `claude` binary, no credentials. The
       # job holds no secret. A SKIP exits 3, so it fails this step rather than passing silently.

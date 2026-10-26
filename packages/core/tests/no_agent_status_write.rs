@@ -16,9 +16,9 @@ use common::with_scratch_worktree_root;
 
 use std::path::{Path, PathBuf};
 
-use core::domain::session::start_session;
-use core::domain::worktree::{ensure_worktree, remove_worktree_for_story};
-use core::query::events::activity_trail;
+use flywheel_core::domain::session::start_session;
+use flywheel_core::domain::worktree::{ensure_worktree, remove_worktree_for_story};
+use flywheel_core::query::events::activity_trail;
 use rusqlite::Connection;
 
 // --- Shared source-scanning helpers ---
@@ -155,7 +155,7 @@ fn state_of(conn: &Connection, story_id: &str) -> String {
     conn.query_row("SELECT state FROM stories WHERE id = ?1", [story_id], |r| r.get(0)).unwrap()
 }
 
-fn events_of(conn: &Connection, story_id: &str, event_type: &str) -> Vec<core::query::events::EventRow> {
+fn events_of(conn: &Connection, story_id: &str, event_type: &str) -> Vec<flywheel_core::query::events::EventRow> {
     activity_trail(conn, "story", story_id, 500, 0)
         .unwrap()
         .into_iter()

@@ -5,7 +5,7 @@
 //! Pitfall 3 test below, which builds that exact real-world wording via `format!` so it is proved
 //! without ever appearing as a source-level literal).
 
-use core::git_retry::{
+use flywheel_core::git_retry::{
     exhaustion_event_payload, is_lock_contention, with_lock_retry, with_lock_retry_notify, CollisionCounter,
     LockExhausted, RETRY_JITTER_MS, RETRY_MAX_ATTEMPTS,
 };
@@ -269,7 +269,7 @@ fn exhaustion_event_payload_label_matches_the_copywriting_contract_sentence_exac
 // --- shim (Task 2): install_for_run behaviours and the built binary's fail-closed resolution ---
 
 mod shim {
-    use core::shim::{install_for_run, resolve_real_git, resolve_shim_binary, shim_env_for_run};
+    use flywheel_core::shim::{install_for_run, resolve_real_git, resolve_shim_binary, shim_env_for_run};
     use std::process::Command;
 
     /// Serializes every call to [`with_scratch_runtime_dir`] in THIS binary — `FLYWHEEL_RUNTIME_DIR`
@@ -375,11 +375,11 @@ mod shim {
     // --- install_for_run post-install verification (plan 03-25 Task 1, D-60) --------------------
 
     /// The exact per-run shim directory `install_for_run` targets — computed independently of
-    /// `shim_dir_for_run` (private to `core::shim`) so this test constructs its broken-entry
+    /// `shim_dir_for_run` (private to `flywheel_core::shim`) so this test constructs its broken-entry
     /// fixtures BEFORE `install_for_run` ever runs, exercising `install_shadow_entry`'s
     /// exists-already fast path.
     fn shim_dir_for_test_run(run_id: &str) -> std::path::PathBuf {
-        core::runtime_protocol::runtime_dir()
+        flywheel_core::runtime_protocol::runtime_dir()
             .expect("runtime_dir should resolve inside a scratch runtime dir")
             .join("shim")
             .join(run_id)

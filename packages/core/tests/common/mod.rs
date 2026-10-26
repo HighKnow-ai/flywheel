@@ -2,10 +2,10 @@
 //! a real repository), and a Story to hang sessions, worktrees and criteria off — created the way a
 //! developer would, Milestone then Epic then Story, through the domain writers.
 
-use core::db::open_and_migrate;
-use core::domain::actor::local_human_actor_id;
-use core::domain::project::{self, Project};
-use core::domain::{epic, milestone, story};
+use flywheel_core::db::open_and_migrate;
+use flywheel_core::domain::actor::local_human_actor_id;
+use flywheel_core::domain::project::{self, Project};
+use flywheel_core::domain::{epic, milestone, story};
 use rusqlite::Connection;
 use std::process::Command;
 

@@ -8,7 +8,7 @@ use common::with_scratch_worktree_root;
 
 use std::path::Path;
 
-use core::domain::worktree::{ensure_worktree, porcelain_entries, remove_worktree_for_story};
+use flywheel_core::domain::worktree::{ensure_worktree, porcelain_entries, remove_worktree_for_story};
 
 #[test]
 fn removing_a_clean_worktree_deletes_it_from_disk_and_the_database_and_appends_one_event() {
@@ -134,7 +134,7 @@ fn worktree_summary_for_story_on_a_story_with_no_worktrees_row_returns_none() {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let story = common::new_story(&mut conn, &project.id, &actor_id, "No worktree story");
 
-        let summary = core::query::sessions::worktree_summary_for_story(&conn, &story.id)
+        let summary = flywheel_core::query::sessions::worktree_summary_for_story(&conn, &story.id)
             .expect("worktree_summary_for_story should succeed");
         assert!(summary.is_none(), "a Story with no worktree row must resolve to None");
 

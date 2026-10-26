@@ -45,9 +45,9 @@
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use core::domain::session::{close_session, start_session, SessionStatus};
-use core::domain::story::{self, StoryState};
-use core::domain::{actor, epic, milestone, permission_request, project, worktree};
+use flywheel_core::domain::session::{close_session, start_session, SessionStatus};
+use flywheel_core::domain::story::{self, StoryState};
+use flywheel_core::domain::{actor, epic, milestone, permission_request, project, worktree};
 use rusqlite::Connection;
 use serde_json::json;
 
@@ -81,9 +81,9 @@ fn open_conn() -> Connection {
         "FLYWHEEL_APP_DATA_DIR",
         "refusing to touch the real fleet database. Point it at a scratch directory.",
     );
-    let db_path = core::db::default_db_path().unwrap_or_else(|e| fail(&format!("db path: {e:#}")));
-    let backups = core::db::default_backups_dir().unwrap_or_else(|e| fail(&format!("backups dir: {e:#}")));
-    core::db::open_and_migrate(&db_path, &backups).unwrap_or_else(|e| fail(&format!("open: {e:#}")))
+    let db_path = flywheel_core::db::default_db_path().unwrap_or_else(|e| fail(&format!("db path: {e:#}")));
+    let backups = flywheel_core::db::default_backups_dir().unwrap_or_else(|e| fail(&format!("backups dir: {e:#}")));
+    flywheel_core::db::open_and_migrate(&db_path, &backups).unwrap_or_else(|e| fail(&format!("open: {e:#}")))
 }
 
 /// The reading open: a plain connection with the app's pragmas, never migrating. This is how
@@ -93,9 +93,9 @@ fn open_plain() -> Connection {
         "FLYWHEEL_APP_DATA_DIR",
         "refusing to touch the real fleet database. Point it at a scratch directory.",
     );
-    let db_path = core::db::default_db_path().unwrap_or_else(|e| fail(&format!("db path: {e:#}")));
+    let db_path = flywheel_core::db::default_db_path().unwrap_or_else(|e| fail(&format!("db path: {e:#}")));
     let conn = Connection::open(&db_path).unwrap_or_else(|e| fail(&format!("open: {e}")));
-    core::db::apply_pragmas(&conn).unwrap_or_else(|e| fail(&format!("pragmas: {e:#}")));
+    flywheel_core::db::apply_pragmas(&conn).unwrap_or_else(|e| fail(&format!("pragmas: {e:#}")));
     conn
 }
 
@@ -168,14 +168,14 @@ fn main() {
             let usage = "append-log <run_id> <line>";
             let (run_id, line) = (arg(&args, 1, usage), arg(&args, 2, usage));
             require_env("FLYWHEEL_APP_DATA_DIR", "refusing to write into the real session logs.");
-            core::session_log::append_event_line(&run_id, &line)
+            flywheel_core::session_log::append_event_line(&run_id, &line)
                 .unwrap_or_else(|e| fail(&format!("append_event_line: {e:#}")));
             println!("{}", json!({ "appended": true }));
         }
         "fleet-list" => {
             let started = epoch_ms();
             let conn = open_plain();
-            let list = core::query::fleet::fleet_rows(&conn, 200)
+            let list = flywheel_core::query::fleet::fleet_rows(&conn, 200)
                 .unwrap_or_else(|e| fail(&format!("fleet_rows: {e:#}")));
             drop(conn);
             let rows: Vec<_> = list
@@ -183,7 +183,7 @@ fn main() {
                 .into_iter()
                 .map(|r| {
                     let activity = if is_live(&r.run_status) {
-                        core::session_log::read_tail(&r.session_id).map(|t| t.lines).unwrap_or_default()
+                        flywheel_core::session_log::read_tail(&r.session_id).map(|t| t.lines).unwrap_or_default()
                     } else {
                         Vec::new()
                     };
@@ -203,7 +203,7 @@ fn main() {
         }
         "blocked-queue" => {
             let conn = open_plain();
-            let entries = core::query::fleet::blocked_queue(&conn, 200)
+            let entries = flywheel_core::query::fleet::blocked_queue(&conn, 200)
                 .unwrap_or_else(|e| fail(&format!("blocked_queue: {e:#}")));
             let entries: Vec<_> = entries
                 .into_iter()
@@ -220,7 +220,7 @@ fn main() {
         "acknowledge" => {
             let run_id = arg(&args, 1, "acknowledge <run_id>");
             let conn = open_conn();
-            let changed = core::domain::session::acknowledge_run(&conn, &run_id)
+            let changed = flywheel_core::domain::session::acknowledge_run(&conn, &run_id)
                 .unwrap_or_else(|e| fail(&format!("acknowledge_run: {e:#}")));
             println!("{}", json!({ "changed": changed }));
         }

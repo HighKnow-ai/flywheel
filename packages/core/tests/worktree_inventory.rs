@@ -10,10 +10,10 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use core::domain::worktree::{
+use flywheel_core::domain::worktree::{
     ensure_worktree, reclaim_eligibility, ReclaimDisposition as D, ReclaimReason as R,
 };
-use core::query::fleet::{finish_worktree_inventory, worktree_inventory_inputs, WorktreeInventoryRow};
+use flywheel_core::query::fleet::{finish_worktree_inventory, worktree_inventory_inputs, WorktreeInventoryRow};
 use rusqlite::{params, Connection};
 
 // --- the pure table ---------------------------------------------------------------------------
@@ -118,11 +118,11 @@ fn dispositions_across_merged_dropped_dirty_live_and_unreachable() {
         let (open, _) = mk(&mut conn, "open");
 
         let (live, _) = mk(&mut conn, "live");
-        core::domain::session::start_session(&mut conn, &live, "default", &actor).unwrap();
+        flywheel_core::domain::session::start_session(&mut conn, &live, "default", &actor).unwrap();
         set_story_state(&conn, &live, "merged");
 
         let (blocked, _) = mk(&mut conn, "blocked");
-        let blocked_run = core::domain::session::start_session(&mut conn, &blocked, "default", &actor).unwrap();
+        let blocked_run = flywheel_core::domain::session::start_session(&mut conn, &blocked, "default", &actor).unwrap();
         conn.execute("UPDATE sessions SET status = 'blocked' WHERE id = ?1", params![blocked_run.id]).unwrap();
 
         let all = rows(&conn);

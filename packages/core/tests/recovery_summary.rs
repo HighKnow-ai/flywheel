@@ -7,10 +7,10 @@ mod common;
 
 use common::with_scratch_worktree_root;
 
-use core::domain::session::{acknowledge_run, mark_abandoned, start_session};
-use core::domain::project;
-use core::domain::worktree::{ensure_worktree, reconcile_worktrees};
-use core::query::recovery::{recovery_count_for_project, recovery_story_ids_for_project};
+use flywheel_core::domain::session::{acknowledge_run, mark_abandoned, start_session};
+use flywheel_core::domain::project;
+use flywheel_core::domain::worktree::{ensure_worktree, reconcile_worktrees};
+use flywheel_core::query::recovery::{recovery_count_for_project, recovery_story_ids_for_project};
 
 #[test]
 fn an_empty_project_returns_an_empty_set_and_a_zero_count() {

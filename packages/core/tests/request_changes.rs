@@ -12,16 +12,16 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use common::with_scratch_worktree_root;
-use core::context_packet::build_context_packet;
-use core::domain::acceptance_criterion::create_criterion;
-use core::domain::check::set_check;
-use core::domain::handoff::hand_off;
-use core::domain::request_changes::request_changes;
-use core::domain::review::{open_review, reviews_for_story};
-use core::domain::session::{agent_actor_id, close_session, start_session, SessionStatus};
-use core::domain::story::{get_story, set_story_state, Story, StoryState};
-use core::domain::task::{add_task, set_task_state, tasks_for_story, TaskState};
-use core::domain::worktree::{ensure_worktree, worktree_for_story};
+use flywheel_core::context_packet::build_context_packet;
+use flywheel_core::domain::acceptance_criterion::create_criterion;
+use flywheel_core::domain::check::set_check;
+use flywheel_core::domain::handoff::hand_off;
+use flywheel_core::domain::request_changes::request_changes;
+use flywheel_core::domain::review::{open_review, reviews_for_story};
+use flywheel_core::domain::session::{agent_actor_id, close_session, start_session, SessionStatus};
+use flywheel_core::domain::story::{get_story, set_story_state, Story, StoryState};
+use flywheel_core::domain::task::{add_task, set_task_state, tasks_for_story, TaskState};
+use flywheel_core::domain::worktree::{ensure_worktree, worktree_for_story};
 use rusqlite::{params, Connection};
 use tempfile::TempDir;
 

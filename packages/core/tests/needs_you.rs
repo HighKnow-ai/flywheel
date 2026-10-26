@@ -12,9 +12,9 @@
 
 mod common;
 
-use core::domain::{epic, milestone, story};
-use core::ids::new_id;
-use core::query::needs_you::{needs_you, NeedsYouItem, NeedsYouKind};
+use flywheel_core::domain::{epic, milestone, story};
+use flywheel_core::ids::new_id;
+use flywheel_core::query::needs_you::{needs_you, NeedsYouItem, NeedsYouKind};
 use rusqlite::{params, Connection};
 
 struct Board {
@@ -489,7 +489,7 @@ fn equal_ages_are_ordered_by_id_and_reads_are_deterministic() {
 fn another_projects_items_stay_out() {
     let mut b = board();
     b.story("Here", "in_review", "2026-10-01T00:00:00Z");
-    let other = core::domain::project::create_project(&mut b.conn, &b.actor_id, "Other", "/other", "OTH", "main").unwrap();
+    let other = flywheel_core::domain::project::create_project(&mut b.conn, &b.actor_id, "Other", "/other", "OTH", "main").unwrap();
     let m = milestone::create_milestone(&mut b.conn, &other.id, &b.actor_id, "M", None).unwrap();
     let e = epic::create_epic(&mut b.conn, &b.actor_id, &m.id, "E").unwrap();
     let s = story::create_story(&mut b.conn, &b.actor_id, &e.id, "There").unwrap();
@@ -511,7 +511,7 @@ impl Board {
         payload: serde_json::Value,
         at: &str,
     ) -> String {
-        use core::domain::proposal::{file_proposal, NewProposal, ProposalTarget, ProposalVerb};
+        use flywheel_core::domain::proposal::{file_proposal, NewProposal, ProposalTarget, ProposalVerb};
         let filed = file_proposal(
             &mut self.conn,
             &self.actor_id,
@@ -541,8 +541,8 @@ fn a_judged_on_proposal_is_its_own_item_ranked_with_review() {
     let mut b = board();
     let (running, running_key) = b.story("Parser", "running", "2026-10-01T00:00:00Z");
     let live = b.session(&running, "2026-10-01T00:00:00Z", None);
-    let criterion = core::domain::acceptance_criterion::create_criterion(&mut b.conn, &b.actor_id, &running, "Parses a line").unwrap();
-    core::domain::check::set_check(&mut b.conn, &b.actor_id, &criterion.id, "cargo test parser", None).unwrap();
+    let criterion = flywheel_core::domain::acceptance_criterion::create_criterion(&mut b.conn, &b.actor_id, &running, "Parses a line").unwrap();
+    flywheel_core::domain::check::set_check(&mut b.conn, &b.actor_id, &criterion.id, "cargo test parser", None).unwrap();
 
     let (old_review, _) = b.story("Handed off early", "in_review", "2026-10-02T00:00:00Z");
     let (new_review, _) = b.story("Handed off late", "in_review", "2026-10-06T00:00:00Z");
@@ -626,7 +626,7 @@ fn only_pending_judged_on_proposals_are_items() {
             .unwrap();
     }
     // A pending judged-on change is its own item and never counted in the Proposals row (#162).
-    let criterion = core::domain::acceptance_criterion::create_criterion(&mut b.conn, &b.actor_id, &running, "Parses a line").unwrap();
+    let criterion = flywheel_core::domain::acceptance_criterion::create_criterion(&mut b.conn, &b.actor_id, &running, "Parses a line").unwrap();
     let judged = b.filed(
         Some(&live),
         "amend",

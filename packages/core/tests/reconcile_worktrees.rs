@@ -7,8 +7,8 @@ use common::with_scratch_worktree_root;
 
 use std::path::Path;
 
-use core::domain::session::{mark_abandoned, start_session, SessionStatus};
-use core::domain::worktree::{ensure_worktree, reconcile_worktrees};
+use flywheel_core::domain::session::{mark_abandoned, start_session, SessionStatus};
+use flywheel_core::domain::worktree::{ensure_worktree, reconcile_worktrees};
 
 fn worktree_status(conn: &rusqlite::Connection, worktree_id: &str) -> String {
     conn.query_row(
@@ -225,7 +225,7 @@ fn mark_abandoned_is_a_no_op_on_an_already_terminal_run() {
         let run = start_session(&mut conn, &story.id, "acceptEdits", &actor_id)
             .expect("start_session should succeed");
 
-        core::domain::session::close_session(
+        flywheel_core::domain::session::close_session(
             &mut conn,
             &run.id,
             SessionStatus::Completed,
@@ -275,10 +275,10 @@ mod recreate_and_forget {
     use std::path::Path;
     use std::process::Command;
 
-    use core::domain::worktree::{
+    use flywheel_core::domain::worktree::{
         ensure_worktree, forget_worktree_record, reconcile_worktrees, recreate_worktree_for_story,
     };
-    use core::query::sessions::worktree_summary_for_story;
+    use flywheel_core::query::sessions::worktree_summary_for_story;
 
     use super::{event_count, with_scratch_worktree_root};
 

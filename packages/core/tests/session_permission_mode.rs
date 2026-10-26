@@ -1,8 +1,8 @@
 //! One permission mode per session kind (docs/mvp-spec.md §4.1, ADR 0001, issue #48). The session
 //! kind decides how Claude Code is launched; nothing the developer passes can change it.
 
-use core::domain::session_kind::{proposal_tools, SessionKind, BOARD_SERVER};
-use core::permission_pattern::suggested_rule;
+use flywheel_core::domain::session_kind::{proposal_tools, SessionKind, BOARD_SERVER};
+use flywheel_core::permission_pattern::suggested_rule;
 
 #[test]
 fn a_story_session_accepts_edits_and_allows_every_bash_command_without_asking() {

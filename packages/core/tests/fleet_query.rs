@@ -7,12 +7,12 @@
 
 mod common;
 
-use core::db::open_and_migrate;
-use core::domain::actor::local_human_actor_id;
-use core::domain::session::{acknowledge_run, ACKNOWLEDGEABLE_STATUSES};
-use core::domain::project::{create_project, Project};
-use core::ids::new_id;
-use core::query::fleet::{blocked_queue, fleet_rows, FLEET_ROWS_MAX_LIMIT};
+use flywheel_core::db::open_and_migrate;
+use flywheel_core::domain::actor::local_human_actor_id;
+use flywheel_core::domain::session::{acknowledge_run, ACKNOWLEDGEABLE_STATUSES};
+use flywheel_core::domain::project::{create_project, Project};
+use flywheel_core::ids::new_id;
+use flywheel_core::query::fleet::{blocked_queue, fleet_rows, FLEET_ROWS_MAX_LIMIT};
 use rusqlite::{params, Connection};
 
 struct Fixture {
@@ -84,7 +84,7 @@ fn story(f: &mut Fixture, project_id: &str, title: &str, state: &str) -> String 
     s.id
 }
 
-fn ids(rows: &core::query::fleet::FleetList) -> Vec<String> {
+fn ids(rows: &flywheel_core::query::fleet::FleetList) -> Vec<String> {
     rows.rows.iter().map(|r| r.session_id.clone()).collect()
 }
 
@@ -461,7 +461,7 @@ fn an_empty_database_has_an_empty_queue() {
 
 #[test]
 fn each_row_carries_its_storys_doing_task_and_none_without_one() {
-    use core::domain::task::{add_task, set_task_state, TaskState};
+    use flywheel_core::domain::task::{add_task, set_task_state, TaskState};
     let mut f = fixture();
     let alpha = project(&mut f, "Alpha", "ALP");
     let beta = project(&mut f, "Beta", "BET");
@@ -493,17 +493,17 @@ fn each_row_carries_its_storys_doing_task_and_none_without_one() {
 // is an agent (GLOSSARY.md § Agent), and the fleet read returns it beside the rows, naming its subject.
 // ---------------------------------------------------------------------------------------------
 
-fn start_shaping(f: &mut Fixture, subject: core::domain::session::ShapingSubject) -> String {
-    use core::domain::session_kind::SessionKind;
+fn start_shaping(f: &mut Fixture, subject: flywheel_core::domain::session::ShapingSubject) -> String {
+    use flywheel_core::domain::session_kind::SessionKind;
     let mode = SessionKind::Shaping.launch_policy().permission_mode;
     let actor = f.actor_id.clone();
-    core::domain::session::start_shaping_session(&mut f.conn, &subject, mode, &actor).expect("start_shaping_session").id
+    flywheel_core::domain::session::start_shaping_session(&mut f.conn, &subject, mode, &actor).expect("start_shaping_session").id
 }
 
 #[test]
 fn the_fleet_returns_a_live_shaping_session_naming_its_epic_milestone_or_roadmap() {
-    use core::domain::session::ShapingSubject;
-    use core::domain::{epic, milestone};
+    use flywheel_core::domain::session::ShapingSubject;
+    use flywheel_core::domain::{epic, milestone};
     let mut f = fixture();
     let alpha = project(&mut f, "Alpha", "ALP");
     let actor = f.actor_id.clone();
@@ -544,8 +544,8 @@ fn the_fleet_returns_a_live_shaping_session_naming_its_epic_milestone_or_roadmap
 
 #[test]
 fn the_fleet_returns_a_shaping_session_held_on_its_round_as_waiting_on_you_and_first() {
-    use core::domain::session::ShapingSubject;
-    use core::domain::{epic, milestone};
+    use flywheel_core::domain::session::ShapingSubject;
+    use flywheel_core::domain::{epic, milestone};
     let mut f = fixture();
     let alpha = project(&mut f, "Alpha", "ALP");
     let actor = f.actor_id.clone();
@@ -576,8 +576,8 @@ fn the_fleet_returns_a_shaping_session_held_on_its_round_as_waiting_on_you_and_f
 
 #[test]
 fn the_fleet_returns_no_ended_shaping_session_and_none_in_a_hidden_project() {
-    use core::domain::session::ShapingSubject;
-    use core::domain::{epic, milestone, project::hide_project};
+    use flywheel_core::domain::session::ShapingSubject;
+    use flywheel_core::domain::{epic, milestone, project::hide_project};
     let mut f = fixture();
     let alpha = project(&mut f, "Alpha", "ALP");
     let gone = project(&mut f, "Gone", "GON");

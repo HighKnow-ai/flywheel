@@ -13,7 +13,7 @@ use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::Duration;
 
-use core::login_path::{adopt, adopted, claude_bin, find_on_path};
+use flywheel_core::login_path::{adopt, adopted, claude_bin, find_on_path};
 
 const FINDER_PATH: &str = "/usr/bin:/bin:/usr/sbin:/sbin";
 
@@ -66,7 +66,7 @@ fn a_session_spawns_claude_found_only_on_the_login_profile_path() {
     assert_eq!(claude_bin(), Ok(stub.clone()), "Start's check finds the stub on the login PATH");
 
     // The session's env, built the way every launch builds it: the shim directory in front of PATH.
-    let session_env = core::shim::shim_env_for_run("login-path-run").expect("the shim installs");
+    let session_env = flywheel_core::shim::shim_env_for_run("login-path-run").expect("the shim installs");
     let session_path = session_env["PATH"].clone();
     assert_eq!(session_path.split_once(':').map(|(_, rest)| rest), Some(login.path.as_str()));
     let shim_dir = PathBuf::from(session_path.split(':').next().unwrap());

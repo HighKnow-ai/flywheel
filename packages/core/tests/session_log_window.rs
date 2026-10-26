@@ -8,8 +8,8 @@
 //! real OS app-data directory (no test-seam exists for this path yet) — each test uses a fresh
 //! ULID-shaped run id so tests never collide, and removes its own file when it finishes.
 
-use core::ids::new_id;
-use core::session_log::{count_lines, read_window, session_log_path, sessions_dir, LOG_WINDOW_MAX_LIMIT};
+use flywheel_core::ids::new_id;
+use flywheel_core::session_log::{count_lines, read_window, session_log_path, sessions_dir, LOG_WINDOW_MAX_LIMIT};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 

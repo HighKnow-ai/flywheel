@@ -8,17 +8,17 @@ mod common;
 
 use common::with_scratch_worktree_root;
 
-use core::domain::session::{
+use flywheel_core::domain::session::{
     apply_session_closed, close_session, start_session, Session, SessionStatus,
     SessionClosedOutcome,
 };
-use core::domain::project::Project;
-use core::domain::session_summary::{
+use flywheel_core::domain::project::Project;
+use flywheel_core::domain::session_summary::{
     create_summary, latest_summary_for_run, list_summaries_for_story, synthesize_fallback_summary,
 };
-use core::domain::story::Story;
-use core::domain::task::{add_task, set_task_state, TaskState};
-use core::domain::worktree::ensure_worktree;
+use flywheel_core::domain::story::Story;
+use flywheel_core::domain::task::{add_task, set_task_state, TaskState};
+use flywheel_core::domain::worktree::ensure_worktree;
 use rusqlite::{params, Connection};
 use tempfile::TempDir;
 

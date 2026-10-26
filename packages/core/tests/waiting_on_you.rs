@@ -11,12 +11,12 @@ mod common;
 
 use common::with_scratch_worktree_root;
 
-use core::domain::permission_request::{answer_request, create_pending_request};
-use core::domain::session::{interrupt_session, mark_abandoned, start_session};
-use core::domain::story::{set_story_state, StoryState};
-use core::query::fleet::{blocked_queue, fleet_rows};
-use core::query::sessions::stopped_session_for_story;
-use core::query::permissions::{blocked_count_for_project, blocked_story_ids_for_project};
+use flywheel_core::domain::permission_request::{answer_request, create_pending_request};
+use flywheel_core::domain::session::{interrupt_session, mark_abandoned, start_session};
+use flywheel_core::domain::story::{set_story_state, StoryState};
+use flywheel_core::query::fleet::{blocked_queue, fleet_rows};
+use flywheel_core::query::sessions::stopped_session_for_story;
+use flywheel_core::query::permissions::{blocked_count_for_project, blocked_story_ids_for_project};
 use rusqlite::{params, Connection};
 
 struct Seeded {
@@ -201,12 +201,12 @@ fn an_expired_request_stops_counting_the_moment_it_is_expired() {
 
 mod shaping {
     use super::common;
-    use core::domain::round::{answer_round_question, post_round, NewQuestion, NewRound, RoundAnswer};
-    use core::domain::session::{interrupt_session, start_shaping_session, ShapingSubject};
-    use core::domain::{epic, milestone};
-    use core::query::fleet::waiting_rounds;
-    use core::query::permissions::{blocked_count_for_project, blocked_story_ids_for_project, waiting_epic_ids_for_project};
-    use core::query::progress::epic_progress;
+    use flywheel_core::domain::round::{answer_round_question, post_round, NewQuestion, NewRound, RoundAnswer};
+    use flywheel_core::domain::session::{interrupt_session, start_shaping_session, ShapingSubject};
+    use flywheel_core::domain::{epic, milestone};
+    use flywheel_core::query::fleet::waiting_rounds;
+    use flywheel_core::query::permissions::{blocked_count_for_project, blocked_story_ids_for_project, waiting_epic_ids_for_project};
+    use flywheel_core::query::progress::epic_progress;
     use rusqlite::Connection;
 
     struct Shaping {

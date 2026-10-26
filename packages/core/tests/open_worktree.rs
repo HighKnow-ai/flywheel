@@ -7,11 +7,11 @@
 
 mod common;
 
-use core::domain::worktree::{
+use flywheel_core::domain::worktree::{
     open_command_template, resolve_open_argv, set_open_command_template, OpenSurface,
     DEFAULT_EDITOR_TEMPLATE, DEFAULT_TERMINAL_TEMPLATE, WORKTREE_PATH_TOKEN,
 };
-use core::ids::new_id;
+use flywheel_core::ids::new_id;
 use rusqlite::{params, Connection};
 
 use common::seeded_project;

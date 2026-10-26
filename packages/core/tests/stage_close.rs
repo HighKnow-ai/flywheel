@@ -14,18 +14,18 @@
 
 mod common;
 
-use core::domain::proposal::{accept_proposal, count_undecided_proposals_in_stage, reject_proposal};
-use core::domain::round::{
+use flywheel_core::domain::proposal::{accept_proposal, count_undecided_proposals_in_stage, reject_proposal};
+use flywheel_core::domain::round::{
     accept_all_recommended, answer_round_question, post_round, AdrDraft, NewQuestion, NewRound, RoundAnswer,
 };
-use core::domain::session::{agent_actor_id, live_shaping_session, start_shaping_session, ShapingSubject};
-use core::domain::session_kind::SessionKind;
-use core::domain::shaping_tool::{apply_shaping_tool_call, ShapingToolCall, ShapingToolOutcome};
-use core::domain::stage::{close_stage, open_stage, stage_status, stages_for_epic, OpenItem, StageKind};
-use core::domain::acceptance_criterion::create_criterion;
-use core::domain::story::{self, StoryState};
-use core::domain::{actor, epic, milestone};
-use core::shaping_packet::build_epic_shaping_packet;
+use flywheel_core::domain::session::{agent_actor_id, live_shaping_session, start_shaping_session, ShapingSubject};
+use flywheel_core::domain::session_kind::SessionKind;
+use flywheel_core::domain::shaping_tool::{apply_shaping_tool_call, ShapingToolCall, ShapingToolOutcome};
+use flywheel_core::domain::stage::{close_stage, open_stage, stage_status, stages_for_epic, OpenItem, StageKind};
+use flywheel_core::domain::acceptance_criterion::create_criterion;
+use flywheel_core::domain::story::{self, StoryState};
+use flywheel_core::domain::{actor, epic, milestone};
+use flywheel_core::shaping_packet::build_epic_shaping_packet;
 use rusqlite::Connection;
 
 struct Fixture {
@@ -61,7 +61,7 @@ impl Fixture {
     }
 
     /// The agent posts a Round of `titles.len()` questions, holding `req-<n>`.
-    fn post(&mut self, titles: &[&str]) -> core::domain::round::Round {
+    fn post(&mut self, titles: &[&str]) -> flywheel_core::domain::round::Round {
         let round = NewRound {
             note: "Settles the problem.".into(),
             questions: titles

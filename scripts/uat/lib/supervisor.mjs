@@ -51,7 +51,7 @@ if (stdinMode === "fifo" && !fifoPath) {
 
 const harnessBin = resolveHarnessBinary("uat_session_env");
 if (harnessBin === undefined) {
-  process.stderr.write("uat_session_env is not built — run `cargo build -p core --bin uat_session_env`\n");
+  process.stderr.write("uat_session_env is not built — run `cargo build -p flywheel-core --bin uat_session_env`\n");
   process.exit(2);
 }
 

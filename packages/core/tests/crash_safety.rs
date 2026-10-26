@@ -15,7 +15,7 @@ use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
-use core::db::open_and_migrate;
+use flywheel_core::db::open_and_migrate;
 
 fn scratch_dir() -> tempfile::TempDir {
     tempfile::tempdir().expect("failed to create scratch dir")

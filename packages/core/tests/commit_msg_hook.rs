@@ -4,14 +4,14 @@
 //! the ambient config) and copies its `with_scratch_envs`/`register`/`run_git*`/`fresh_repo`
 //! helpers rather than sharing them — each `tests/*.rs` file compiles to its own binary.
 //!
-//! Every branch name under test is built by calling [`core::branch::story_branch_name`], never a hand-written literal (RESEARCH.md
+//! Every branch name under test is built by calling [`flywheel_core::branch::story_branch_name`], never a hand-written literal (RESEARCH.md
 //! assumption A2) — the test proves the hook's `sed` extraction agrees with the real derivation
 //! function, not with a string this file invented independently.
 
-use core::branch::story_branch_name;
-use core::domain::actor::local_human_actor_id;
-use core::domain::project::register_project;
-use core::git_hooks::{
+use flywheel_core::branch::story_branch_name;
+use flywheel_core::domain::actor::local_human_actor_id;
+use flywheel_core::domain::project::register_project;
+use flywheel_core::git_hooks::{
     hooks_dir_for_repo, install_commit_msg_hook, install_pre_push_hook, CommitMsgInstall,
     PrePushInstall, COMMIT_MSG_MARKER, PRE_PUSH_MARKER,
 };
@@ -88,7 +88,7 @@ fn register(worktree_root: &Path, runtime_dir: &Path, work_path: &Path, key_pref
         let db_path = db_dir.path().join("flywheel.db");
         let backups_dir = db_dir.path().join("backups");
         std::mem::forget(db_dir);
-        let mut conn = core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
+        let mut conn = flywheel_core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
         let actor_id = local_human_actor_id(&conn).expect("seeded human actor should exist");
         let project = register_project(&mut conn, &actor_id, work_path, "Commit Msg Hook Fixture", key_prefix)
             .expect("register_project should succeed");

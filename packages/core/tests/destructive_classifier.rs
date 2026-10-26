@@ -7,9 +7,9 @@ mod common;
 
 use common::with_scratch_worktree_root;
 
-use core::destructive::DestructiveCategory;
-use core::domain::session::start_session;
-use core::domain::permission_request::{
+use flywheel_core::destructive::DestructiveCategory;
+use flywheel_core::domain::session::start_session;
+use flywheel_core::domain::permission_request::{
     answer_request, create_pending_request, DestructiveAllowAlwaysRejected,
 };
 use rusqlite::Connection;
@@ -37,7 +37,7 @@ fn args(items: &[&str]) -> Vec<String> {
 
 mod destructive_gated_actions {
     use super::args;
-    use core::destructive::{classify, classify_in, DestructiveCategory, GateContext, Verdict};
+    use flywheel_core::destructive::{classify, classify_in, DestructiveCategory, GateContext, Verdict};
     use std::path::{Path, PathBuf};
 
     const STORY: &str = "flywheel/s-1-gate";
@@ -528,7 +528,7 @@ mod destructive_gated_actions {
 fn migration_source_list_defines_the_destructive_gate_column_exactly_once() {
     // The schema of record is one baseline migration; `permission_requests.destructive_category`
     // must be declared in exactly one registered migration, never zero, never twice.
-    let sources = core::db::migration_sources();
+    let sources = flywheel_core::db::migration_sources();
     let occurrences = sources.iter().map(|s| s.matches("destructive_category TEXT").count()).sum::<usize>();
     assert_eq!(occurrences, 1, "destructive_category must be defined by exactly one migration");
 }
@@ -624,7 +624,7 @@ fn answer_request_still_accepts_allowed_always_for_a_routine_non_destructive_req
 // no-cached-answer contract, driven against a real mock permission socket server. ---
 
 mod shim_gate {
-    use core::shim::resolve_shim_binary;
+    use flywheel_core::shim::resolve_shim_binary;
     use std::io::{BufRead, BufReader, Write};
     use std::os::unix::net::UnixListener;
     use std::os::unix::process::CommandExt;

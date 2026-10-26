@@ -1,5 +1,5 @@
 [package]
-name = "desktop"
+name = "flywheel-desktop"
 version = "0.1.0"
 description = "Flywheel — the desktop shell (Tauri v2 + React)"
 authors = ["HighKnow"]
@@ -8,9 +8,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 # The modules are a library so integration tests can drive the commands (issue #220); `main.rs`
-# builds the app. Named apart from the `desktop` binary, as `create-tauri-app` does.
+# builds the app. Named apart from the `flywheel-desktop` binary, as `create-tauri-app` does.
 [lib]
-name = "desktop_lib"
+name = "flywheel_desktop_lib"
 path = "src/lib.rs"
 
 [build-dependencies]
@@ -26,13 +26,12 @@ tauri-plugin-shell = "2"
 anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
-# Dependency-key renamed to `flywheel_core` (not `core`): the `core` package name is kept
-# for `cargo metadata`/workspace-member identity, but a dependency literally named `core`
-# shadows the sysroot `core` crate in the extern prelude of this crate, which breaks
-# `tauri::generate_context!()`'s internal unqualified `core::` references (verified locally
-# — E0433 "cannot find `option` in `core`"). Aliasing the key sidesteps the collision while
-# the underlying package (and `cargo metadata`'s workspace member) is still named `core`.
-flywheel_core = { path = "../../core", package = "core" }
+# The package is `flywheel-core` (decision 202 of the HighKnow monorepo, which names both trees'
+# crates by product). A dependency literally named `core` would shadow the sysroot `core` crate in
+# this crate's extern prelude and break `tauri::generate_context!()`'s unqualified `core::`
+# references (E0433 "cannot find `option` in `core`"), which is why it was aliased before the
+# rename; the product name now avoids the collision on its own.
+flywheel-core = { path = "../../core" }
 tauri-plugin-dialog = "2.7.3"
 # D-181 (Phase 10 plan 10-07): OS notifications, emitted by the Rust core only. Pinned to 2.4.0 so the
 # phase stays on `tauri = "=2.11.5"`; the window is granted nothing from this plugin (D-175).

@@ -16,7 +16,7 @@
 use std::io::Write;
 use std::path::PathBuf;
 
-use core::domain::{actor, milestone, project};
+use flywheel_core::domain::{actor, milestone, project};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -34,7 +34,7 @@ fn main() {
                 .parse()
                 .expect("n must be a non-negative integer");
 
-            let mut conn = core::db::open_and_migrate(&db_path, &backups_dir)
+            let mut conn = flywheel_core::db::open_and_migrate(&db_path, &backups_dir)
                 .expect("open_and_migrate should succeed");
             let actor_id =
                 actor::local_human_actor_id(&conn).expect("local human actor should be seeded");
@@ -61,7 +61,7 @@ fn main() {
             }
         }
         "--abort-mid-transaction" => {
-            let mut conn = core::db::open_and_migrate(&db_path, &backups_dir)
+            let mut conn = flywheel_core::db::open_and_migrate(&db_path, &backups_dir)
                 .expect("open_and_migrate should succeed");
             let actor_id =
                 actor::local_human_actor_id(&conn).expect("local human actor should be seeded");
@@ -76,8 +76,8 @@ fn main() {
             .expect("create_project should succeed");
 
             let tx = conn.transaction().expect("failed to open the transaction");
-            let milestone_id = core::ids::new_id();
-            let event_id = core::ids::new_id();
+            let milestone_id = flywheel_core::ids::new_id();
+            let event_id = flywheel_core::ids::new_id();
             let now = chrono::Utc::now().to_rfc3339();
 
             tx.execute(

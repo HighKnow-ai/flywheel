@@ -5,11 +5,11 @@
 mod common;
 
 use common::seeded_project;
-use core::domain::acceptance_criterion::criteria_for_story;
-use core::domain::actor::system_actor;
-use core::domain::check::check_for_criterion;
-use core::domain::story::{stories_in_epic, stories_in_project, write_story_by_hand, HandWrittenCriterion};
-use core::domain::{epic, milestone};
+use flywheel_core::domain::acceptance_criterion::criteria_for_story;
+use flywheel_core::domain::actor::system_actor;
+use flywheel_core::domain::check::check_for_criterion;
+use flywheel_core::domain::story::{stories_in_epic, stories_in_project, write_story_by_hand, HandWrittenCriterion};
+use flywheel_core::domain::{epic, milestone};
 use rusqlite::Connection;
 
 fn epic_in(conn: &mut Connection, project_id: &str, actor: &str, milestone_title: &str, epic_title: &str) -> String {
@@ -123,7 +123,7 @@ fn the_projects_stories_are_listed_in_roadmap_order() {
     let a1 = write_story_by_hand(&mut conn, &actor, &first, "A1", None, &[criterion("x", None)]).unwrap();
     let a2 = write_story_by_hand(&mut conn, &actor, &first, "A2", None, &[criterion("x", None)]).unwrap();
 
-    let other_project = core::domain::project::create_project(&mut conn, &actor, "Other", "/other", "OTH", "main")
+    let other_project = flywheel_core::domain::project::create_project(&mut conn, &actor, "Other", "/other", "OTH", "main")
         .unwrap()
         .id;
     let other_epic = epic_in(&mut conn, &other_project, &actor, "Other", "Other");

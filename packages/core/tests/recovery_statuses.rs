@@ -5,8 +5,8 @@
 
 mod common;
 
-use core::domain::session::SessionStatus;
-use core::ids::new_id;
+use flywheel_core::domain::session::SessionStatus;
+use flywheel_core::ids::new_id;
 use rusqlite::{params, Connection};
 
 use common::{new_story, seeded_project};

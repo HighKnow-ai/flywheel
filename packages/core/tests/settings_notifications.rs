@@ -3,7 +3,7 @@
 
 mod common;
 
-use core::domain::settings::{notifications_enabled, set_notifications_enabled, DEFAULT_NOTIFICATIONS_ENABLED};
+use flywheel_core::domain::settings::{notifications_enabled, set_notifications_enabled, DEFAULT_NOTIFICATIONS_ENABLED};
 use rusqlite::{params, Connection};
 
 fn write_raw(conn: &Connection, actor: &str, value: &str) {

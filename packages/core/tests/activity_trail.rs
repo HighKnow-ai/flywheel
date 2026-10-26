@@ -11,11 +11,11 @@
 mod common;
 
 use common::{new_story, seeded_project};
-use core::domain::acceptance_criterion::accept_criterion;
-use core::domain::event::{append_event, next_sequence};
-use core::domain::story::{set_story_state, update_story, StoryState};
-use core::ids::new_id;
-use core::query::events::activity_trail;
+use flywheel_core::domain::acceptance_criterion::accept_criterion;
+use flywheel_core::domain::event::{append_event, next_sequence};
+use flywheel_core::domain::story::{set_story_state, update_story, StoryState};
+use flywheel_core::ids::new_id;
+use flywheel_core::query::events::activity_trail;
 use rusqlite::params;
 
 #[test]

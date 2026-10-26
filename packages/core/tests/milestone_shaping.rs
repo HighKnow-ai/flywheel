@@ -11,20 +11,20 @@
 
 mod common;
 
-use core::domain::milestone::{get_milestone, milestone_state, set_milestone_state, MilestoneState};
-use core::domain::proposal::{
+use flywheel_core::domain::milestone::{get_milestone, milestone_state, set_milestone_state, MilestoneState};
+use flywheel_core::domain::proposal::{
     accept_proposal, accept_proposal_amended, file_proposal, get_proposal, proposals_on_milestone, reject_proposal,
     NewProposal, ProposalTarget, ProposalVerb,
 };
-use core::domain::round::{accept_all_recommended, post_round, rounds_for_milestone, NewQuestion, NewRound};
-use core::domain::session::{agent_actor_id, live_shaping_session, start_shaping_session, ShapingSubject};
-use core::domain::session_kind::SessionKind;
-use core::domain::shaping_tool::{apply_shaping_tool_call, ShapingToolCall, ShapingToolOutcome, SHAPING_TOOL_NAMES};
-use core::domain::stage::{close_stage, open_stage, stage_status, StageKind};
-use core::domain::story::{create_story, set_story_state, StoryState};
-use core::domain::{epic, milestone};
-use core::query::fleet::waiting_rounds;
-use core::query::permissions::{blocked_count_for_project, waiting_epic_ids_for_project, waiting_milestone_ids_for_project};
+use flywheel_core::domain::round::{accept_all_recommended, post_round, rounds_for_milestone, NewQuestion, NewRound};
+use flywheel_core::domain::session::{agent_actor_id, live_shaping_session, start_shaping_session, ShapingSubject};
+use flywheel_core::domain::session_kind::SessionKind;
+use flywheel_core::domain::shaping_tool::{apply_shaping_tool_call, ShapingToolCall, ShapingToolOutcome, SHAPING_TOOL_NAMES};
+use flywheel_core::domain::stage::{close_stage, open_stage, stage_status, StageKind};
+use flywheel_core::domain::story::{create_story, set_story_state, StoryState};
+use flywheel_core::domain::{epic, milestone};
+use flywheel_core::query::fleet::waiting_rounds;
+use flywheel_core::query::permissions::{blocked_count_for_project, waiting_epic_ids_for_project, waiting_milestone_ids_for_project};
 use rusqlite::Connection;
 use serde_json::json;
 
@@ -60,7 +60,7 @@ impl Fixture {
         open_stage(&self.conn, &self.subject()).unwrap().expect("an open Stage").id
     }
 
-    fn post(&mut self, n: usize) -> core::domain::round::Round {
+    fn post(&mut self, n: usize) -> flywheel_core::domain::round::Round {
         let round = NewRound {
             note: "Settles what the exit test observes.".into(),
             questions: (1..=n)

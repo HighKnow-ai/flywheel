@@ -19,10 +19,10 @@
 
 mod common;
 
-use core::credentials::{
+use flywheel_core::credentials::{
     self, ANTHROPIC_API_KEY_ENV_VAR, CredentialMode, KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE,
 };
-use core::domain::settings;
+use flywheel_core::domain::settings;
 use rusqlite::{params, Connection};
 
 const TEST_API_KEY_VALUE: &str = "sk-ant-test-fixture-0001";

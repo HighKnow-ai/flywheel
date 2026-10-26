@@ -21,7 +21,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const APP = process.env.FLYWHEEL_APP ?? "/Applications/Flywheel.app";
-const PROC = "desktop"; // the bundle's main executable name, as System Events sees the process
+const PROC = "flywheel-desktop"; // the bundle's main executable name, as System Events sees the process
 const KEEP = process.env.KEEP_SHOTS_DIR; // optional: copy the window shots here (they hold only the app window)
 // Tolerance: +-4 of 255 per channel. Allows for display colour management (the capture is in the
 // display's profile, e.g. Display P3) while staying far below the gap between the two grounds.

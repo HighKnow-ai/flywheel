@@ -84,7 +84,7 @@ await runScript("uat-17", "UAT 17 — shape a Milestone's exit test; confirming 
   if (bin === undefined) {
     throw new Error(
       "HARNESS PRECONDITION FAILED: the uat_roadmap_ops binary was not found under target/{debug,release} — " +
-        "run `cargo build -p core --bin uat_roadmap_ops --bin uat_session_env` first",
+        "run `cargo build -p flywheel-core --bin uat_roadmap_ops --bin uat_session_env` first",
     );
   }
   const env = { ...process.env, FLYWHEEL_APP_DATA_DIR: harness.appDataDir };

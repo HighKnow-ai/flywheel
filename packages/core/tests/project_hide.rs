@@ -12,12 +12,12 @@
 
 mod common;
 
-use core::db::open_and_migrate;
-use core::domain::actor::local_human_actor_id;
-use core::domain::project::{create_project, hide_project, list_projects, register_project, restore_project, Project};
-use core::git_identity::{resolve_identifier, GitIdentifier, ResolveOutcome};
-use core::ids::new_id;
-use core::query::fleet::{blocked_queue, fleet_rows, worktree_inventory_inputs, worktree_measure_targets};
+use flywheel_core::db::open_and_migrate;
+use flywheel_core::domain::actor::local_human_actor_id;
+use flywheel_core::domain::project::{create_project, hide_project, list_projects, register_project, restore_project, Project};
+use flywheel_core::git_identity::{resolve_identifier, GitIdentifier, ResolveOutcome};
+use flywheel_core::ids::new_id;
+use flywheel_core::query::fleet::{blocked_queue, fleet_rows, worktree_inventory_inputs, worktree_measure_targets};
 use rusqlite::{params, Connection};
 
 struct Fixture {
@@ -249,7 +249,7 @@ fn the_fleet_blocked_queue_and_worktree_reads_skip_a_hidden_project_and_restore_
     assert_eq!(inventory_stories(&f), vec![keep_story.clone()]);
     assert_eq!(measure_stories(&f), vec![keep_story.clone()]);
     // By-id: the hidden project's one worktree still resolves, so reclaim and history keep working.
-    assert!(core::query::fleet::worktree_inventory_input_for_story(&f.conn, &gone_story).unwrap().is_some());
+    assert!(flywheel_core::query::fleet::worktree_inventory_input_for_story(&f.conn, &gone_story).unwrap().is_some());
 
     restore_project(&mut f.conn, &f.actor_id, &gone.id).unwrap();
 
@@ -268,7 +268,7 @@ fn the_git_identity_sha_sweep_skips_a_hidden_project_and_restore_brings_it_back(
     std::fs::create_dir_all(&repo).unwrap();
     let p = create_project(&mut f.conn, &f.actor_id, "Real", repo.to_str().unwrap(), "REA", "main").unwrap();
     let story = common::new_story(&mut f.conn, &p.id, &f.actor_id, "Stamped story");
-    let trailer = format!("{}: {}", core::git_hooks::TRAILER_STORY_KEY, story.key.to_lowercase());
+    let trailer = format!("{}: {}", flywheel_core::git_hooks::TRAILER_STORY_KEY, story.key.to_lowercase());
     for args in [
         vec!["init", "-q", "-b", "main"],
         vec!["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "first", "-m", &trailer],

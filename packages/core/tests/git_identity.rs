@@ -11,10 +11,10 @@ use std::process::{Command, Output};
 mod common;
 
 use common::new_story;
-use core::branch::story_branch_name;
-use core::domain::actor::local_human_actor_id;
-use core::domain::project::{register_project, Project};
-use core::git_identity::{classify, resolve_identifier, GitIdentifier, IdentityResolution, ResolveOutcome};
+use flywheel_core::branch::story_branch_name;
+use flywheel_core::domain::actor::local_human_actor_id;
+use flywheel_core::domain::project::{register_project, Project};
+use flywheel_core::git_identity::{classify, resolve_identifier, GitIdentifier, IdentityResolution, ResolveOutcome};
 use rusqlite::{params, Connection};
 
 /// Serializes every call to [`with_scratch_envs`] in THIS binary — `FLYWHEEL_WORKTREE_ROOT` and
@@ -94,7 +94,7 @@ fn open_scratch_db() -> Connection {
     let db_path = db_dir.path().join("flywheel.db");
     let backups_dir = db_dir.path().join("backups");
     std::mem::forget(db_dir);
-    core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate should succeed")
+    flywheel_core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate should succeed")
 }
 
 /// Checkout `branch` (creating it from HEAD if needed) and make one commit, with `run_id` set as
@@ -129,7 +129,7 @@ fn insert_worktree_row(conn: &Connection, story_id: &str, project_id: &str, acto
     conn.execute(
         "INSERT INTO worktrees (id, story_id, project_id, path, branch, base_branch, status, created_by, created_at)
          VALUES (?1, ?2, ?3, '/tmp/unused-in-this-test', ?4, 'main', 'active', ?5, '2026-01-01T00:00:00.000Z')",
-        params![core::ids::new_id(), story_id, project_id, branch, actor_id],
+        params![flywheel_core::ids::new_id(), story_id, project_id, branch, actor_id],
     )
     .expect("insert worktree row should succeed");
 }

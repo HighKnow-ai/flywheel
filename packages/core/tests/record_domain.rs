@@ -5,17 +5,17 @@
 
 mod common;
 
-use core::domain::acceptance_criterion::create_criterion;
-use core::domain::adr_link::{adr_links_for_project, link_adr, AdrLinkTarget};
-use core::domain::session::agent_actor_id;
-use core::domain::check::{current_result, record_check_run, set_check, CheckResult, CheckRunRecord};
-use core::domain::epic::{create_epic, epic_state, set_epic_state, update_epic, EpicSpec, EpicState};
-use core::domain::milestone::{
+use flywheel_core::domain::acceptance_criterion::create_criterion;
+use flywheel_core::domain::adr_link::{adr_links_for_project, link_adr, AdrLinkTarget};
+use flywheel_core::domain::session::agent_actor_id;
+use flywheel_core::domain::check::{current_result, record_check_run, set_check, CheckResult, CheckRunRecord};
+use flywheel_core::domain::epic::{create_epic, epic_state, set_epic_state, update_epic, EpicSpec, EpicState};
+use flywheel_core::domain::milestone::{
     create_milestone, current_milestone, milestone_state, roadmap, set_milestone_state, MilestoneState,
 };
-use core::domain::proposal::{file_proposal, NewProposal, ProposalTarget, ProposalVerb, OPEN_PROPOSALS_PER_SESSION};
-use core::domain::story::{create_story, is_allowed_transition, set_story_state, stories_in_epic, StoryState};
-use core::domain::task::{add_task, set_task_state, tasks_for_story, TaskState};
+use flywheel_core::domain::proposal::{file_proposal, NewProposal, ProposalTarget, ProposalVerb, OPEN_PROPOSALS_PER_SESSION};
+use flywheel_core::domain::story::{create_story, is_allowed_transition, set_story_state, stories_in_epic, StoryState};
+use flywheel_core::domain::task::{add_task, set_task_state, tasks_for_story, TaskState};
 use rusqlite::Connection;
 
 fn events(conn: &Connection, event_type: &str) -> i64 {
@@ -99,7 +99,7 @@ fn the_epic_spec_round_trips() {
         exit_test: Some("x".into()),
     };
     update_epic(&mut conn, &human, &e.id, "E2", &spec).unwrap();
-    let read = core::domain::epic::get_epic(&conn, &e.id).unwrap().unwrap();
+    let read = flywheel_core::domain::epic::get_epic(&conn, &e.id).unwrap().unwrap();
     assert_eq!((read.title.as_str(), read.spec), ("E2", spec));
 }
 
@@ -204,7 +204,7 @@ fn a_session_holds_at_most_three_open_proposals() {
     let (mut conn, human, project) = common::seeded_project();
     let s = common::new_story(&mut conn, &project.id, &human, "S");
     let agent = agent_actor_id(&conn).unwrap();
-    let session = core::ids::new_id();
+    let session = flywheel_core::ids::new_id();
     conn.execute(
         "INSERT INTO sessions (id, story_id, project_id, actor_id, status, permission_mode, log_path, started_at)
          VALUES (?1, ?2, ?3, ?4, 'running', 'default', '/tmp/x.jsonl', 'now')",
@@ -242,7 +242,7 @@ fn an_adr_link_hangs_from_exactly_one_record_of_its_project() {
     let both = conn.execute(
         "INSERT INTO adr_links (id, project_id, path, milestone_id, epic_id, story_id, created_by, created_at)
          VALUES (?1, ?2, 'x.md', NULL, ?3, ?4, ?5, 'now')",
-        rusqlite::params![core::ids::new_id(), project.id, s.epic_id, s.id, human],
+        rusqlite::params![flywheel_core::ids::new_id(), project.id, s.epic_id, s.id, human],
     );
     assert!(both.is_err(), "a link from two records is unrepresentable");
 }

@@ -38,9 +38,9 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
 
     if args.get(1).map(String::as_str) == Some("--touch-heartbeat") {
-        match core::runtime_protocol::touch_heartbeat() {
-            core::runtime_protocol::RuntimeIo::Written => return,
-            core::runtime_protocol::RuntimeIo::WriteFailed(err) => {
+        match flywheel_core::runtime_protocol::touch_heartbeat() {
+            flywheel_core::runtime_protocol::RuntimeIo::Written => return,
+            flywheel_core::runtime_protocol::RuntimeIo::WriteFailed(err) => {
                 eprintln!("failed to touch the heartbeat: {err}");
                 std::process::exit(1);
             }
@@ -57,7 +57,7 @@ fn main() {
     // is captured into a log.
     let mut env: BTreeMap<String, String> = BTreeMap::new();
 
-    match core::shim::shim_env_for_run(run_id) {
+    match flywheel_core::shim::shim_env_for_run(run_id) {
         Ok(shim_env) => env.extend(shim_env),
         Err(err) => {
             eprintln!("failed to install the PATH shim for run {run_id}: {err:#}");
@@ -65,7 +65,7 @@ fn main() {
         }
     }
 
-    match core::runtime_protocol::runtime_dir() {
+    match flywheel_core::runtime_protocol::runtime_dir() {
         Ok(dir) => {
             env.insert(
                 "FLYWHEEL_RUNTIME_DIR".to_string(),
@@ -78,18 +78,18 @@ fn main() {
         }
     }
 
-    env.insert(core::destructive::DEFAULT_BRANCH_ENV.to_string(), default_branch);
+    env.insert(flywheel_core::destructive::DEFAULT_BRANCH_ENV.to_string(), default_branch);
     if let (Some(story_branch), Some(worktree_path)) = (args.get(3), args.get(4)) {
-        env.insert(core::destructive::STORY_BRANCH_ENV.to_string(), story_branch.clone());
-        env.insert(core::destructive::WORKTREE_ENV.to_string(), worktree_path.clone());
+        env.insert(flywheel_core::destructive::STORY_BRANCH_ENV.to_string(), story_branch.clone());
+        env.insert(flywheel_core::destructive::WORKTREE_ENV.to_string(), worktree_path.clone());
     }
     env.insert(
         "FLYWHEEL_HEARTBEAT_STALE_MS".to_string(),
-        core::runtime_protocol::HEARTBEAT_STALE_MS.to_string(),
+        flywheel_core::runtime_protocol::HEARTBEAT_STALE_MS.to_string(),
     );
     env.insert(
         "FLYWHEEL_HEARTBEAT_POLL_MS".to_string(),
-        core::runtime_protocol::HEARTBEAT_POLL_MS.to_string(),
+        flywheel_core::runtime_protocol::HEARTBEAT_POLL_MS.to_string(),
     );
 
     match serde_json::to_string_pretty(&env) {

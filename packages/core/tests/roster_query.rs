@@ -13,19 +13,19 @@
 mod common;
 
 use common::with_scratch_worktree_root;
-use core::domain::acceptance_criterion::{accept_criterion, create_criterion};
-use core::domain::check::{record_check_run, set_check, CheckResult, CheckRunRecord};
-use core::domain::epic::create_epic;
-use core::domain::milestone::create_milestone;
-use core::domain::permission_request::create_pending_request;
-use core::domain::session::{interrupt_session, start_session};
-use core::domain::story::{create_story, set_story_state, StoryState};
-use core::domain::story_drop::drop_story;
-use core::domain::task::{add_task, set_task_state, TaskState};
-use core::ids::new_id;
-use core::domain::epic::{set_epic_state, EpicState};
-use core::query::progress::{epic_progress, ShapingMarker};
-use core::query::roster::{roster_rows, ReviewDiffSize, RosterRow};
+use flywheel_core::domain::acceptance_criterion::{accept_criterion, create_criterion};
+use flywheel_core::domain::check::{record_check_run, set_check, CheckResult, CheckRunRecord};
+use flywheel_core::domain::epic::create_epic;
+use flywheel_core::domain::milestone::create_milestone;
+use flywheel_core::domain::permission_request::create_pending_request;
+use flywheel_core::domain::session::{interrupt_session, start_session};
+use flywheel_core::domain::story::{create_story, set_story_state, StoryState};
+use flywheel_core::domain::story_drop::drop_story;
+use flywheel_core::domain::task::{add_task, set_task_state, TaskState};
+use flywheel_core::ids::new_id;
+use flywheel_core::domain::epic::{set_epic_state, EpicState};
+use flywheel_core::query::progress::{epic_progress, ShapingMarker};
+use flywheel_core::query::roster::{roster_rows, ReviewDiffSize, RosterRow};
 use rusqlite::{params, Connection};
 
 fn running(conn: &mut Connection, actor: &str, story_id: &str) {
@@ -220,7 +220,7 @@ fn a_passed_check_counts_until_a_hand_off_moves_the_head_past_it() {
 #[test]
 fn the_roster_query_walks_indexes_only() {
     let (conn, _actor, _project) = common::seeded_project();
-    let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {}", core::query::roster::ROSTER_ROWS_SQL)).unwrap();
+    let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {}", flywheel_core::query::roster::ROSTER_ROWS_SQL)).unwrap();
     let plan: Vec<String> =
         stmt.query_map(params!["a-milestone"], |row| row.get::<_, String>(3)).unwrap().collect::<Result<_, _>>().unwrap();
     for step in &plan {

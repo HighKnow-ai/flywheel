@@ -595,27 +595,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "dirs",
- "fractional_index",
- "keyring",
- "libc",
- "once_cell",
- "rusqlite",
- "rusqlite_migration",
- "serde",
- "serde_json",
- "sysinfo",
- "tempfile",
- "tokio-cron-scheduler",
- "ulid",
-]
-
-[[package]]
 name = "core-foundation"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -960,26 +939,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "desktop"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "core",
- "rusqlite",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-notification",
- "tauri-plugin-shell",
- "tempfile",
- "tokio",
- "tokio-cron-scheduler",
-]
-
-[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1298,12 +1257,53 @@ dependencies = [
 ]
 
 [[package]]
+name = "flywheel-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "dirs",
+ "fractional_index",
+ "keyring",
+ "libc",
+ "once_cell",
+ "rusqlite",
+ "rusqlite_migration",
+ "serde",
+ "serde_json",
+ "sysinfo",
+ "tempfile",
+ "tokio-cron-scheduler",
+ "ulid",
+]
+
+[[package]]
+name = "flywheel-desktop"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "flywheel-core",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-notification",
+ "tauri-plugin-shell",
+ "tempfile",
+ "tokio",
+ "tokio-cron-scheduler",
+]
+
+[[package]]
 name = "flywheel-shim"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
- "core",
+ "flywheel-core",
  "serde_json",
  "tempfile",
 ]

@@ -157,7 +157,7 @@ pub fn milestone_move(
     Ok(())
 }
 
-/// A Milestone's or an Epic's Stories by state (`core::query::progress::StoryStateCounts`).
+/// A Milestone's or an Epic's Stories by state (`flywheel_core::query::progress::StoryStateCounts`).
 /// Attention splits Running: `running` counts only Running Stories neither Waiting on you nor
 /// Stopped. `stories_total` leaves out Dropped Stories, which are counted on their own.
 #[derive(Debug, Clone, Serialize)]
@@ -208,7 +208,7 @@ pub struct EpicProgressDto {
     pub proposals: i64,
 }
 
-/// An Epic in Shaping's open Stage and that Stage's latest Round (`core::query::progress::ShapingMarker`).
+/// An Epic in Shaping's open Stage and that Stage's latest Round (`flywheel_core::query::progress::ShapingMarker`).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShapingMarkerDto {
@@ -308,7 +308,7 @@ pub struct ReviewDiffSizeDto {
     pub removed: i64,
 }
 
-/// One Story row's figures (`core::query::roster::RosterRow`, issue #159).
+/// One Story row's figures (`flywheel_core::query::roster::RosterRow`, issue #159).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RosterRowDto {

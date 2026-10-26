@@ -12,8 +12,8 @@ mod common;
 use std::collections::HashSet;
 
 use common::seeded_project;
-use core::domain::{epic, milestone, story};
-use core::ranking::{rank_after, rank_before, rank_between, ReorderDirection};
+use flywheel_core::domain::{epic, milestone, story};
+use flywheel_core::ranking::{rank_after, rank_before, rank_between, ReorderDirection};
 
 #[test]
 fn rank_between_is_strictly_between() {

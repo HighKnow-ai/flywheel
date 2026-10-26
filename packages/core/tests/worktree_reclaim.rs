@@ -9,10 +9,10 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use core::domain::worktree::{
+use flywheel_core::domain::worktree::{
     ensure_worktree, reclaim_worktrees, worktree_for_story, ReclaimOutcome, ReclaimReason as R,
 };
-use core::query::fleet::{finish_worktree_inventory, worktree_inventory_inputs};
+use flywheel_core::query::fleet::{finish_worktree_inventory, worktree_inventory_inputs};
 use rusqlite::{params, Connection};
 
 fn git(repo: &Path, args: &[&str]) -> String {
@@ -66,7 +66,7 @@ fn a_run_inserted_after_the_read_refuses_that_row_and_removes_the_others() {
         let listed = finish_worktree_inventory(worktree_inventory_inputs(&conn, 200).unwrap());
         assert!(listed.iter().all(|r| r.disposition.as_str() == "reclaimable"));
 
-        core::domain::session::start_session(&mut conn, &b, "default", &actor).unwrap();
+        flywheel_core::domain::session::start_session(&mut conn, &b, "default", &actor).unwrap();
 
         let out = reclaim_worktrees(&mut conn, &[a.clone(), b.clone(), c.clone()], &actor);
 
@@ -89,9 +89,9 @@ fn the_reclaim_removal_refuses_a_worktree_a_run_started_in_after_the_eligibility
     with_scratch_worktree_root(|_| {
         let (mut conn, actor, project, _repo) = common::seeded_git_project();
         let (a, path) = merged_worktree(&mut conn, &project.id, &actor, "a");
-        core::domain::session::start_session(&mut conn, &a, "default", &actor).unwrap();
+        flywheel_core::domain::session::start_session(&mut conn, &a, "default", &actor).unwrap();
 
-        let err = core::domain::worktree::remove_worktree_for_story_refusing_live_run(&mut conn, &a, &actor)
+        let err = flywheel_core::domain::worktree::remove_worktree_for_story_refusing_live_run(&mut conn, &a, &actor)
             .expect_err("a live run must stop the removal");
 
         assert!(format!("{err:#}").contains("agent run is live"), "{err:#}");
@@ -105,7 +105,7 @@ fn a_blocked_run_is_refused_with_the_blocked_reason() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor, project, _repo) = common::seeded_git_project();
         let (a, path) = merged_worktree(&mut conn, &project.id, &actor, "a");
-        let run = core::domain::session::start_session(&mut conn, &a, "default", &actor).unwrap();
+        let run = flywheel_core::domain::session::start_session(&mut conn, &a, "default", &actor).unwrap();
         conn.execute("UPDATE sessions SET status = 'blocked' WHERE id = ?1", params![run.id]).unwrap();
         let out = reclaim_worktrees(&mut conn, &[a.clone()], &actor);
         assert_eq!(outcome(&out, &a).reason, Some(R::Blocked));
@@ -246,7 +246,7 @@ fn a_batch_run_on_a_second_connection_is_visible_on_the_first() {
         let db_path = conn.path().map(PathBuf::from).expect("file-backed database");
 
         let mut second = Connection::open(&db_path).unwrap();
-        core::db::apply_pragmas(&second).unwrap();
+        flywheel_core::db::apply_pragmas(&second).unwrap();
         let out = reclaim_worktrees(&mut second, &[a.clone()], &actor);
 
         assert!(out[0].removed, "{out:?}");

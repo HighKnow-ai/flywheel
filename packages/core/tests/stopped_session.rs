@@ -9,16 +9,16 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use common::with_scratch_worktree_root;
-use core::context_packet::build_context_packet;
-use core::domain::permission_request::{answer_request, create_pending_request, pending_for_run};
-use core::domain::session::{apply_session_closed, interrupt_session, mark_abandoned, start_session, Session};
-use core::domain::session_ending::{classify_session_closed, EndingReason, LastAssistantMessage};
-use core::domain::session_summary::{create_summary, latest_summary_for_run};
-use core::domain::story::{set_story_state, Story, StoryState};
-use core::domain::task::{add_task, set_task_note, set_task_state, tasks_for_story, TaskState};
-use core::query::permissions::pending_requests_for_run;
-use core::query::sessions::{run_by_id, runs_for_story, stopped_session_for_story};
-use core::session_log::{last_assistant_message, session_log_path};
+use flywheel_core::context_packet::build_context_packet;
+use flywheel_core::domain::permission_request::{answer_request, create_pending_request, pending_for_run};
+use flywheel_core::domain::session::{apply_session_closed, interrupt_session, mark_abandoned, start_session, Session};
+use flywheel_core::domain::session_ending::{classify_session_closed, EndingReason, LastAssistantMessage};
+use flywheel_core::domain::session_summary::{create_summary, latest_summary_for_run};
+use flywheel_core::domain::story::{set_story_state, Story, StoryState};
+use flywheel_core::domain::task::{add_task, set_task_note, set_task_state, tasks_for_story, TaskState};
+use flywheel_core::query::permissions::pending_requests_for_run;
+use flywheel_core::query::sessions::{run_by_id, runs_for_story, stopped_session_for_story};
+use flywheel_core::session_log::{last_assistant_message, session_log_path};
 use rusqlite::{params, Connection};
 use serde_json::json;
 use tempfile::TempDir;
@@ -58,7 +58,7 @@ fn running_story() -> Fixture {
 /// Write `lines` as the session's durable log, the way the reader loop does.
 fn write_log(run_id: &str, lines: &[serde_json::Value]) {
     for line in lines {
-        core::session_log::append_event_line(run_id, &line.to_string()).unwrap();
+        flywheel_core::session_log::append_event_line(run_id, &line.to_string()).unwrap();
     }
 }
 
@@ -349,7 +349,7 @@ fn one_session_is_read_by_id_with_its_stored_status_and_ending() {
 
 #[test]
 fn the_last_assistant_message_is_read_from_the_log_tail() {
-    let run_id = core::ids::new_id();
+    let run_id = flywheel_core::ids::new_id();
     assert!(last_assistant_message(&run_id).is_none(), "no log, no message");
     write_log(
         &run_id,

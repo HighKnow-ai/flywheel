@@ -11,18 +11,18 @@
 
 mod common;
 
-use core::domain::acceptance_criterion::create_criterion;
-use core::domain::epic;
-use core::domain::milestone;
-use core::domain::proposal::{
+use flywheel_core::domain::acceptance_criterion::create_criterion;
+use flywheel_core::domain::epic;
+use flywheel_core::domain::milestone;
+use flywheel_core::domain::proposal::{
     accept_proposal, get_proposal, open_proposals_in_session, proposals_for_triage, reject_proposal, OPEN_PROPOSALS_PER_SESSION,
 };
-use core::domain::session::{agent_actor_id, start_shaping_session, ShapingSubject};
-use core::domain::proposal::{file_proposal, NewProposal};
-use core::domain::proposal_apply::RoadmapChange;
-use core::domain::session_kind::SessionKind;
-use core::domain::story::{self, StoryState};
-use core::domain::story_proposal_tool::{apply_story_proposal_call, StoryProposalCall};
+use flywheel_core::domain::session::{agent_actor_id, start_shaping_session, ShapingSubject};
+use flywheel_core::domain::proposal::{file_proposal, NewProposal};
+use flywheel_core::domain::proposal_apply::RoadmapChange;
+use flywheel_core::domain::session_kind::SessionKind;
+use flywheel_core::domain::story::{self, StoryState};
+use flywheel_core::domain::story_proposal_tool::{apply_story_proposal_call, StoryProposalCall};
 use rusqlite::Connection;
 use serde_json::{json, Value};
 
@@ -54,7 +54,7 @@ fn move_story(conn: &mut Connection, human: &str, story_id: &str, to: &[StorySta
 
 fn story_session(conn: &mut Connection, project_id: &str, story_id: &str) -> String {
     let agent = agent_actor_id(conn).unwrap();
-    let id = core::ids::new_id();
+    let id = flywheel_core::ids::new_id();
     conn.execute(
         "INSERT INTO sessions (id, story_id, project_id, actor_id, status, permission_mode, log_path, started_at)
          VALUES (?1, ?2, ?3, ?4, 'running', 'acceptEdits', '/tmp/x.jsonl', '2026-10-23T00:00:00Z')",

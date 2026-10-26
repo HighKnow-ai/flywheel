@@ -5,9 +5,9 @@
 
 mod common;
 
-use core::domain::permission_rule::{check_rule, matching_rule, upsert_rule, GatedRuleRefused};
-use core::domain::project;
-use core::permission_pattern::{covers_gated_action, format_rule, matches, parse_rule, suggested_pattern};
+use flywheel_core::domain::permission_rule::{check_rule, matching_rule, upsert_rule, GatedRuleRefused};
+use flywheel_core::domain::project;
+use flywheel_core::permission_pattern::{covers_gated_action, format_rule, matches, parse_rule, suggested_pattern};
 use serde_json::json;
 
 fn bash(command: &str) -> serde_json::Value {
@@ -190,7 +190,7 @@ fn a_gated_action_is_never_approved_even_when_a_broad_rule_exists() {
         conn.execute(
             "INSERT INTO permission_rules (id, project_id, tool, pattern, created_by, created_at) \
              VALUES (?1, ?2, 'Bash', ?3, ?4, '2026-01-01T00:00:00Z')",
-            rusqlite::params![core::ids::new_id(), project.id, pattern, actor_id],
+            rusqlite::params![flywheel_core::ids::new_id(), project.id, pattern, actor_id],
         )
         .unwrap();
     }

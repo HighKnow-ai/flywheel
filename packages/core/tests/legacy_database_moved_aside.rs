@@ -8,7 +8,7 @@
 
 use std::path::{Path, PathBuf};
 
-use core::db::{open_and_migrate, LEGACY_SUFFIX};
+use flywheel_core::db::{open_and_migrate, LEGACY_SUFFIX};
 use rusqlite::Connection;
 
 /// A database shaped like v0.1 at its last migration: `tasks` with a five-state status, `issues`,

@@ -12,18 +12,18 @@ mod common;
 use std::path::{Path, PathBuf};
 
 use common::with_scratch_worktree_root;
-use core::domain::actor::local_human_actor_id;
-use core::domain::confirm_done::{confirm_epic_done, confirm_milestone_done, DoneTrigger};
-use core::domain::epic::{self, set_epic_state, EpicState};
-use core::domain::handoff::hand_off;
-use core::domain::milestone::{self, set_milestone_state, MilestoneState};
-use core::domain::roadmap_round::{noted_triggers, open_roadmap_round, RoadmapTrigger};
-use core::domain::session::{agent_actor_id, close_session, start_session, start_shaping_session, SessionStatus, ShapingSubject};
-use core::domain::story::{self, set_story_state, StoryState};
-use core::domain::story_drop::drop_story;
-use core::domain::task::{add_task, set_task_state, TaskState};
-use core::domain::worktree::ensure_worktree;
-use core::roadmap_packet::build_roadmap_packet;
+use flywheel_core::domain::actor::local_human_actor_id;
+use flywheel_core::domain::confirm_done::{confirm_epic_done, confirm_milestone_done, DoneTrigger};
+use flywheel_core::domain::epic::{self, set_epic_state, EpicState};
+use flywheel_core::domain::handoff::hand_off;
+use flywheel_core::domain::milestone::{self, set_milestone_state, MilestoneState};
+use flywheel_core::domain::roadmap_round::{noted_triggers, open_roadmap_round, RoadmapTrigger};
+use flywheel_core::domain::session::{agent_actor_id, close_session, start_session, start_shaping_session, SessionStatus, ShapingSubject};
+use flywheel_core::domain::story::{self, set_story_state, StoryState};
+use flywheel_core::domain::story_drop::drop_story;
+use flywheel_core::domain::task::{add_task, set_task_state, TaskState};
+use flywheel_core::domain::worktree::ensure_worktree;
+use flywheel_core::roadmap_packet::build_roadmap_packet;
 use rusqlite::Connection;
 
 struct Fixture {
@@ -40,11 +40,11 @@ struct Fixture {
 fn fixture() -> Fixture {
     let checkout = tempfile::tempdir().unwrap();
     let dir = tempfile::tempdir().unwrap();
-    let mut conn = core::db::open_and_migrate(&dir.path().join("flywheel.db"), &dir.path().join("backups")).unwrap();
+    let mut conn = flywheel_core::db::open_and_migrate(&dir.path().join("flywheel.db"), &dir.path().join("backups")).unwrap();
     std::mem::forget(dir);
     let human = local_human_actor_id(&conn).unwrap();
     let project =
-        core::domain::project::create_project(&mut conn, &human, "Threadfin", &checkout.path().to_string_lossy(), "FLY", "main")
+        flywheel_core::domain::project::create_project(&mut conn, &human, "Threadfin", &checkout.path().to_string_lossy(), "FLY", "main")
             .unwrap();
     let m = milestone::create_milestone(&mut conn, &project.id, &human, "Shaping", Some("An Epic is shaped end to end")).unwrap();
     milestone::create_milestone(&mut conn, &project.id, &human, "Board", Some("A Story merges in Flywheel")).unwrap();

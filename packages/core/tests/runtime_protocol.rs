@@ -1,12 +1,12 @@
 //! D-47/D-48/D-50 round-trip proof for the on-disk runtime protocol (plan 03-02 Task 1): every
-//! public function in `core::runtime_protocol` returns a value on every failure mode (CR-03), and
+//! public function in `flywheel_core::runtime_protocol` returns a value on every failure mode (CR-03), and
 //! the heartbeat/kill-record/run-descriptor files round-trip exactly as `packages/sidecar/src/
 //! watchdog.ts` (Task 2) needs them to.
 
 use std::fs;
 use std::time::Duration;
 
-use core::runtime_protocol::{
+use flywheel_core::runtime_protocol::{
     clear_run_runtime_files, list_run_descriptors, read_heartbeat_age, read_kill_record,
     runtime_dir, touch_heartbeat, write_kill_record,
     write_run_descriptor, KillRecordRead, RuntimeIo,

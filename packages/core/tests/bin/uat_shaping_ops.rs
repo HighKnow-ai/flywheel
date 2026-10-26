@@ -42,16 +42,16 @@
 //!   uat_shaping_ops epic <epic_id>                        (what the Epic card and the dock read)
 //!   uat_shaping_ops story-packet <story_id>
 
-use core::domain::acceptance_criterion::criteria_for_story;
-use core::domain::check::check_for_criterion;
-use core::domain::proposal::{accept_proposal_released, proposals_on_epic};
-use core::domain::round::{accept_all_recommended, answer_round_question, rounds_for_epic, AnswerOutcome, RoundAnswer};
-use core::domain::session::{apply_session_closed, live_shaping_session, start_shaping_session, ShapingSubject};
-use core::domain::session_kind::SessionKind;
-use core::domain::shaping_tool::{apply_shaping_tool_call, ShapingToolCall, ShapingToolOutcome};
-use core::domain::stage::{close_stage, open_stage, stage_status, stages_for_epic};
-use core::domain::story::stories_in_epic;
-use core::domain::{actor, epic, milestone, project};
+use flywheel_core::domain::acceptance_criterion::criteria_for_story;
+use flywheel_core::domain::check::check_for_criterion;
+use flywheel_core::domain::proposal::{accept_proposal_released, proposals_on_epic};
+use flywheel_core::domain::round::{accept_all_recommended, answer_round_question, rounds_for_epic, AnswerOutcome, RoundAnswer};
+use flywheel_core::domain::session::{apply_session_closed, live_shaping_session, start_shaping_session, ShapingSubject};
+use flywheel_core::domain::session_kind::SessionKind;
+use flywheel_core::domain::shaping_tool::{apply_shaping_tool_call, ShapingToolCall, ShapingToolOutcome};
+use flywheel_core::domain::stage::{close_stage, open_stage, stage_status, stages_for_epic};
+use flywheel_core::domain::story::stories_in_epic;
+use flywheel_core::domain::{actor, epic, milestone, project};
 use rusqlite::Connection;
 use serde_json::{json, Value};
 
@@ -64,9 +64,9 @@ fn open_conn() -> Connection {
     if std::env::var_os("FLYWHEEL_APP_DATA_DIR").is_none() {
         fail("FLYWHEEL_APP_DATA_DIR is not set — refusing to touch the real fleet database. Point it at a scratch directory.");
     }
-    let db_path = core::db::default_db_path().unwrap_or_else(|e| fail(&format!("db path: {e:#}")));
-    let backups = core::db::default_backups_dir().unwrap_or_else(|e| fail(&format!("backups dir: {e:#}")));
-    core::db::open_and_migrate(&db_path, &backups).unwrap_or_else(|e| fail(&format!("open: {e:#}")))
+    let db_path = flywheel_core::db::default_db_path().unwrap_or_else(|e| fail(&format!("db path: {e:#}")));
+    let backups = flywheel_core::db::default_backups_dir().unwrap_or_else(|e| fail(&format!("backups dir: {e:#}")));
+    flywheel_core::db::open_and_migrate(&db_path, &backups).unwrap_or_else(|e| fail(&format!("open: {e:#}")))
 }
 
 fn human(conn: &Connection) -> String {
@@ -115,7 +115,7 @@ fn start_on(conn: &mut Connection, epic_id: &str) -> Value {
     let subject = ShapingSubject::Epic(epic_id.to_string());
     let session =
         ok("start_shaping_session", start_shaping_session(conn, &subject, SessionKind::Shaping.launch_policy().permission_mode, &h));
-    let prompt = ok("build_shaping_packet", core::shaping_packet::build_shaping_packet(conn, &subject));
+    let prompt = ok("build_shaping_packet", flywheel_core::shaping_packet::build_shaping_packet(conn, &subject));
     spawn_for(&session.id, prompt)
 }
 
@@ -279,7 +279,7 @@ fn epic_view(epic_id: &str) -> Value {
 /// The Context packet a Story session starts from (no resume note).
 fn story_packet(story_id: &str) -> Value {
     let conn = open_conn();
-    json!({ "packet": ok("build_context_packet", core::context_packet::build_context_packet(&conn, story_id, "")) })
+    json!({ "packet": ok("build_context_packet", flywheel_core::context_packet::build_context_packet(&conn, story_id, "")) })
 }
 
 fn main() {

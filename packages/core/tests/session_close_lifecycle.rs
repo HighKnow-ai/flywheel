@@ -21,9 +21,9 @@ use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::Duration;
 
-use core::domain::session::{apply_session_closed, interrupt_session, start_session, SessionClosedOutcome};
-use core::domain::story::{set_story_state, StoryState};
-use core::ids::is_ulid;
+use flywheel_core::domain::session::{apply_session_closed, interrupt_session, start_session, SessionClosedOutcome};
+use flywheel_core::domain::story::{set_story_state, StoryState};
+use flywheel_core::ids::is_ulid;
 
 /// CARGO_MANIFEST_DIR is packages/core — walk up two levels to the workspace root, exactly as
 /// `app_exit_ordering.rs` does.

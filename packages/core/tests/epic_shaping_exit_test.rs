@@ -8,17 +8,17 @@
 
 mod common;
 
-use core::domain::acceptance_criterion::criteria_for_story;
-use core::domain::check::check_for_criterion;
-use core::domain::epic::{self, get_epic};
-use core::domain::milestone;
-use core::domain::proposal::accept_proposal;
-use core::domain::round::accept_all_recommended;
-use core::domain::session::{start_shaping_session, ShapingSubject};
-use core::domain::session_kind::SessionKind;
-use core::domain::shaping_tool::{apply_shaping_tool_call, ShapingToolCall, ShapingToolOutcome};
-use core::domain::stage::{close_stage, open_stage, stage_status, StageKind};
-use core::domain::story::stories_in_epic;
+use flywheel_core::domain::acceptance_criterion::criteria_for_story;
+use flywheel_core::domain::check::check_for_criterion;
+use flywheel_core::domain::epic::{self, get_epic};
+use flywheel_core::domain::milestone;
+use flywheel_core::domain::proposal::accept_proposal;
+use flywheel_core::domain::round::accept_all_recommended;
+use flywheel_core::domain::session::{start_shaping_session, ShapingSubject};
+use flywheel_core::domain::session_kind::SessionKind;
+use flywheel_core::domain::shaping_tool::{apply_shaping_tool_call, ShapingToolCall, ShapingToolOutcome};
+use flywheel_core::domain::stage::{close_stage, open_stage, stage_status, StageKind};
+use flywheel_core::domain::story::stories_in_epic;
 use rusqlite::Connection;
 use serde_json::{json, Value};
 

@@ -17,18 +17,18 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use common::with_scratch_worktree_root;
-use core::context_packet::build_context_packet;
-use core::domain::acceptance_criterion::{accept_criterion, create_criterion, criteria_for_story};
-use core::domain::check::set_check;
-use core::domain::handoff::hand_off;
-use core::domain::request_changes::request_changes;
-use core::domain::review::{latest_review, open_review};
-use core::domain::review_decisions::{review_decisions, set_adr_decision, AdrDecision, DecisionFlag, ReviewDecisions};
-use core::domain::session::{agent_actor_id, close_session, start_session, SessionStatus};
-use core::domain::story::{get_story, set_story_state, Story, StoryState};
-use core::domain::story_merge::{merge_story, MergeOptions};
-use core::domain::task::{add_task, set_task_state, TaskState};
-use core::domain::worktree::ensure_worktree;
+use flywheel_core::context_packet::build_context_packet;
+use flywheel_core::domain::acceptance_criterion::{accept_criterion, create_criterion, criteria_for_story};
+use flywheel_core::domain::check::set_check;
+use flywheel_core::domain::handoff::hand_off;
+use flywheel_core::domain::request_changes::request_changes;
+use flywheel_core::domain::review::{latest_review, open_review};
+use flywheel_core::domain::review_decisions::{review_decisions, set_adr_decision, AdrDecision, DecisionFlag, ReviewDecisions};
+use flywheel_core::domain::session::{agent_actor_id, close_session, start_session, SessionStatus};
+use flywheel_core::domain::story::{get_story, set_story_state, Story, StoryState};
+use flywheel_core::domain::story_merge::{merge_story, MergeOptions};
+use flywheel_core::domain::task::{add_task, set_task_state, TaskState};
+use flywheel_core::domain::worktree::ensure_worktree;
 use rusqlite::Connection;
 use tempfile::TempDir;
 
@@ -87,7 +87,7 @@ impl Fixture {
         set_adr_decision(&mut self.conn, &human, &self.story.id, path, &decision)
     }
 
-    fn merge(&mut self) -> anyhow::Result<core::domain::story_merge::MergeOutcome> {
+    fn merge(&mut self) -> anyhow::Result<flywheel_core::domain::story_merge::MergeOutcome> {
         let human = self.human.clone();
         merge_story(&mut self.conn, &human, &self.story.id, MergeOptions::default())
     }

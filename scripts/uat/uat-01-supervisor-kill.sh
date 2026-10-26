@@ -59,7 +59,7 @@ fail() { printf '\n❌ FAIL — %s\n\n%s\n' "$NAME" "$1"; exit 1; }
 skip() { printf '\n⏭️  SKIP — %s: %s\n' "$NAME" "$1"; exit 3; }
 step() { printf '   · %s\n' "$1"; }
 
-[ -n "$HARNESS_BIN" ] || skip "uat_session_env is not built — run \`cargo build -p core --bin uat_session_env\`"
+[ -n "$HARNESS_BIN" ] || skip "uat_session_env is not built — run \`cargo build -p flywheel-core --bin uat_session_env\`"
 [ -f "${REPO_ROOT}/packages/sidecar/dist/index.js" ] || skip "the sidecar bundle is missing — run \`npm --prefix packages/sidecar run build\`"
 command -v claude >/dev/null 2>&1 || skip "the real \`claude\` binary is not resolvable"
 

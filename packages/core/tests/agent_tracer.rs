@@ -5,10 +5,10 @@
 
 mod common;
 
-use core::domain::session::{agent_actor_id, start_session};
-use core::domain::worktree::ensure_worktree;
-use core::git::worktree_list;
-use core::session_log::session_log_path;
+use flywheel_core::domain::session::{agent_actor_id, start_session};
+use flywheel_core::domain::worktree::ensure_worktree;
+use flywheel_core::git::worktree_list;
+use flywheel_core::session_log::session_log_path;
 
 use common::with_scratch_worktree_root;
 

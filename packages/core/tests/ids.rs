@@ -3,7 +3,7 @@
 //! - 1,000 successive calls are strictly ascending and contain no duplicate.
 //! - `is_ulid()` recognizes the 26-character Crockford-base32 shape.
 
-use core::ids::{is_ulid, new_id};
+use flywheel_core::ids::{is_ulid, new_id};
 use std::collections::HashSet;
 
 #[test]

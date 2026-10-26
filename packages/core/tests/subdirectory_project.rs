@@ -11,22 +11,22 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use common::with_scratch_worktree_root;
-use core::context_packet::build_context_packet;
-use core::db::open_and_migrate;
-use core::domain::acceptance_criterion::{accept_criterion, create_criterion, criteria_for_story};
-use core::domain::actor::local_human_actor_id;
-use core::domain::check::{set_check, CheckResult};
-use core::domain::handoff::{hand_off_with, HandoffSummary};
-use core::domain::project::{list_projects, register_project};
-use core::domain::proposal_apply::AdrBarLines;
-use core::domain::review::review_file_patch;
-use core::domain::review_decisions::{review_decisions, BarLinesSource, DecisionFlag, DecisionKind};
-use core::domain::session::{agent_actor_id, close_session, start_session, SessionStatus};
-use core::domain::story::{get_story, set_story_state, StoryState};
-use core::domain::story_merge::{merge_story, MergeOptions};
-use core::domain::task::{add_task, set_task_state, TaskState};
-use core::domain::worktree::{ensure_worktree, resolve_open_argv, OpenSurface};
-use core::marker::read_marker;
+use flywheel_core::context_packet::build_context_packet;
+use flywheel_core::db::open_and_migrate;
+use flywheel_core::domain::acceptance_criterion::{accept_criterion, create_criterion, criteria_for_story};
+use flywheel_core::domain::actor::local_human_actor_id;
+use flywheel_core::domain::check::{set_check, CheckResult};
+use flywheel_core::domain::handoff::{hand_off_with, HandoffSummary};
+use flywheel_core::domain::project::{list_projects, register_project};
+use flywheel_core::domain::proposal_apply::AdrBarLines;
+use flywheel_core::domain::review::review_file_patch;
+use flywheel_core::domain::review_decisions::{review_decisions, BarLinesSource, DecisionFlag, DecisionKind};
+use flywheel_core::domain::session::{agent_actor_id, close_session, start_session, SessionStatus};
+use flywheel_core::domain::story::{get_story, set_story_state, StoryState};
+use flywheel_core::domain::story_merge::{merge_story, MergeOptions};
+use flywheel_core::domain::task::{add_task, set_task_state, TaskState};
+use flywheel_core::domain::worktree::{ensure_worktree, resolve_open_argv, OpenSurface};
+use flywheel_core::marker::read_marker;
 
 fn git(dir: &Path, args: &[&str]) -> String {
     let out = Command::new("git")

@@ -7,8 +7,8 @@
 
 mod common;
 
-use core::domain::milestone::{create_milestone, current_milestone, move_milestone, roadmap, set_milestone_state, MilestoneState};
-use core::domain::session::agent_actor_id;
+use flywheel_core::domain::milestone::{create_milestone, current_milestone, move_milestone, roadmap, set_milestone_state, MilestoneState};
+use flywheel_core::domain::session::agent_actor_id;
 use rusqlite::Connection;
 
 /// A project with Milestones `titles`, in that order. Returns `(conn, human, project_id, ids)`.
@@ -116,7 +116,7 @@ fn the_anchor_must_be_another_milestone_of_the_same_roadmap() {
     assert!(move_milestone(&mut conn, &human, &ids[0], Some("no-such-milestone")).is_err(), "an unknown anchor");
     assert!(move_milestone(&mut conn, &human, "no-such-milestone", None).is_err(), "an unknown Milestone");
 
-    let other = core::domain::project::create_project(&mut conn, &human, "Other", "/other", "OTH", "main").unwrap();
+    let other = flywheel_core::domain::project::create_project(&mut conn, &human, "Other", "/other", "OTH", "main").unwrap();
     let foreign = create_milestone(&mut conn, &other.id, &human, "Elsewhere", None).unwrap();
     assert!(move_milestone(&mut conn, &human, &ids[0], Some(&foreign.id)).is_err(), "another project's Milestone");
     assert_eq!(order(&conn, &project), ["A", "B"]);

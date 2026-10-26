@@ -10,12 +10,12 @@ use std::collections::BTreeMap;
 
 use common::with_scratch_worktree_root;
 
-use core::domain::permission_request::{answer_request, create_pending_request};
-use core::domain::question::{answer_question, ASK_USER_QUESTION_TOOL};
-use core::domain::session::{interrupt_session, start_session};
-use core::domain::story::{set_story_state, StoryState};
-use core::query::fleet::blocked_queue;
-use core::query::permissions::{blocked_count_for_project, blocked_story_ids_for_project, pending_requests_for_run};
+use flywheel_core::domain::permission_request::{answer_request, create_pending_request};
+use flywheel_core::domain::question::{answer_question, ASK_USER_QUESTION_TOOL};
+use flywheel_core::domain::session::{interrupt_session, start_session};
+use flywheel_core::domain::story::{set_story_state, StoryState};
+use flywheel_core::query::fleet::blocked_queue;
+use flywheel_core::query::permissions::{blocked_count_for_project, blocked_story_ids_for_project, pending_requests_for_run};
 use rusqlite::{params, Connection};
 
 struct Seeded {

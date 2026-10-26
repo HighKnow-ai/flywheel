@@ -19,7 +19,7 @@ done
 
 if [ "$BUILD" = "1" ]; then
   printf '▸ Building prerequisites (pass --no-build to skip)\n'
-  cargo build -p core --bin uat_session_env --bin uat_fleet_ops --bin uat_roadmap_ops --bin uat_shaping_ops --bin uat_review_ops -p flywheel-shim 2>&1 | tail -2
+  cargo build -p flywheel-core --bin uat_session_env --bin uat_fleet_ops --bin uat_roadmap_ops --bin uat_shaping_ops --bin uat_review_ops -p flywheel-shim 2>&1 | tail -2
   npm --prefix packages/sidecar run build >/dev/null 2>&1 || {
     printf '  ⚠ sidecar build failed — scripts needing it will skip\n'
   }

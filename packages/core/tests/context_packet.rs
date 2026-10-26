@@ -9,22 +9,22 @@ use std::path::Path;
 use std::process::Command;
 
 use common::with_scratch_worktree_root;
-use core::context_packet::{build_context_packet, context_packet_size, measure, SOFT_LIMIT_TOKENS};
-use core::domain::acceptance_criterion::criteria_for_story;
-use core::domain::check::{check_for_criterion, record_check_run, CheckResult, CheckRunRecord};
-use core::domain::epic::{create_epic, update_epic, EpicSpec};
-use core::domain::milestone::create_milestone;
-use core::domain::proposal::{accept_proposal, file_proposal, reject_proposal, NewProposal, ProposalTarget, ProposalVerb};
-use core::domain::round::{answer_round_question, post_round, AdrDraft, NewQuestion, NewRound, RoundAnswer};
-use core::domain::session::{close_session, start_session, start_shaping_session, SessionStatus, ShapingSubject};
-use core::domain::story::stories_in_epic;
-use core::domain::story_proposal_tool::{apply_story_proposal_call, StoryProposalCall};
-use core::domain::session_summary::create_summary;
-use core::domain::request_changes::request_changes;
-use core::domain::review_decisions::{set_adr_decision, AdrDecision};
-use core::domain::story::{create_story, set_story_state, write_story_by_hand, HandWrittenCriterion, Story, StoryState};
-use core::domain::task::{add_task, set_task_note, set_task_state, TaskState};
-use core::domain::worktree::ensure_worktree;
+use flywheel_core::context_packet::{build_context_packet, context_packet_size, measure, SOFT_LIMIT_TOKENS};
+use flywheel_core::domain::acceptance_criterion::criteria_for_story;
+use flywheel_core::domain::check::{check_for_criterion, record_check_run, CheckResult, CheckRunRecord};
+use flywheel_core::domain::epic::{create_epic, update_epic, EpicSpec};
+use flywheel_core::domain::milestone::create_milestone;
+use flywheel_core::domain::proposal::{accept_proposal, file_proposal, reject_proposal, NewProposal, ProposalTarget, ProposalVerb};
+use flywheel_core::domain::round::{answer_round_question, post_round, AdrDraft, NewQuestion, NewRound, RoundAnswer};
+use flywheel_core::domain::session::{close_session, start_session, start_shaping_session, SessionStatus, ShapingSubject};
+use flywheel_core::domain::story::stories_in_epic;
+use flywheel_core::domain::story_proposal_tool::{apply_story_proposal_call, StoryProposalCall};
+use flywheel_core::domain::session_summary::create_summary;
+use flywheel_core::domain::request_changes::request_changes;
+use flywheel_core::domain::review_decisions::{set_adr_decision, AdrDecision};
+use flywheel_core::domain::story::{create_story, set_story_state, write_story_by_hand, HandWrittenCriterion, Story, StoryState};
+use flywheel_core::domain::task::{add_task, set_task_note, set_task_state, TaskState};
+use flywheel_core::domain::worktree::ensure_worktree;
 use rusqlite::Connection;
 
 const SECTION_HEADINGS: [&str; 10] = [
@@ -307,7 +307,7 @@ fn only_the_epics_first_story_is_told_to_write_an_accepted_adr() {
         )
         .unwrap();
         accept_proposal(&mut f.conn, &f.actor_id, &p.id).unwrap();
-        let sibling = core::domain::story::stories_in_epic(&f.conn, &epic_id).unwrap().remove(1);
+        let sibling = flywheel_core::domain::story::stories_in_epic(&f.conn, &epic_id).unwrap().remove(1);
 
         let first = build_context_packet(&f.conn, &f.story.id, "").unwrap();
         assert!(first.contains("write it verbatim at `docs/adr/0007-packet.md`"), "{first}");
@@ -322,7 +322,7 @@ fn only_the_epics_first_story_is_told_to_write_an_accepted_adr() {
             "{later}"
         );
 
-        core::domain::story::set_story_state(&mut f.conn, &f.actor_id, &f.story.id, core::domain::story::StoryState::Dropped)
+        flywheel_core::domain::story::set_story_state(&mut f.conn, &f.actor_id, &f.story.id, flywheel_core::domain::story::StoryState::Dropped)
             .unwrap();
         let next = build_context_packet(&f.conn, &sibling.id, "").unwrap();
         assert!(next.contains("write it verbatim at `docs/adr/0007-packet.md`"), "the next Story takes the write over:\n{next}");

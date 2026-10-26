@@ -7,8 +7,8 @@
 //! Same idiom as `session_log_window.rs`: writes through `session_log_path` into the real app-data
 //! directory under a fresh ULID per test, and removes its own file.
 
-use core::ids::new_id;
-use core::session_log::{read_tail, session_log_path, LOG_TAIL_MAX_BYTES, LOG_TAIL_MAX_LINES};
+use flywheel_core::ids::new_id;
+use flywheel_core::session_log::{read_tail, session_log_path, LOG_TAIL_MAX_BYTES, LOG_TAIL_MAX_LINES};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::time::Instant;

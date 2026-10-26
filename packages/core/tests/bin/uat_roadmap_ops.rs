@@ -36,16 +36,16 @@
 //!   uat_roadmap_ops session-closed <run_id>
 //!   uat_roadmap_ops roadmap <project_id>
 
-use core::domain::confirm_done::{confirm_epic_done, DoneTrigger};
-use core::domain::proposal::{accept_proposal_released, proposals_in_round, proposals_on_milestone, reject_proposal_released};
-use core::domain::round::{accept_all_recommended, rounds_for_milestone};
-use core::domain::stage::{close_stage, open_stage};
-use core::domain::roadmap_round::{describe_proposal, latest_roadmap_round, noted_triggers};
-use core::domain::session::{close_session, start_shaping_session, SessionStatus, ShapingSubject};
-use core::domain::session_kind::SessionKind;
-use core::domain::shaping_tool::{apply_shaping_tool_call, ShapingToolCall, ShapingToolOutcome};
-use core::domain::story::{self, StoryState};
-use core::domain::{actor, epic, milestone, project};
+use flywheel_core::domain::confirm_done::{confirm_epic_done, DoneTrigger};
+use flywheel_core::domain::proposal::{accept_proposal_released, proposals_in_round, proposals_on_milestone, reject_proposal_released};
+use flywheel_core::domain::round::{accept_all_recommended, rounds_for_milestone};
+use flywheel_core::domain::stage::{close_stage, open_stage};
+use flywheel_core::domain::roadmap_round::{describe_proposal, latest_roadmap_round, noted_triggers};
+use flywheel_core::domain::session::{close_session, start_shaping_session, SessionStatus, ShapingSubject};
+use flywheel_core::domain::session_kind::SessionKind;
+use flywheel_core::domain::shaping_tool::{apply_shaping_tool_call, ShapingToolCall, ShapingToolOutcome};
+use flywheel_core::domain::story::{self, StoryState};
+use flywheel_core::domain::{actor, epic, milestone, project};
 use rusqlite::Connection;
 use serde_json::{json, Value};
 
@@ -58,9 +58,9 @@ fn open_conn() -> Connection {
     if std::env::var_os("FLYWHEEL_APP_DATA_DIR").is_none() {
         fail("FLYWHEEL_APP_DATA_DIR is not set — refusing to touch the real fleet database. Point it at a scratch directory.");
     }
-    let db_path = core::db::default_db_path().unwrap_or_else(|e| fail(&format!("db path: {e:#}")));
-    let backups = core::db::default_backups_dir().unwrap_or_else(|e| fail(&format!("backups dir: {e:#}")));
-    core::db::open_and_migrate(&db_path, &backups).unwrap_or_else(|e| fail(&format!("open: {e:#}")))
+    let db_path = flywheel_core::db::default_db_path().unwrap_or_else(|e| fail(&format!("db path: {e:#}")));
+    let backups = flywheel_core::db::default_backups_dir().unwrap_or_else(|e| fail(&format!("backups dir: {e:#}")));
+    flywheel_core::db::open_and_migrate(&db_path, &backups).unwrap_or_else(|e| fail(&format!("open: {e:#}")))
 }
 
 fn human(conn: &Connection) -> String {
@@ -118,7 +118,7 @@ fn confirm_epic(epic_id: &str) -> Value {
             &h,
         ),
     );
-    let prompt = ok("build_roadmap_packet", core::roadmap_packet::build_roadmap_packet(&conn, &round.project_id));
+    let prompt = ok("build_roadmap_packet", flywheel_core::roadmap_packet::build_roadmap_packet(&conn, &round.project_id));
     let mut out = spawn_for(&session.id, prompt);
     out["outcome"] = json!("opened");
     out["round"] = json!(round.number);
@@ -182,7 +182,7 @@ fn shape_milestone(milestone_id: &str) -> Value {
         "start_shaping_session",
         start_shaping_session(&mut conn, &subject, SessionKind::Shaping.launch_policy().permission_mode, &h),
     );
-    let prompt = ok("build_shaping_packet", core::shaping_packet::build_shaping_packet(&conn, &subject));
+    let prompt = ok("build_shaping_packet", flywheel_core::shaping_packet::build_shaping_packet(&conn, &subject));
     spawn_for(&session.id, prompt)
 }
 

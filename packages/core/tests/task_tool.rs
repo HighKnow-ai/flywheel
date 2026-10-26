@@ -10,11 +10,11 @@
 mod common;
 
 use common::with_scratch_worktree_root;
-use core::domain::session::{close_session, start_session, Session, SessionStatus};
-use core::domain::story::Story;
-use core::domain::task::{add_task, move_task, rename_task, set_task_note, set_task_state, tasks_for_story, TaskState, MAX_TASK_NOTE_LEN};
-use core::domain::task_tool::{apply_task_tool_call, tasks_as_tool_result, TaskToolCall};
-use core::domain::worktree::ensure_worktree;
+use flywheel_core::domain::session::{close_session, start_session, Session, SessionStatus};
+use flywheel_core::domain::story::Story;
+use flywheel_core::domain::task::{add_task, move_task, rename_task, set_task_note, set_task_state, tasks_for_story, TaskState, MAX_TASK_NOTE_LEN};
+use flywheel_core::domain::task_tool::{apply_task_tool_call, tasks_as_tool_result, TaskToolCall};
+use flywheel_core::domain::worktree::ensure_worktree;
 use rusqlite::Connection;
 use serde_json::json;
 use tempfile::TempDir;

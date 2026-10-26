@@ -15,10 +15,10 @@
 mod common;
 
 use common::{new_story, seeded_project};
-use core::domain::acceptance_criterion::{amend_criterion, create_criterion, delete_criterion};
-use core::domain::event::{append_event, next_sequence};
-use core::domain::{epic, milestone, story};
-use core::query::events::{events_since_cursor, EventCursor, EventRow};
+use flywheel_core::domain::acceptance_criterion::{amend_criterion, create_criterion, delete_criterion};
+use flywheel_core::domain::event::{append_event, next_sequence};
+use flywheel_core::domain::{epic, milestone, story};
+use flywheel_core::query::events::{events_since_cursor, EventCursor, EventRow};
 use rusqlite::params;
 use std::collections::HashMap;
 

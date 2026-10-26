@@ -8,15 +8,15 @@
 
 mod common;
 
-use core::domain::acceptance_criterion::{create_criterion, criteria_for_story};
-use core::domain::epic::{self, get_epic, set_epic_state, EpicState};
-use core::domain::milestone;
-use core::domain::proposal::accept_proposal;
-use core::domain::proposal_apply::Applied;
-use core::domain::session::agent_actor_id;
-use core::domain::story::{self, get_story, make_ready, make_ready_offer, MakeReadyOffer, StoryState};
-use core::domain::story_proposal_tool::{apply_story_proposal_call, StoryProposalCall};
-use core::query::roster::roster_rows;
+use flywheel_core::domain::acceptance_criterion::{create_criterion, criteria_for_story};
+use flywheel_core::domain::epic::{self, get_epic, set_epic_state, EpicState};
+use flywheel_core::domain::milestone;
+use flywheel_core::domain::proposal::accept_proposal;
+use flywheel_core::domain::proposal_apply::Applied;
+use flywheel_core::domain::session::agent_actor_id;
+use flywheel_core::domain::story::{self, get_story, make_ready, make_ready_offer, MakeReadyOffer, StoryState};
+use flywheel_core::domain::story_proposal_tool::{apply_story_proposal_call, StoryProposalCall};
+use flywheel_core::query::roster::roster_rows;
 use rusqlite::Connection;
 use serde_json::json;
 
@@ -41,7 +41,7 @@ fn fixture() -> Fixture {
     story::set_story_state(&mut conn, &human, &running.id, StoryState::Ready).unwrap();
     story::set_story_state(&mut conn, &human, &running.id, StoryState::Running).unwrap();
     let agent = agent_actor_id(&conn).unwrap();
-    let session_id = core::ids::new_id();
+    let session_id = flywheel_core::ids::new_id();
     conn.execute(
         "INSERT INTO sessions (id, story_id, project_id, actor_id, status, permission_mode, log_path, started_at)
          VALUES (?1, ?2, ?3, ?4, 'running', 'acceptEdits', '/tmp/x.jsonl', '2026-10-23T00:00:00Z')",

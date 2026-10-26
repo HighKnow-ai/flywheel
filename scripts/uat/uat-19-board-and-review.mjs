@@ -120,7 +120,7 @@ await runScript("uat-19", "UAT 19 — a Story from Ready to Merged through Needs
   if (bin === undefined) {
     throw new Error(
       "HARNESS PRECONDITION FAILED: the uat_review_ops binary was not found under target/{debug,release} — " +
-        "run `cargo build -p core --bin uat_review_ops --bin uat_session_env -p flywheel-shim` first",
+        "run `cargo build -p flywheel-core --bin uat_review_ops --bin uat_session_env -p flywheel-shim` first",
     );
   }
   const worktreeRoot = path.join(harness.root, "worktrees");

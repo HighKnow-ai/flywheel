@@ -697,7 +697,7 @@ export class Harness {
     if (bin === undefined) {
       throw new Error(
         "the uat_session_env binary was not found under target/{debug,release} — run " +
-          "`cargo build -p core --bin uat_session_env` first",
+          "`cargo build -p flywheel-core --bin uat_session_env` first",
       );
     }
     const storyArgs = story ? [story.branch, story.worktreePath] : [];

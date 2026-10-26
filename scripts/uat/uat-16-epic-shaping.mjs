@@ -121,7 +121,7 @@ await runScript("uat-16", "UAT 16 — a one-line Epic shaped to Ready Stories, t
   if (bin === undefined) {
     throw new Error(
       "HARNESS PRECONDITION FAILED: the uat_shaping_ops binary was not found under target/{debug,release} — " +
-        "run `cargo build -p core --bin uat_shaping_ops --bin uat_session_env` first",
+        "run `cargo build -p flywheel-core --bin uat_shaping_ops --bin uat_session_env` first",
     );
   }
   const env = { ...process.env, FLYWHEEL_APP_DATA_DIR: harness.appDataDir };

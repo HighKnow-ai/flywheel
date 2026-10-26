@@ -7,10 +7,10 @@ use common::with_scratch_worktree_root;
 use std::os::unix::fs::symlink;
 use std::path::Path;
 
-use core::domain::worktree::{
+use flywheel_core::domain::worktree::{
     ensure_worktree, worktree_size, worktree_size_limited, WORKTREE_WALK_MAX_DEPTH,
 };
-use core::query::fleet::{record_worktree_size, worktree_measure_targets};
+use flywheel_core::query::fleet::{record_worktree_size, worktree_measure_targets};
 use rusqlite::params;
 
 #[test]

@@ -19,12 +19,12 @@
 //! - A project's key prefix is immutable once the project has allocated its first item key
 //!   (01-UI-SPEC.md Open Decisions #11, D-10).
 
-use core::db::open_and_migrate;
-use core::domain::actor::local_human_actor_id;
-use core::domain::event::{append_event, next_sequence};
-use core::domain::project::{self, Project};
-use core::domain::{epic, milestone, story};
-use core::ids::new_id;
+use flywheel_core::db::open_and_migrate;
+use flywheel_core::domain::actor::local_human_actor_id;
+use flywheel_core::domain::event::{append_event, next_sequence};
+use flywheel_core::domain::project::{self, Project};
+use flywheel_core::domain::{epic, milestone, story};
+use flywheel_core::ids::new_id;
 use rusqlite::{params, Connection};
 
 fn scratch_dir() -> tempfile::TempDir {

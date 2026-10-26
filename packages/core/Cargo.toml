@@ -1,11 +1,11 @@
 [package]
-name = "core"
+name = "flywheel-core"
 version = "0.1.0"
 edition = "2021"
 description = "Flywheel domain crate: schema, persistence, and the store-of-record write path"
 
 [lib]
-name = "core"
+name = "flywheel_core"
 
 [[bin]]
 name = "crash_harness"

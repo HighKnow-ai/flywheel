@@ -11,16 +11,16 @@
 
 mod common;
 
-use core::context_packet::build_context_packet;
-use core::domain::acceptance_criterion::{accept_criterion, create_criterion, get_criterion};
-use core::domain::check::{check_for_criterion, current_result, record_check_run, set_check, CheckResult, CheckRunRecord};
-use core::domain::epic;
-use core::domain::milestone;
-use core::domain::proposal::{accept_proposal, accept_proposal_amended, get_proposal, reject_proposal};
-use core::domain::proposal_apply::{is_judged_on, Applied};
-use core::domain::session::agent_actor_id;
-use core::domain::story::{self, StoryState};
-use core::domain::story_proposal_tool::{apply_story_proposal_call, StoryProposalCall};
+use flywheel_core::context_packet::build_context_packet;
+use flywheel_core::domain::acceptance_criterion::{accept_criterion, create_criterion, get_criterion};
+use flywheel_core::domain::check::{check_for_criterion, current_result, record_check_run, set_check, CheckResult, CheckRunRecord};
+use flywheel_core::domain::epic;
+use flywheel_core::domain::milestone;
+use flywheel_core::domain::proposal::{accept_proposal, accept_proposal_amended, get_proposal, reject_proposal};
+use flywheel_core::domain::proposal_apply::{is_judged_on, Applied};
+use flywheel_core::domain::session::agent_actor_id;
+use flywheel_core::domain::story::{self, StoryState};
+use flywheel_core::domain::story_proposal_tool::{apply_story_proposal_call, StoryProposalCall};
 use rusqlite::{params, Connection};
 use serde_json::{json, Value};
 
@@ -61,7 +61,7 @@ fn fixture() -> Fixture {
     accept_criterion(&mut conn, &human, &c.id).unwrap();
 
     let agent = agent_actor_id(&conn).unwrap();
-    let session_id = core::ids::new_id();
+    let session_id = flywheel_core::ids::new_id();
     conn.execute(
         "INSERT INTO sessions (id, story_id, project_id, actor_id, status, permission_mode, log_path, started_at)
          VALUES (?1, ?2, ?3, ?4, 'running', 'acceptEdits', '/tmp/x.jsonl', '2026-10-23T00:00:00Z')",
@@ -127,11 +127,11 @@ fn the_roster_stops_counting_the_amended_criterion() {
     let milestone_id: String =
         f.conn.query_row("SELECT milestone_id FROM epics WHERE id = ?1", [&f.epic_id], |r| r.get(0)).unwrap();
     let met = |f: &Fixture| {
-        let rows = core::query::roster::roster_rows(&f.conn, &milestone_id).unwrap();
+        let rows = flywheel_core::query::roster::roster_rows(&f.conn, &milestone_id).unwrap();
         rows.into_iter().find(|r| r.story_id == f.story.id).unwrap().criteria_met
     };
     let human = f.human.clone();
-    core::domain::acceptance_criterion::unaccept_criterion(&mut f.conn, &human, &f.criterion_id).unwrap();
+    flywheel_core::domain::acceptance_criterion::unaccept_criterion(&mut f.conn, &human, &f.criterion_id).unwrap();
     assert_eq!(met(&f), 1, "its Check passed");
     let id = amend(&mut f, "Parses an empty line", None);
     accept_proposal(&mut f.conn, &f.human, &id).unwrap();
@@ -265,7 +265,7 @@ fn an_accepted_epic_spec_change_reaches_every_story_packet_from_the_next_session
     }
     assert_eq!(
         accept_proposal(&mut f.conn, &f.human, &id).unwrap(),
-        Applied::SpecChange { epic_id: f.epic_id.clone(), field: core::domain::proposal_apply::SpecField::Scope }
+        Applied::SpecChange { epic_id: f.epic_id.clone(), field: flywheel_core::domain::proposal_apply::SpecField::Scope }
     );
     for story_id in [&f.story.id, &f.sibling.id] {
         let packet = build_context_packet(&f.conn, story_id, "").unwrap();
@@ -287,15 +287,15 @@ fn judged_on_is_an_amend_criterion_or_a_story_sessions_amend_epic_spec() {
 
     // An amend to an Epic filed in shaping (no Story session) is the Round's to decide.
     let human = f.human.clone();
-    let shaping = core::domain::proposal::file_proposal(
+    let shaping = flywheel_core::domain::proposal::file_proposal(
         &mut f.conn,
         &human,
-        &core::domain::proposal::NewProposal {
+        &flywheel_core::domain::proposal::NewProposal {
             project_id: &f.story.project_id,
             session_id: None,
             epic_id: Some(&f.epic_id),
-            verb: core::domain::proposal::ProposalVerb::Amend,
-            target: core::domain::proposal::ProposalTarget::Epic,
+            verb: flywheel_core::domain::proposal::ProposalVerb::Amend,
+            target: flywheel_core::domain::proposal::ProposalTarget::Epic,
             target_id: Some(&f.epic_id),
             payload: json!({ "field": "scope", "text": "By hand" }),
             rationale: None,
@@ -312,7 +312,7 @@ fn a_judged_on_duplicate_names_the_change_it_repeats_in_needs_you() {
     let mut f = fixture();
     let first = amend(&mut f, "Parses an empty line as no token", None);
     let second = amend(&mut f, "Parses an empty line and a blank one as no token", None);
-    let items = core::query::needs_you::needs_you(&f.conn, &f.story.project_id).unwrap();
+    let items = flywheel_core::query::needs_you::needs_you(&f.conn, &f.story.project_id).unwrap();
     let judged: Vec<_> = items.iter().filter_map(|i| i.judged_on.as_ref()).collect();
     assert_eq!(judged.len(), 2, "each judged-on change is its own item");
     let original = judged.iter().find(|j| j.proposal_id == first).unwrap();
@@ -326,7 +326,7 @@ fn a_judged_on_duplicate_names_the_change_it_repeats_in_needs_you() {
 /// Migration 0013 adds `checks.stale_since`, NULL until a judged-on change marks the run stale.
 #[test]
 fn a_fresh_database_migrates_through_0013() {
-    let sources = core::db::migration_sources();
+    let sources = flywheel_core::db::migration_sources();
     assert!(sources.len() >= 13, "0001 through 0013, none missing");
     assert!(sources[12].contains("stale_since"), "0013 is the thirteenth migration");
     let f = fixture();

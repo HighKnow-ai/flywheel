@@ -1,7 +1,7 @@
 //! WORK-04's authoritative reproduction (03-RESEARCH.md open question 1): ten concurrent commits
 //! into TEN ALREADY-CREATED worktrees of one repository, driven through the real PATH shim by
 //! spawning `commit_stress_harness` (`tests/bin/commit_stress_harness.rs`) N times concurrently —
-//! never through `core::git::git_at`, which is the supervisor's own path and not what an agent's
+//! never through `flywheel_core::git::git_at`, which is the supervisor's own path and not what an agent's
 //! own `git commit` takes. Setup (repo init + ten SEQUENTIAL worktree creations, asserted before
 //! any commit is attempted) is explicitly NOT part of the measured window: this test is about
 //! commit-time lock contention (D-51/D-54), not worktree-creation-time contention (D-52), and a
@@ -25,9 +25,9 @@ use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use core::git::{git_at, git_version, worktree_add, worktree_list, worktree_root_from_env, MIN_SUPPORTED_GIT};
-use core::git_retry::{RETRY_BASE_MS, RETRY_MAX_ATTEMPTS};
-use core::shim;
+use flywheel_core::git::{git_at, git_version, worktree_add, worktree_list, worktree_root_from_env, MIN_SUPPORTED_GIT};
+use flywheel_core::git_retry::{RETRY_BASE_MS, RETRY_MAX_ATTEMPTS};
+use flywheel_core::shim;
 
 const WORKTREE_COUNT: usize = 10;
 
@@ -109,7 +109,7 @@ fn stress_timeout() -> Duration {
 /// succeeded on its first attempt both read 0 here — this counts EXHAUSTION events, not raw
 /// collisions, which is why it is printed as evidence rather than asserted on.
 fn count_exhaustion_events(run_id: &str) -> u64 {
-    let Ok(runtime_dir) = core::runtime_protocol::runtime_dir() else {
+    let Ok(runtime_dir) = flywheel_core::runtime_protocol::runtime_dir() else {
         return 0;
     };
     let path = runtime_dir.join("contention").join(format!("{run_id}.jsonl"));
@@ -361,8 +361,8 @@ fn companion_no_shim_ten_concurrent_commits_is_evidence_only_and_never_a_gate() 
 /// no de-duplication across repeated calls, and no change to the run's own status.
 mod record_lock_exhaustion_tests {
     use crate::common;
-    use core::domain::actor::{local_human_actor_id, system_actor};
-    use core::domain::session::{record_lock_exhaustion, start_session, SessionStatus};
+    use flywheel_core::domain::actor::{local_human_actor_id, system_actor};
+    use flywheel_core::domain::session::{record_lock_exhaustion, start_session, SessionStatus};
     
     fn event_count(conn: &rusqlite::Connection, run_id: &str) -> i64 {
         conn.query_row(

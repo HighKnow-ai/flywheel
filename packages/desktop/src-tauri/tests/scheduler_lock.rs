@@ -134,16 +134,16 @@ fn on_a_thread<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> 
 fn merge_and_reclaim_wait_for_the_story_work_lock() {
     let board = board(1);
     let story_id = board.story_ids[0].clone();
-    let lock = desktop_lib::commands::story_work(&story_id);
+    let lock = flywheel_desktop_lib::commands::story_work(&story_id);
     let held = lock.lock().unwrap();
 
     let (path, actor, id) = (board.db_path.clone(), board.actor_id.clone(), story_id.clone());
     let merge = on_a_thread(move || {
-        desktop_lib::commands::review::merge_with_story_work(&path, &actor, &id, Default::default()).map(|_| ())
+        flywheel_desktop_lib::commands::review::merge_with_story_work(&path, &actor, &id, Default::default()).map(|_| ())
     });
     let (path, actor, id) = (board.db_path.clone(), board.actor_id.clone(), story_id.clone());
     let reclaim = on_a_thread(move || {
-        desktop_lib::commands::fleet::reclaim_with_story_work(&path, &[id], &actor).map(|outcomes| outcomes.len())
+        flywheel_desktop_lib::commands::fleet::reclaim_with_story_work(&path, &[id], &actor).map(|outcomes| outcomes.len())
     });
     assert!(merge.recv_timeout(STILL_WAITING).is_err(), "Merge ran while the Story's work lock was held");
     assert!(reclaim.recv_timeout(STILL_WAITING).is_err(), "Reclaim ran while the Story's work lock was held");
@@ -167,7 +167,7 @@ fn a_start_racing_a_merge_on_one_story_is_serialised() {
     let (go_tx, go_rx) = mpsc::channel::<()>();
     let (db, id) = (Arc::clone(&board.db), story_id.clone());
     let start = on_a_thread(move || {
-        desktop_lib::commands::session::start_ready_story(
+        flywheel_desktop_lib::commands::session::start_ready_story(
             &db,
             &id,
             "",
@@ -186,7 +186,7 @@ fn a_start_racing_a_merge_on_one_story_is_serialised() {
 
     let (path, actor, id) = (board.db_path.clone(), board.actor_id.clone(), story_id.clone());
     let merge = on_a_thread(move || {
-        desktop_lib::commands::review::merge_with_story_work(&path, &actor, &id, Default::default()).map(|_| ())
+        flywheel_desktop_lib::commands::review::merge_with_story_work(&path, &actor, &id, Default::default()).map(|_| ())
     });
     assert!(merge.recv_timeout(STILL_WAITING).is_err(), "Merge ran in the middle of a Start on the same Story");
 

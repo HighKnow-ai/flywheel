@@ -336,7 +336,7 @@ Costs real tokens, same as items 3, 5 and 6.
 ## Safety and cost
 
 - **Nothing touches your real data.** Every script points `FLYWHEEL_APP_DATA_DIR` at a scratch
-  directory. That seam exists for this — see `core::db::app_data_dir`. The `uat_*` bridge binaries
+  directory. That seam exists for this — see `flywheel_core::db::app_data_dir`. The `uat_*` bridge binaries
   *refuse to run* if the variable is unset, rather than defaulting to the real fleet database.
 - **Items 3, 5, 6, 7 and 11 (live) cost real tokens.** They drive real model turns (item 6 twice, once per
   `--heartbeat` mode).

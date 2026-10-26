@@ -9,14 +9,14 @@
 
 mod common;
 
-use core::domain::round::{
+use flywheel_core::domain::round::{
     accept_all_recommended, answer_round_question, post_round, rounds_for_epic, NewQuestion, NewRound, RoundAnswer,
 };
-use core::domain::session::{interrupt_session, start_session, start_shaping_session, ShapingSubject};
-use core::domain::session_kind::SessionKind;
-use core::domain::shaping_tool::{apply_shaping_tool_call, ShapingToolCall, ShapingToolOutcome, SHAPING_TOOL_NAMES};
-use core::domain::stage::{open_stage, stages_for_epic, StageKind};
-use core::domain::{epic, milestone};
+use flywheel_core::domain::session::{interrupt_session, start_session, start_shaping_session, ShapingSubject};
+use flywheel_core::domain::session_kind::SessionKind;
+use flywheel_core::domain::shaping_tool::{apply_shaping_tool_call, ShapingToolCall, ShapingToolOutcome, SHAPING_TOOL_NAMES};
+use flywheel_core::domain::stage::{open_stage, stages_for_epic, StageKind};
+use flywheel_core::domain::{epic, milestone};
 use rusqlite::Connection;
 
 struct Fixture {
@@ -218,8 +218,8 @@ fn round_post_is_refused_for_a_story_session_an_ended_session_and_a_malformed_ro
     common::with_scratch_worktree_root(|_| {
         let (mut conn, human, project, _repo) = common::seeded_git_project();
         let story = common::new_story(&mut conn, &project.id, &human, "A Story");
-        core::domain::story::set_story_state(&mut conn, &human, &story.id, core::domain::story::StoryState::Ready).unwrap();
-        core::domain::story::set_story_state(&mut conn, &human, &story.id, core::domain::story::StoryState::Running).unwrap();
+        flywheel_core::domain::story::set_story_state(&mut conn, &human, &story.id, flywheel_core::domain::story::StoryState::Ready).unwrap();
+        flywheel_core::domain::story::set_story_state(&mut conn, &human, &story.id, flywheel_core::domain::story::StoryState::Running).unwrap();
         let session = start_session(&mut conn, &story.id, "acceptEdits", &human).unwrap();
         let refused = post_round(&mut conn, &session.id, Some("req-1"), &round_of(1));
         assert!(refused.unwrap_err().to_string().contains("shaping session"));

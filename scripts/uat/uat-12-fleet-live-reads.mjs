@@ -62,7 +62,7 @@ async function main() {
   if (bin === undefined) {
     throw new Error(
       "HARNESS PRECONDITION FAILED: the uat_fleet_ops binary was not found under target/{debug,release} — " +
-        "run `cargo build -p core --bin uat_fleet_ops` first",
+        "run `cargo build -p flywheel-core --bin uat_fleet_ops` first",
     );
   }
 

@@ -58,19 +58,19 @@
 //!   uat_review_ops adr-links <project_id>
 //!   uat_review_ops session-closed <run_id>
 
-use core::domain::adr_link::{adr_links_for_project, AdrLinkTarget};
-use core::domain::handoff::{
+use flywheel_core::domain::adr_link::{adr_links_for_project, AdrLinkTarget};
+use flywheel_core::domain::handoff::{
     batch_as_tool_result, hand_off_with, handoff_as_tool_result, plan_feedback_run, run_checks, HandoffToolCall, HANDOFF_TOOL_NAMES,
 };
-use core::domain::proposal::{accept_proposal, proposals_filed_by_story, proposals_for_triage, reject_proposal};
-use core::domain::review_decisions::{review_decisions, set_adr_decision, AdrDecision};
-use core::domain::session::{close_session, start_session, SessionStatus};
-use core::domain::session_kind::SessionKind;
-use core::domain::story::{self, HandWrittenCriterion, StoryState};
-use core::domain::story_merge::{merge_story, MergeOptions};
-use core::domain::story_proposal_tool::{apply_story_proposal_call, StoryProposalCall, STORY_PROPOSAL_TOOL_NAMES};
-use core::domain::task_tool::{apply_task_tool_call, tasks_as_tool_result, TaskToolCall, TASK_TOOL_NAMES};
-use core::domain::{acceptance_criterion, actor, epic, milestone, project};
+use flywheel_core::domain::proposal::{accept_proposal, proposals_filed_by_story, proposals_for_triage, reject_proposal};
+use flywheel_core::domain::review_decisions::{review_decisions, set_adr_decision, AdrDecision};
+use flywheel_core::domain::session::{close_session, start_session, SessionStatus};
+use flywheel_core::domain::session_kind::SessionKind;
+use flywheel_core::domain::story::{self, HandWrittenCriterion, StoryState};
+use flywheel_core::domain::story_merge::{merge_story, MergeOptions};
+use flywheel_core::domain::story_proposal_tool::{apply_story_proposal_call, StoryProposalCall, STORY_PROPOSAL_TOOL_NAMES};
+use flywheel_core::domain::task_tool::{apply_task_tool_call, tasks_as_tool_result, TaskToolCall, TASK_TOOL_NAMES};
+use flywheel_core::domain::{acceptance_criterion, actor, epic, milestone, project};
 use rusqlite::Connection;
 use serde_json::{json, Value};
 
@@ -87,9 +87,9 @@ fn require_env(name: &str, why: &str) {
 
 fn open_conn() -> Connection {
     require_env("FLYWHEEL_APP_DATA_DIR", "refusing to touch the real fleet database. Point it at a scratch directory.");
-    let db_path = core::db::default_db_path().unwrap_or_else(|e| fail(&format!("db path: {e:#}")));
-    let backups = core::db::default_backups_dir().unwrap_or_else(|e| fail(&format!("backups dir: {e:#}")));
-    core::db::open_and_migrate(&db_path, &backups).unwrap_or_else(|e| fail(&format!("open: {e:#}")))
+    let db_path = flywheel_core::db::default_db_path().unwrap_or_else(|e| fail(&format!("db path: {e:#}")));
+    let backups = flywheel_core::db::default_backups_dir().unwrap_or_else(|e| fail(&format!("backups dir: {e:#}")));
+    flywheel_core::db::open_and_migrate(&db_path, &backups).unwrap_or_else(|e| fail(&format!("open: {e:#}")))
 }
 
 fn human(conn: &Connection) -> String {
@@ -180,7 +180,7 @@ fn launch(conn: &mut Connection, h: &str, story_id: &str) -> Value {
         conn.query_row("SELECT path, branch FROM worktrees WHERE story_id = ?1", [story_id], |r| Ok((r.get(0)?, r.get(1)?)))
             .map_err(anyhow::Error::from),
     );
-    let prompt = ok("build_context_packet", core::context_packet::build_context_packet(conn, story_id, ""));
+    let prompt = ok("build_context_packet", flywheel_core::context_packet::build_context_packet(conn, story_id, ""));
     let policy_env: serde_json::Map<String, Value> = policy.env.iter().map(|(k, v)| (k.to_string(), json!(v))).collect();
     json!({
         "spawn": {
@@ -245,7 +245,7 @@ fn story_proposals(story_id: &str) -> Value {
 /// Needs you, as the board's column reads it: each item's kind, id and record, and what its card shows.
 fn needs_you(project_id: &str) -> Value {
     let conn = open_conn();
-    let items: Vec<Value> = ok("needs_you", core::query::needs_you::needs_you(&conn, project_id))
+    let items: Vec<Value> = ok("needs_you", flywheel_core::query::needs_you::needs_you(&conn, project_id))
         .into_iter()
         .map(|i| {
             json!({
@@ -330,7 +330,7 @@ fn request_changes(story_id: &str, comments: &str) -> Value {
     require_env("FLYWHEEL_WORKTREE_ROOT", "start_session would create a worktree under ~/Flywheel/");
     let mut conn = open_conn();
     let h = human(&conn);
-    ok("request_changes", core::domain::request_changes::request_changes(&mut conn, &h, story_id, comments));
+    ok("request_changes", flywheel_core::domain::request_changes::request_changes(&mut conn, &h, story_id, comments));
     launch(&mut conn, &h, story_id)
 }
 
@@ -338,7 +338,7 @@ fn request_changes(story_id: &str, comments: &str) -> Value {
 /// the Decisions section.
 fn review(story_id: &str) -> Value {
     let conn = open_conn();
-    let r = ok("review_for_story", core::domain::review::review_for_story(&conn, story_id));
+    let r = ok("review_for_story", flywheel_core::domain::review::review_for_story(&conn, story_id));
     let d = ok("review_decisions", review_decisions(&conn, story_id));
     let criteria: Vec<Value> = r
         .criteria

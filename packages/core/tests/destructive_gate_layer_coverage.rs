@@ -1,6 +1,6 @@
 //! Phase 12, plan 12-02, Task 3: the layer-coverage totality invariant.
 //!
-//! `core::git_hooks::interception_layers_for` is a `match` with no wildcard arm over
+//! `flywheel_core::git_hooks::interception_layers_for` is a `match` with no wildcard arm over
 //! `DestructiveCategory` — adding a category without naming a layer for it fails to compile, so
 //! this file's job is to prove the TABLE's claims are honest, not that the match is exhaustive
 //! (the compiler already guarantees that). Four properties: every category has at least one named
@@ -12,8 +12,8 @@
 //! installs the Layer 3 pre-push gate there, so a THIRD mutation path added later cannot silently
 //! skip it the way `relocate_project` originally did.
 
-use core::destructive::DestructiveCategory;
-use core::git_hooks::{interception_layers_for, pre_push_hook_script};
+use flywheel_core::destructive::DestructiveCategory;
+use flywheel_core::git_hooks::{interception_layers_for, pre_push_hook_script};
 use std::path::{Path, PathBuf};
 
 const LAYER_2_SHIM: &str = "Layer 2 — the shim's runtime interception";

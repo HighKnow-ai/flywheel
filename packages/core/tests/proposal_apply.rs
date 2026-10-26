@@ -11,21 +11,21 @@
 
 mod common;
 
-use core::domain::epic::{self, get_epic};
-use core::domain::milestone;
-use core::domain::proposal::{
+use flywheel_core::domain::epic::{self, get_epic};
+use flywheel_core::domain::milestone;
+use flywheel_core::domain::proposal::{
     accept_proposal, accept_proposal_amended, count_undecided_proposals_in_stage, file_proposal, get_proposal,
     proposals_on_epic, reject_proposal, NewProposal, ProposalTarget, ProposalVerb, OPEN_PROPOSALS_PER_SESSION,
 };
-use core::domain::round::{accept_all_recommended, post_round, NewQuestion, NewRound};
-use core::domain::session::{agent_actor_id, start_shaping_session, ShapingSubject};
-use core::domain::session_kind::SessionKind;
-use core::domain::shaping_tool::{apply_shaping_tool_call, ShapingToolCall, ShapingToolOutcome, SHAPING_TOOL_NAMES};
-use core::domain::acceptance_criterion::criteria_for_story;
-use core::domain::check::check_for_criterion;
-use core::domain::stage::{close_stage, open_stage, stage_status, StageKind};
-use core::domain::story::{self, stories_in_epic, Story};
-use core::shaping_packet::build_epic_shaping_packet;
+use flywheel_core::domain::round::{accept_all_recommended, post_round, NewQuestion, NewRound};
+use flywheel_core::domain::session::{agent_actor_id, start_shaping_session, ShapingSubject};
+use flywheel_core::domain::session_kind::SessionKind;
+use flywheel_core::domain::shaping_tool::{apply_shaping_tool_call, ShapingToolCall, ShapingToolOutcome, SHAPING_TOOL_NAMES};
+use flywheel_core::domain::acceptance_criterion::criteria_for_story;
+use flywheel_core::domain::check::check_for_criterion;
+use flywheel_core::domain::stage::{close_stage, open_stage, stage_status, StageKind};
+use flywheel_core::domain::story::{self, stories_in_epic, Story};
+use flywheel_core::shaping_packet::build_epic_shaping_packet;
 use rusqlite::Connection;
 use serde_json::{json, Value};
 
@@ -243,7 +243,7 @@ fn a_story_session_is_still_capped_at_three() {
     let (mut conn, human, project) = common::seeded_project();
     let s = common::new_story(&mut conn, &project.id, &human, "S");
     let agent = agent_actor_id(&conn).unwrap();
-    let session = core::ids::new_id();
+    let session = flywheel_core::ids::new_id();
     conn.execute(
         "INSERT INTO sessions (id, story_id, project_id, actor_id, status, permission_mode, log_path, started_at)
          VALUES (?1, ?2, ?3, ?4, 'running', 'default', '/tmp/x.jsonl', 'now')",
@@ -286,7 +286,7 @@ fn the_undecided_proposals_of_a_stage_are_counted_for_closing_it() {
 #[test]
 fn a_spec_change_from_a_session_that_ended_is_refused() {
     let mut f = shaping();
-    core::domain::session::interrupt_session(&mut f.conn, &f.session_id, &f.human).unwrap();
+    flywheel_core::domain::session::interrupt_session(&mut f.conn, &f.session_id, &f.human).unwrap();
     let call = ShapingToolCall::parse("propose_spec_change", &json!({ "field": "scope", "text": "x", "why": "y" })).unwrap();
     let err = apply_shaping_tool_call(&mut f.conn, &f.session_id, "req-x", &call).unwrap_err();
     assert!(format!("{err:#}").contains("ended"), "{err:#}");
@@ -531,7 +531,7 @@ fn amend_edits_a_new_storys_words_but_not_its_place_or_what_it_runs_after() {
     let original = get_proposal(&f.conn, &id).unwrap().unwrap().payload;
 
     let mut moved = original.clone();
-    moved["rank"] = json!(core::ranking::rank_after(Some(original["rank"].as_str().unwrap())).unwrap());
+    moved["rank"] = json!(flywheel_core::ranking::rank_after(Some(original["rank"].as_str().unwrap())).unwrap());
     assert!(accept_proposal_amended(&mut f.conn, &f.human, &id, &moved).is_err(), "the place is kept");
     let mut unhooked = original.clone();
     unhooked["runs_after_story_id"] = Value::Null;

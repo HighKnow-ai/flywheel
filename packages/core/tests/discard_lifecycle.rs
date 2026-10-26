@@ -22,11 +22,11 @@ mod common;
 
 use common::with_scratch_worktree_root;
 
-use core::domain::acceptance_criterion::create_criterion;
-use core::domain::session::{
+use flywheel_core::domain::acceptance_criterion::create_criterion;
+use flywheel_core::domain::session::{
     apply_session_closed, interrupt_session, interrupt_session_in_tx, start_session,
 };
-use core::domain::session_summary::{
+use flywheel_core::domain::session_summary::{
     create_summary, latest_summary_for_run, list_summaries_for_story, synthesize_fallback_summary,
 };
 

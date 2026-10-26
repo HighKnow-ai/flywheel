@@ -22,22 +22,22 @@ mod common;
 
 use std::path::{Path, PathBuf};
 
-use core::domain::acceptance_criterion::{accept_criterion, create_criterion, unaccept_criterion};
-use core::domain::actor::{assert_human_actor, assert_human_actor_in_tx, local_human_actor_id, system_actor};
-use core::domain::session::agent_actor_id;
-use core::domain::check::{remove_check, set_check};
-use core::domain::epic::{set_epic_state, EpicState};
-use core::domain::milestone::{move_milestone, set_milestone_state, update_milestone, MilestoneState};
-use core::domain::proposal::{
+use flywheel_core::domain::acceptance_criterion::{accept_criterion, create_criterion, unaccept_criterion};
+use flywheel_core::domain::actor::{assert_human_actor, assert_human_actor_in_tx, local_human_actor_id, system_actor};
+use flywheel_core::domain::session::agent_actor_id;
+use flywheel_core::domain::check::{remove_check, set_check};
+use flywheel_core::domain::epic::{set_epic_state, EpicState};
+use flywheel_core::domain::milestone::{move_milestone, set_milestone_state, update_milestone, MilestoneState};
+use flywheel_core::domain::proposal::{
     accept_proposal, accept_proposal_amended, accept_proposal_released, file_proposal, reject_proposal, reject_proposal_released,
     NewProposal, ProposalTarget, ProposalVerb,
 };
-use core::domain::roadmap_round::{dismiss_roadmap_round, open_roadmap_round};
-use core::domain::round::{accept_all_recommended, answer_round_question, post_round, NewQuestion, NewRound, RoundAnswer};
-use core::domain::stage::close_stage;
-use core::domain::story::{make_ready, move_story_to_epic, set_story_state, StoryState};
-use core::domain::request_changes::request_changes;
-use core::domain::story_merge::{merge_story, MergeOptions};
+use flywheel_core::domain::roadmap_round::{dismiss_roadmap_round, open_roadmap_round};
+use flywheel_core::domain::round::{accept_all_recommended, answer_round_question, post_round, NewQuestion, NewRound, RoundAnswer};
+use flywheel_core::domain::stage::close_stage;
+use flywheel_core::domain::story::{make_ready, move_story_to_epic, set_story_state, StoryState};
+use flywheel_core::domain::request_changes::request_changes;
+use flywheel_core::domain::story_merge::{merge_story, MergeOptions};
 use rusqlite::Connection;
 
 // ============================================================================================
@@ -191,9 +191,9 @@ fn run_reject_proposal_released(who: Who) -> Trial {
 /// Issue #133: dismissing a roadmap Round closes it with no change, and is the developer's.
 fn run_dismiss_roadmap_round(who: Who) -> Trial {
     let (mut conn, human, project) = common::seeded_project();
-    core::domain::session::start_shaping_session(
+    flywheel_core::domain::session::start_shaping_session(
         &mut conn,
-        &core::domain::session::ShapingSubject::Roadmap(project.id.clone()),
+        &flywheel_core::domain::session::ShapingSubject::Roadmap(project.id.clone()),
         "dontAsk",
         &human,
     )
@@ -237,18 +237,18 @@ fn git_story_in_review() -> (Connection, String, String, String, tempfile::TempD
     set_check(&mut conn, &human, &criterion.id, "true", None).unwrap();
     set_story_state(&mut conn, &human, &story.id, StoryState::Ready).unwrap();
     set_story_state(&mut conn, &human, &story.id, StoryState::Running).unwrap();
-    let worktree = core::domain::worktree::ensure_worktree(&mut conn, &story.id, &human).unwrap();
-    let session = core::domain::session::start_session(&mut conn, &story.id, "acceptEdits", &human).unwrap();
+    let worktree = flywheel_core::domain::worktree::ensure_worktree(&mut conn, &story.id, &human).unwrap();
+    let session = flywheel_core::domain::session::start_session(&mut conn, &story.id, "acceptEdits", &human).unwrap();
     let agent = agent_actor_id(&conn).unwrap();
-    let task = core::domain::task::add_task(&mut conn, &agent, &story.id, "Work").unwrap();
-    core::domain::task::set_task_state(&mut conn, &agent, &task.id, core::domain::task::TaskState::Done, None).unwrap();
+    let task = flywheel_core::domain::task::add_task(&mut conn, &agent, &story.id, "Work").unwrap();
+    flywheel_core::domain::task::set_task_state(&mut conn, &agent, &task.id, flywheel_core::domain::task::TaskState::Done, None).unwrap();
     let path = Path::new(&worktree.path);
     std::fs::write(path.join("work.txt"), "work\n").unwrap();
     for args in [&["add", "work.txt"][..], &["-c", "user.name=T", "-c", "user.email=t@flywheel.test", "commit", "-qm", "work"][..]] {
         assert!(std::process::Command::new("git").arg("-C").arg(path).args(args).status().unwrap().success());
     }
-    core::domain::handoff::hand_off(&mut conn, &session.id, "Done.", "").unwrap();
-    core::domain::session::close_session(&mut conn, &session.id, core::domain::session::SessionStatus::Completed, None, None, None)
+    flywheel_core::domain::handoff::hand_off(&mut conn, &session.id, "Done.", "").unwrap();
+    flywheel_core::domain::session::close_session(&mut conn, &session.id, flywheel_core::domain::session::SessionStatus::Completed, None, None, None)
         .unwrap();
     (conn, human, story.id, criterion.id, repo)
 }
@@ -290,7 +290,7 @@ fn run_close_epic_shaping(who: Who) -> Trial {
 
 fn run_confirm_milestone(who: Who) -> Trial {
     let (mut conn, human, project) = common::seeded_project();
-    let m = core::domain::milestone::create_milestone(&mut conn, &project.id, &human, "Ship it", Some("it ships"))
+    let m = flywheel_core::domain::milestone::create_milestone(&mut conn, &project.id, &human, "Ship it", Some("it ships"))
         .expect("create_milestone");
     trial(&mut conn, who, |c, actor| set_milestone_state(c, actor, &m.id, MilestoneState::Done))
 }
@@ -298,8 +298,8 @@ fn run_confirm_milestone(who: Who) -> Trial {
 /// Reordering the Roadmap moves the Current Milestone, so it is the developer's (spec §2).
 fn run_move_milestone(who: Who) -> Trial {
     let (mut conn, human, project) = common::seeded_project();
-    let first = core::domain::milestone::create_milestone(&mut conn, &project.id, &human, "First", None).unwrap();
-    let second = core::domain::milestone::create_milestone(&mut conn, &project.id, &human, "Second", None).unwrap();
+    let first = flywheel_core::domain::milestone::create_milestone(&mut conn, &project.id, &human, "First", None).unwrap();
+    let second = flywheel_core::domain::milestone::create_milestone(&mut conn, &project.id, &human, "Second", None).unwrap();
     trial(&mut conn, who, |c, actor| move_milestone(c, actor, &second.id, Some(&first.id)))
 }
 
@@ -307,7 +307,7 @@ fn run_move_milestone(who: Who) -> Trial {
 /// the Roadmap only through a Proposal.
 fn run_update_milestone(who: Who) -> Trial {
     let (mut conn, human, project) = common::seeded_project();
-    let m = core::domain::milestone::create_milestone(&mut conn, &project.id, &human, "Ship it", Some("it ships")).unwrap();
+    let m = flywheel_core::domain::milestone::create_milestone(&mut conn, &project.id, &human, "Ship it", Some("it ships")).unwrap();
     trial(&mut conn, who, |c, actor| update_milestone(c, actor, &m.id, "Ship it well", Some("it ships and holds")))
 }
 
@@ -317,7 +317,7 @@ fn run_move_story_to_epic(who: Who) -> Trial {
     let story = common::new_story(&mut conn, &project.id, &human, "Wire up the focus trap");
     let milestone: String =
         conn.query_row("SELECT milestone_id FROM epics WHERE id = ?1", [&story.epic_id], |r| r.get(0)).unwrap();
-    let target = core::domain::epic::create_epic(&mut conn, &human, &milestone, "Another Epic").unwrap();
+    let target = flywheel_core::domain::epic::create_epic(&mut conn, &human, &milestone, "Another Epic").unwrap();
     trial(&mut conn, who, |c, actor| move_story_to_epic(c, actor, &story.id, &target.id))
 }
 
@@ -335,11 +335,11 @@ fn run_make_ready(who: Who) -> Trial {
 /// `(conn, round_id, first question id)`.
 fn posted_round() -> (Connection, String, String) {
     let (mut conn, human, project) = common::seeded_project();
-    let m = core::domain::milestone::create_milestone(&mut conn, &project.id, &human, "Shaping", None).unwrap();
-    let e = core::domain::epic::create_epic(&mut conn, &human, &m.id, "Epic shaping").unwrap();
-    let session = core::domain::session::start_shaping_session(
+    let m = flywheel_core::domain::milestone::create_milestone(&mut conn, &project.id, &human, "Shaping", None).unwrap();
+    let e = flywheel_core::domain::epic::create_epic(&mut conn, &human, &m.id, "Epic shaping").unwrap();
+    let session = flywheel_core::domain::session::start_shaping_session(
         &mut conn,
-        &core::domain::session::ShapingSubject::Epic(e.id),
+        &flywheel_core::domain::session::ShapingSubject::Epic(e.id),
         "dontAsk",
         &human,
     )
@@ -378,11 +378,11 @@ fn run_accept_all_recommended(who: Who) -> Trial {
 /// Stage has nothing open, so only the actor decides.
 fn run_close_stage(who: Who) -> Trial {
     let (mut conn, human, project) = common::seeded_project();
-    let m = core::domain::milestone::create_milestone(&mut conn, &project.id, &human, "Shaping", None).unwrap();
-    let e = core::domain::epic::create_epic(&mut conn, &human, &m.id, "Epic shaping").unwrap();
-    let subject = core::domain::session::ShapingSubject::Epic(e.id);
-    core::domain::session::start_shaping_session(&mut conn, &subject, "dontAsk", &human).unwrap();
-    let stage = core::domain::stage::open_stage(&conn, &subject).unwrap().expect("the first Stage is open");
+    let m = flywheel_core::domain::milestone::create_milestone(&mut conn, &project.id, &human, "Shaping", None).unwrap();
+    let e = flywheel_core::domain::epic::create_epic(&mut conn, &human, &m.id, "Epic shaping").unwrap();
+    let subject = flywheel_core::domain::session::ShapingSubject::Epic(e.id);
+    flywheel_core::domain::session::start_shaping_session(&mut conn, &subject, "dontAsk", &human).unwrap();
+    let stage = flywheel_core::domain::stage::open_stage(&conn, &subject).unwrap().expect("the first Stage is open");
     trial(&mut conn, who, |c, actor| close_stage(c, actor, &stage.id).map(|_| ()))
 }
 
@@ -490,9 +490,9 @@ fn the_hand_off_is_the_only_story_move_an_agent_may_make() {
     assert!(t.result.is_ok(), "the session hands off: {:?}", t.result);
     assert_ne!(t.before, t.after);
     for from in [StoryState::Shaping, StoryState::Ready, StoryState::Running, StoryState::InReview] {
-        for to in core::domain::story::StoryState::ALL {
-            if core::domain::story::is_allowed_transition(from, to) && (from, to) != (StoryState::Running, StoryState::InReview) {
-                assert!(core::domain::story::is_human_transition(from, to), "{from:?} -> {to:?} must be the developer's");
+        for to in flywheel_core::domain::story::StoryState::ALL {
+            if flywheel_core::domain::story::is_allowed_transition(from, to) && (from, to) != (StoryState::Running, StoryState::InReview) {
+                assert!(flywheel_core::domain::story::is_human_transition(from, to), "{from:?} -> {to:?} must be the developer's");
             }
         }
     }
@@ -535,12 +535,12 @@ fn a_passing_check_run_does_not_accept_its_criterion() {
     let (mut conn, human, _, criterion_id) = criterion_fixture();
     let check = set_check(&mut conn, &human, &criterion_id, "true", None).expect("set_check");
     let now = chrono::Utc::now().to_rfc3339();
-    core::domain::check::record_check_run(
+    flywheel_core::domain::check::record_check_run(
         &mut conn,
         &check.id,
-        &core::domain::check::CheckRunRecord {
+        &flywheel_core::domain::check::CheckRunRecord {
             commit_sha: "abc123",
-            result: core::domain::check::CheckResult::Passed,
+            result: flywheel_core::domain::check::CheckResult::Passed,
             exit_code: Some(0),
             output_tail: None,
             started_at: &now,
@@ -548,7 +548,7 @@ fn a_passing_check_run_does_not_accept_its_criterion() {
         },
     )
     .expect("record_check_run");
-    let criterion = core::domain::acceptance_criterion::get_criterion(&conn, &criterion_id).unwrap().unwrap();
+    let criterion = flywheel_core::domain::acceptance_criterion::get_criterion(&conn, &criterion_id).unwrap().unwrap();
     assert_eq!(criterion.accepted_by, None, "a passed Check pre-ticks at review; it never accepts");
 }
 

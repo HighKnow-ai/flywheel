@@ -15,16 +15,16 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use common::with_scratch_worktree_root;
-use core::domain::acceptance_criterion::create_criterion;
-use core::domain::check::{current_result, set_check, Check, CheckResult};
-use core::domain::handoff::{
+use flywheel_core::domain::acceptance_criterion::create_criterion;
+use flywheel_core::domain::check::{current_result, set_check, Check, CheckResult};
+use flywheel_core::domain::handoff::{
     complete_handoff, complete_review_run, plan_handoff, plan_review_run, rerun_checks, run_checks, run_checks_reporting, CheckObjection, HandoffSummary,
 };
-use core::domain::review::{open_review, review_file_patch, review_for_story};
-use core::domain::session::{agent_actor_id, close_session, start_session, Session, SessionStatus};
-use core::domain::story::{set_story_state, Story, StoryState};
-use core::domain::task::{add_task, set_task_state, TaskState};
-use core::domain::worktree::ensure_worktree;
+use flywheel_core::domain::review::{open_review, review_file_patch, review_for_story};
+use flywheel_core::domain::session::{agent_actor_id, close_session, start_session, Session, SessionStatus};
+use flywheel_core::domain::story::{set_story_state, Story, StoryState};
+use flywheel_core::domain::task::{add_task, set_task_state, TaskState};
+use flywheel_core::domain::worktree::ensure_worktree;
 use rusqlite::{params, Connection};
 use serde_json::json;
 use tempfile::TempDir;

@@ -13,7 +13,7 @@ mod common;
 
 use std::path::{Path, PathBuf};
 
-use core::domain::acceptance_criterion::{amend_criterion, create_criterion, criteria_for_story, get_criterion};
+use flywheel_core::domain::acceptance_criterion::{amend_criterion, create_criterion, criteria_for_story, get_criterion};
 use rusqlite::params;
 
 #[test]
@@ -44,7 +44,7 @@ fn the_schema_refuses_a_null_or_dangling_story() {
         conn.execute(
             "INSERT INTO acceptance_criteria (id, story_id, statement, rank, created_by, created_at, updated_at)
              VALUES (?1, ?2, 'raw', 'a0', ?3, 'now', 'now')",
-            params![core::ids::new_id(), story, human],
+            params![flywheel_core::ids::new_id(), story, human],
         )
     };
     assert!(insert(None).is_err(), "story_id is NOT NULL");

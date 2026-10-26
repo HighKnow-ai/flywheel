@@ -2,8 +2,8 @@
 //! rather than trusting the pragma choice and the happy path.
 //!
 //! The migration list starts at the MVP baseline (ADR 0003), so "N-1" is a database at the baseline
-//! and "N" is the baseline plus one more migration, built here from `core::db::migration_sources()`
-//! (the same ordered SQL list `core::db::MIGRATIONS` compiles from) and driven through
+//! and "N" is the baseline plus one more migration, built here from `flywheel_core::db::migration_sources()`
+//! (the same ordered SQL list `flywheel_core::db::MIGRATIONS` compiles from) and driven through
 //! `open_and_migrate_with` — the exact code path every later ordinary migration will take. No
 //! binary `.db` fixture is committed (see `tests/fixtures/README.md`).
 
@@ -11,8 +11,8 @@ use std::collections::HashSet;
 use std::fs::{self, File};
 use std::time::{Duration, SystemTime};
 
-use core::db::backup::{backup_database_file, prune_backups, restore_from_backup};
-use core::db::{apply_pragmas, migration_sources, open_and_migrate, open_and_migrate_with};
+use flywheel_core::db::backup::{backup_database_file, prune_backups, restore_from_backup};
+use flywheel_core::db::{apply_pragmas, migration_sources, open_and_migrate, open_and_migrate_with};
 use rusqlite::Connection;
 use rusqlite_migration::{Migrations, M};
 
@@ -55,7 +55,7 @@ fn a_baseline_database_migrates_forward_without_data_loss() {
     let backups_dir = dir.path().join("backups");
     baseline_database(&db_path, &backups_dir);
 
-    let known_actor_id = core::ids::new_id();
+    let known_actor_id = flywheel_core::ids::new_id();
     {
         let conn = Connection::open(&db_path).unwrap();
         conn.execute(

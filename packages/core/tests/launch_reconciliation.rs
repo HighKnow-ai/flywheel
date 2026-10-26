@@ -8,11 +8,11 @@ mod common;
 use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, Stdio};
 
-use core::domain::session::{
+use flywheel_core::domain::session::{
     kill_orphan, mark_abandoned, reconcile_sessions, start_session, SessionStatus,
 };
-use core::domain::session_summary::latest_summary_for_run;
-use core::runtime_protocol::{process_is_alive, write_kill_record, write_run_descriptor};
+use flywheel_core::domain::session_summary::latest_summary_for_run;
+use flywheel_core::runtime_protocol::{process_is_alive, write_kill_record, write_run_descriptor};
 
 /// Serializes every call to [`with_scratch_runtime_and_worktree_root`] in THIS binary —
 /// `FLYWHEEL_RUNTIME_DIR` and `FLYWHEEL_WORKTREE_ROOT` are both process-global mutable state, and
@@ -330,7 +330,7 @@ fn a_malformed_kill_record_classifies_as_dead_without_a_record_not_as_killed() {
 
         // No live descriptor at all, and a kill record file that does not parse — this must fall
         // back to the honest "dead, no reason known" path, never invent a reason from garbage.
-        let runtime_dir = core::runtime_protocol::runtime_dir().expect("runtime_dir should resolve");
+        let runtime_dir = flywheel_core::runtime_protocol::runtime_dir().expect("runtime_dir should resolve");
         let kills_dir = runtime_dir.join("kills");
         std::fs::create_dir_all(&kills_dir).expect("failed to create kills dir");
         std::fs::write(kills_dir.join(format!("{}.json", run.id)), b"{ not json")

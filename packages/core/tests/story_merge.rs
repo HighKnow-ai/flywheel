@@ -17,17 +17,17 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use common::with_scratch_worktree_root;
-use core::domain::acceptance_criterion::{accept_criterion, create_criterion, criteria_for_story};
-use core::domain::adr_link::{adr_links_for_project, link_adr, AdrLinkTarget};
-use core::domain::proposal::{accept_proposal, file_proposal, NewProposal, ProposalTarget, ProposalVerb};
-use core::domain::check::{set_check, Check};
-use core::domain::handoff::hand_off;
-use core::domain::review::{open_review, reviews_for_story};
-use core::domain::session::{agent_actor_id, close_session, start_session, SessionStatus};
-use core::domain::story::{get_story, set_story_state, Story, StoryState};
-use core::domain::story_merge::{merge_story, MergeMethod, MergeOptions};
-use core::domain::task::{add_task, set_task_state, TaskState};
-use core::domain::worktree::{ensure_worktree, worktree_for_story};
+use flywheel_core::domain::acceptance_criterion::{accept_criterion, create_criterion, criteria_for_story};
+use flywheel_core::domain::adr_link::{adr_links_for_project, link_adr, AdrLinkTarget};
+use flywheel_core::domain::proposal::{accept_proposal, file_proposal, NewProposal, ProposalTarget, ProposalVerb};
+use flywheel_core::domain::check::{set_check, Check};
+use flywheel_core::domain::handoff::hand_off;
+use flywheel_core::domain::review::{open_review, reviews_for_story};
+use flywheel_core::domain::session::{agent_actor_id, close_session, start_session, SessionStatus};
+use flywheel_core::domain::story::{get_story, set_story_state, Story, StoryState};
+use flywheel_core::domain::story_merge::{merge_story, MergeMethod, MergeOptions};
+use flywheel_core::domain::task::{add_task, set_task_state, TaskState};
+use flywheel_core::domain::worktree::{ensure_worktree, worktree_for_story};
 use rusqlite::{params, Connection};
 use tempfile::TempDir;
 
@@ -80,7 +80,7 @@ impl Fixture {
         }
     }
 
-    fn merge(&mut self, with_failing_checks: bool) -> anyhow::Result<core::domain::story_merge::MergeOutcome> {
+    fn merge(&mut self, with_failing_checks: bool) -> anyhow::Result<flywheel_core::domain::story_merge::MergeOutcome> {
         let human = self.human.clone();
         merge_story(&mut self.conn, &human, &self.story.id, MergeOptions { with_failing_checks })
     }

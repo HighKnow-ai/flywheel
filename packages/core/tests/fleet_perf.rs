@@ -7,10 +7,10 @@
 
 use std::time::Instant;
 
-use core::db::open_and_migrate;
-use core::domain::actor::local_human_actor_id;
-use core::ids::new_id;
-use core::query::fleet::{fleet_rows, FLEET_ROWS_MAX_LIMIT, FLEET_SQL};
+use flywheel_core::db::open_and_migrate;
+use flywheel_core::domain::actor::local_human_actor_id;
+use flywheel_core::ids::new_id;
+use flywheel_core::query::fleet::{fleet_rows, FLEET_ROWS_MAX_LIMIT, FLEET_SQL};
 use rusqlite::{params, Connection};
 
 /// The UI-SPEC target, reported but not asserted: a wall-clock assertion this tight fails on any

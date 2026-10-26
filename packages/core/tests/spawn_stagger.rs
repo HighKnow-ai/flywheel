@@ -4,7 +4,7 @@
 //! on a loaded CI machine. Task 3 extends this file with the structural no-bypass gate over
 //! `packages/desktop/src-tauri/src/commands/session.rs`.
 
-use core::git_retry::{SpawnFloor, SPAWN_FLOOR_MS};
+use flywheel_core::git_retry::{SpawnFloor, SPAWN_FLOOR_MS};
 
 #[test]
 fn the_first_call_for_a_key_returns_immediately() {

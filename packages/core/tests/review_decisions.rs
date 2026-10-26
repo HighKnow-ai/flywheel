@@ -9,14 +9,14 @@ use std::path::Path;
 use std::process::Command;
 
 use common::with_scratch_worktree_root;
-use core::domain::handoff::{hand_off_with, HandoffSummary};
-use core::domain::proposal::{accept_proposal, file_proposal, NewProposal, ProposalTarget, ProposalVerb};
-use core::domain::proposal_apply::AdrBarLines;
-use core::domain::review_decisions::{review_decisions, BarLinesSource, DecisionKind, RelatedAdr};
-use core::domain::session::{agent_actor_id, start_session};
-use core::domain::story::{set_story_state, StoryState};
-use core::domain::task::{add_task, set_task_state, TaskState};
-use core::domain::worktree::ensure_worktree;
+use flywheel_core::domain::handoff::{hand_off_with, HandoffSummary};
+use flywheel_core::domain::proposal::{accept_proposal, file_proposal, NewProposal, ProposalTarget, ProposalVerb};
+use flywheel_core::domain::proposal_apply::AdrBarLines;
+use flywheel_core::domain::review_decisions::{review_decisions, BarLinesSource, DecisionKind, RelatedAdr};
+use flywheel_core::domain::session::{agent_actor_id, start_session};
+use flywheel_core::domain::story::{set_story_state, StoryState};
+use flywheel_core::domain::task::{add_task, set_task_state, TaskState};
+use flywheel_core::domain::worktree::ensure_worktree;
 use serde_json::json;
 
 fn git(dir: &Path, args: &[&str]) {

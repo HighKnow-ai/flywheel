@@ -6,12 +6,12 @@
 //! is restoring the pre-migration backup (D-18), never undoing the change.
 //!
 //! The fixture is built the way `migration_safety.rs` builds its N-1 database: in code, every run,
-//! from `core::db::migration_sources()`, so it cannot drift from the real schema.
+//! from `flywheel_core::db::migration_sources()`, so it cannot drift from the real schema.
 
 use std::fs;
 use std::path::Path;
 
-use core::db::{migration_sources, open_and_migrate, open_and_migrate_with};
+use flywheel_core::db::{migration_sources, open_and_migrate, open_and_migrate_with};
 use rusqlite::Connection;
 use rusqlite_migration::{Migrations, M};
 

@@ -9,11 +9,11 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use common::new_story;
-use core::domain::actor::local_human_actor_id;
-use core::domain::project::create_project;
-use core::git::{ahead_behind, fetch_origin, last_fetch_at};
-use core::git_facts::git_facts_for_story;
-use core::ids::new_id;
+use flywheel_core::domain::actor::local_human_actor_id;
+use flywheel_core::domain::project::create_project;
+use flywheel_core::git::{ahead_behind, fetch_origin, last_fetch_at};
+use flywheel_core::git_facts::git_facts_for_story;
+use flywheel_core::ids::new_id;
 use rusqlite::{params, Connection};
 
 fn run_git(repo: &Path, args: &[&str]) -> Output {
@@ -96,7 +96,7 @@ fn setup() -> Fixture {
     std::mem::forget(db_dir);
 
     let mut conn =
-        core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate should succeed");
+        flywheel_core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate should succeed");
     let actor_id = local_human_actor_id(&conn).expect("seeded human actor should exist");
     let project = create_project(
         &mut conn,

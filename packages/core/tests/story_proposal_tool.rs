@@ -11,18 +11,18 @@
 
 mod common;
 
-use core::domain::acceptance_criterion::{create_criterion, get_criterion};
-use core::domain::epic::{self, get_epic};
-use core::domain::milestone;
-use core::domain::proposal::{
+use flywheel_core::domain::acceptance_criterion::{create_criterion, get_criterion};
+use flywheel_core::domain::epic::{self, get_epic};
+use flywheel_core::domain::milestone;
+use flywheel_core::domain::proposal::{
     accept_proposal, accept_proposal_released, get_proposal, proposals_filed_by_story, proposals_for_triage, reject_proposal,
     OPEN_PROPOSALS_PER_SESSION,
 };
-use core::domain::proposal_apply::Applied;
-use core::domain::session::{agent_actor_id, start_shaping_session, ShapingSubject};
-use core::domain::session_kind::{story_board_tools, SessionKind};
-use core::domain::story::{self, get_story, stories_in_epic, StoryState};
-use core::domain::story_proposal_tool::{apply_story_proposal_call, StoryProposalCall, STORY_PROPOSAL_TOOL_NAMES};
+use flywheel_core::domain::proposal_apply::Applied;
+use flywheel_core::domain::session::{agent_actor_id, start_shaping_session, ShapingSubject};
+use flywheel_core::domain::session_kind::{story_board_tools, SessionKind};
+use flywheel_core::domain::story::{self, get_story, stories_in_epic, StoryState};
+use flywheel_core::domain::story_proposal_tool::{apply_story_proposal_call, StoryProposalCall, STORY_PROPOSAL_TOOL_NAMES};
 use rusqlite::{Connection, OptionalExtension};
 use serde_json::{json, Value};
 
@@ -80,7 +80,7 @@ fn fixture() -> Fixture {
 /// A live Story session row on `story_id`, as `start_session` writes it (without the worktree).
 fn story_session(conn: &mut Connection, project_id: &str, story_id: &str) -> String {
     let agent = agent_actor_id(conn).unwrap();
-    let id = core::ids::new_id();
+    let id = flywheel_core::ids::new_id();
     conn.execute(
         "INSERT INTO sessions (id, story_id, project_id, actor_id, status, permission_mode, log_path, started_at)
          VALUES (?1, ?2, ?3, ?4, 'running', 'acceptEdits', '/tmp/x.jsonl', '2026-10-23T00:00:00Z')",
@@ -384,7 +384,7 @@ fn an_amend_criterion_is_checked_and_applied_when_accepted() {
 /// A fresh database migrates through 0011 (`reviews`, #155) and then 0012, in file order.
 #[test]
 fn a_fresh_database_migrates_through_0011_then_0012() {
-    let sources = core::db::migration_sources();
+    let sources = flywheel_core::db::migration_sources();
     let at = |needle: &str| sources.iter().position(|s| s.contains(needle)).unwrap_or_else(|| panic!("{needle} is a migration"));
     assert!(sources.len() >= 12, "0001 through 0012, none missing");
     assert!(at("CREATE TABLE reviews") == 10 && at("CREATE TABLE proposals_new") == 11, "0011, then 0012");
@@ -446,7 +446,7 @@ fn accepting_a_new_story_with_criteria_creates_it_in_shaping_with_its_criteria_a
 
     let Applied::StoryCreated { story_id } = accept_proposal(&mut f.conn, &f.human, &id).unwrap() else { panic!("a New Story") };
     assert_eq!(get_story(&f.conn, &story_id).unwrap().unwrap().state, "shaping");
-    let criteria = core::domain::acceptance_criterion::criteria_for_story(&f.conn, &story_id).unwrap();
+    let criteria = flywheel_core::domain::acceptance_criterion::criteria_for_story(&f.conn, &story_id).unwrap();
     let statements: Vec<&str> = criteria.iter().map(|c| c.statement.as_str()).collect();
     assert_eq!(statements, ["An empty line yields no token", "The error names the line", "Recovery reads well in the feed"]);
     assert!(criteria.iter().all(|c| c.accepted_by.is_none()), "a criterion is accepted at review, not by accepting the Story");
@@ -489,5 +489,5 @@ fn an_amended_new_story_keeps_its_criteria() {
     amended["title"] = json!("Recover from an empty line");
     let decided = accept_proposal_released(&mut f.conn, &f.human, &id, Some(&amended)).unwrap();
     let Applied::StoryCreated { story_id } = decided.applied else { panic!("a New Story") };
-    assert_eq!(core::domain::acceptance_criterion::criteria_for_story(&f.conn, &story_id).unwrap().len(), 1);
+    assert_eq!(flywheel_core::domain::acceptance_criterion::criteria_for_story(&f.conn, &story_id).unwrap().len(), 1);
 }

@@ -10,14 +10,14 @@ mod common;
 use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, Stdio};
 
-use core::domain::session::{
+use flywheel_core::domain::session::{
     apply_session_closed, interrupt_session, live_shaping_session, mark_abandoned, reconcile_sessions,
     start_session, start_shaping_session, SessionClosedOutcome, SessionStatus, ShapingSubject,
 };
-use core::domain::session_kind::SessionKind;
-use core::domain::task_tool::{apply_task_tool_call, TaskToolCall};
-use core::domain::{epic, milestone};
-use core::runtime_protocol::write_run_descriptor;
+use flywheel_core::domain::session_kind::SessionKind;
+use flywheel_core::domain::task_tool::{apply_task_tool_call, TaskToolCall};
+use flywheel_core::domain::{epic, milestone};
+use flywheel_core::runtime_protocol::write_run_descriptor;
 use rusqlite::{params, Connection};
 
 /// `FLYWHEEL_RUNTIME_DIR` and `FLYWHEEL_WORKTREE_ROOT` are process-global; every test here sets
@@ -240,14 +240,14 @@ fn the_reads_that_list_sessions_skip_a_shaping_session_without_erroring() {
     let dead = start_on(&mut conn, &actor_id, &other.id);
     mark_abandoned(&mut conn, &dead, &actor_id, None).unwrap();
 
-    let fleet = core::query::fleet::fleet_rows(&conn, 50).expect("the fleet reads with shaping sessions present");
+    let fleet = flywheel_core::query::fleet::fleet_rows(&conn, 50).expect("the fleet reads with shaping sessions present");
     assert!(fleet.rows.iter().all(|r| r.session_id != live && r.session_id != dead));
-    assert!(core::query::fleet::blocked_queue(&conn, 50).expect("blocked queue").is_empty());
-    assert!(core::query::recovery::recovery_story_ids_for_project(&conn, &project_id).expect("recovery ids").is_empty());
-    assert_eq!(core::query::recovery::recovery_count_for_project(&conn, &project_id).unwrap(), 0);
-    assert!(core::query::permissions::blocked_story_ids_for_project(&conn, &project_id).unwrap().is_empty());
-    assert_eq!(core::query::permissions::blocked_count_for_project(&conn, &project_id).unwrap(), 0);
-    let run = core::query::sessions::run_by_id(&conn, &live).unwrap().expect("the session reads by id");
+    assert!(flywheel_core::query::fleet::blocked_queue(&conn, 50).expect("blocked queue").is_empty());
+    assert!(flywheel_core::query::recovery::recovery_story_ids_for_project(&conn, &project_id).expect("recovery ids").is_empty());
+    assert_eq!(flywheel_core::query::recovery::recovery_count_for_project(&conn, &project_id).unwrap(), 0);
+    assert!(flywheel_core::query::permissions::blocked_story_ids_for_project(&conn, &project_id).unwrap().is_empty());
+    assert_eq!(flywheel_core::query::permissions::blocked_count_for_project(&conn, &project_id).unwrap(), 0);
+    let run = flywheel_core::query::sessions::run_by_id(&conn, &live).unwrap().expect("the session reads by id");
     assert_eq!(run.story_id, None);
 }
 
@@ -263,12 +263,12 @@ fn a_story_board_tool_called_from_a_shaping_session_is_refused_by_name() {
 fn the_schema_ties_a_story_to_a_story_session_and_a_subject_to_a_shaping_one() {
     let (mut conn, actor_id, project_id, epic) = shaping_epic();
     let story = common::new_story(&mut conn, &project_id, &actor_id, "A Story");
-    let agent = core::domain::session::agent_actor_id(&conn).unwrap();
+    let agent = flywheel_core::domain::session::agent_actor_id(&conn).unwrap();
     let insert = |kind: &str, story_id: Option<&str>, epic_id: Option<&str>, milestone_id: Option<&str>| {
         conn.execute(
             "INSERT INTO sessions (id, kind, story_id, epic_id, milestone_id, project_id, actor_id, status, permission_mode, log_path, started_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'running', 'dontAsk', '/x', '2026-10-22T00:00:00Z')",
-            params![core::ids::new_id(), kind, story_id, epic_id, milestone_id, project_id, agent],
+            params![flywheel_core::ids::new_id(), kind, story_id, epic_id, milestone_id, project_id, agent],
         )
     };
     assert!(insert("shaping", Some(&story.id), Some(&epic.id), None).is_err(), "a shaping session has no Story");
@@ -297,17 +297,17 @@ fn a_story_session_still_records_its_kind_and_closes_with_a_stub() {
 #[test]
 fn the_migration_keeps_every_existing_session_as_a_story_session() {
     use rusqlite_migration::{Migrations, M};
-    let sources = core::db::migration_sources();
+    let sources = flywheel_core::db::migration_sources();
     let dir = tempfile::tempdir().unwrap();
     let mut conn = Connection::open(dir.path().join("old.db")).unwrap();
     let before = Migrations::new(sources[..4].iter().map(|s| M::up(s)).collect());
     before.to_latest(&mut conn).unwrap();
 
-    let human = core::domain::actor::local_human_actor_id(&conn).unwrap();
-    let project = core::domain::project::create_project(&mut conn, &human, "Old", "/repo", "OLD", "main").unwrap();
+    let human = flywheel_core::domain::actor::local_human_actor_id(&conn).unwrap();
+    let project = flywheel_core::domain::project::create_project(&mut conn, &human, "Old", "/repo", "OLD", "main").unwrap();
     let story = common::new_story(&mut conn, &project.id, &human, "Old Story");
-    let agent = core::domain::session::agent_actor_id(&conn).unwrap();
-    let session_id = core::ids::new_id();
+    let agent = flywheel_core::domain::session::agent_actor_id(&conn).unwrap();
+    let session_id = flywheel_core::ids::new_id();
     conn.execute(
         "INSERT INTO sessions (id, story_id, project_id, actor_id, status, permission_mode, log_path, started_at, ending_reason)
          VALUES (?1, ?2, ?3, ?4, 'completed', 'acceptEdits', '/x', '2026-10-01T00:00:00Z', 'handed_off')",
@@ -317,7 +317,7 @@ fn the_migration_keeps_every_existing_session_as_a_story_session() {
     conn.execute(
         "INSERT INTO session_summaries (id, session_id, story_id, next_session_must_know, decisions, created_by, created_at)
          VALUES (?1, ?2, ?3, 'n', 'd', ?4, '2026-10-01T00:00:00Z')",
-        params![core::ids::new_id(), session_id, story.id, agent],
+        params![flywheel_core::ids::new_id(), session_id, story.id, agent],
     )
     .unwrap();
 

@@ -8,13 +8,13 @@
 mod common;
 
 use common::with_scratch_worktree_root;
-use core::domain::epic::{create_epic, set_epic_state, EpicState};
-use core::domain::milestone::{create_milestone, set_milestone_state, MilestoneState};
-use core::domain::permission_request::create_pending_request;
-use core::domain::session::{interrupt_session, start_session};
-use core::domain::story::{create_story, set_story_state, StoryState};
-use core::domain::story_drop::drop_story;
-use core::query::progress::{epic_progress, milestone_progress, StoryStateCounts};
+use flywheel_core::domain::epic::{create_epic, set_epic_state, EpicState};
+use flywheel_core::domain::milestone::{create_milestone, set_milestone_state, MilestoneState};
+use flywheel_core::domain::permission_request::create_pending_request;
+use flywheel_core::domain::session::{interrupt_session, start_session};
+use flywheel_core::domain::story::{create_story, set_story_state, StoryState};
+use flywheel_core::domain::story_drop::drop_story;
+use flywheel_core::query::progress::{epic_progress, milestone_progress, StoryStateCounts};
 use rusqlite::{params, Connection};
 
 /// Put a Story straight into a state the board would reach through a hand-off and a merge. The
@@ -181,7 +181,7 @@ fn a_selected_milestone_reads_its_own_progress() {
     assert_eq!(header.state, "done");
     assert_eq!(header.next_milestone_title.as_deref(), Some("Now"));
 
-    let other = core::domain::project::create_project(&mut conn, &actor, "Other", "/other", "OTH", "main").unwrap();
+    let other = flywheel_core::domain::project::create_project(&mut conn, &actor, "Other", "/other", "OTH", "main").unwrap();
     assert_eq!(
         milestone_progress(&conn, &other.id, Some(&later.id)).unwrap(),
         None,
@@ -200,7 +200,7 @@ fn an_epic_row_counts_its_pending_proposals_from_execution() {
     let a = create_epic(&mut conn, &actor, &m.id, "With Proposals").unwrap();
     create_epic(&mut conn, &actor, &m.id, "Without").unwrap();
     let s = create_story(&mut conn, &actor, &a.id, "Files").unwrap();
-    let session = core::ids::new_id();
+    let session = flywheel_core::ids::new_id();
     conn.execute(
         "INSERT INTO sessions (id, story_id, project_id, actor_id, status, permission_mode, log_path, started_at)
          VALUES (?1, ?2, ?3, ?4, 'running', 'acceptEdits', '/log', '2026-10-01T00:00:00Z')",
@@ -218,7 +218,7 @@ fn an_epic_row_counts_its_pending_proposals_from_execution() {
         conn.execute(
             "INSERT INTO proposals (id, project_id, session_id, epic_id, verb, target_type, payload, state, decided_by, created_by, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, '{}', ?7, ?8, ?9, '2026-10-01T00:00:00Z')",
-            params![core::ids::new_id(), project.id, session, a.id, verb, target, state, decided_by, actor],
+            params![flywheel_core::ids::new_id(), project.id, session, a.id, verb, target, state, decided_by, actor],
         )
         .unwrap();
     }
@@ -231,8 +231,8 @@ fn an_epic_row_counts_its_pending_proposals_from_execution() {
 fn the_header_query_walks_indexes_only() {
     let (conn, _actor, project) = common::seeded_project();
     for (sql, selected) in [
-        (core::query::progress::MILESTONE_PROGRESS_SQL, Some("a-milestone")),
-        (core::query::progress::MILESTONE_PROGRESS_SQL, None),
+        (flywheel_core::query::progress::MILESTONE_PROGRESS_SQL, Some("a-milestone")),
+        (flywheel_core::query::progress::MILESTONE_PROGRESS_SQL, None),
     ] {
         let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
         let plan: Vec<String> = stmt
@@ -242,7 +242,7 @@ fn the_header_query_walks_indexes_only() {
             .unwrap();
         assert_index_only(&plan);
     }
-    let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {}", core::query::progress::EPIC_PROGRESS_SQL)).unwrap();
+    let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {}", flywheel_core::query::progress::EPIC_PROGRESS_SQL)).unwrap();
     let plan: Vec<String> =
         stmt.query_map(params![project.id], |row| row.get::<_, String>(3)).unwrap().collect::<Result<_, _>>().unwrap();
     assert_index_only(&plan);

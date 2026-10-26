@@ -13,11 +13,11 @@
 mod common;
 
 use common::{new_story, seeded_project};
-use core::domain::event::{append_event, next_sequence};
-use core::domain::settings::board_visit;
-use core::domain::story::{set_story_state, update_story, StoryState};
-use core::domain::task::add_task;
-use core::query::events::events_since_last_look;
+use flywheel_core::domain::event::{append_event, next_sequence};
+use flywheel_core::domain::settings::board_visit;
+use flywheel_core::domain::story::{set_story_state, update_story, StoryState};
+use flywheel_core::domain::task::add_task;
+use flywheel_core::query::events::events_since_last_look;
 use rusqlite::{params, Connection};
 
 /// Append one raw event to the project's stream, for kinds whose own writers need a whole session.
@@ -144,7 +144,7 @@ fn reading_without_visiting_leaves_the_cursor_and_each_project_has_its_own() {
     assert_eq!(read.total, 1);
     assert_eq!(cursor(&conn, &project.id), before, "a read alone never moves the cursor");
 
-    let other = core::domain::project::create_project(&mut conn, &actor, "Other", "/other", "OTH", "main").unwrap();
+    let other = flywheel_core::domain::project::create_project(&mut conn, &actor, "Other", "/other", "OTH", "main").unwrap();
     assert_eq!(events_since_last_look(&conn, &other.id, 200).unwrap().total, 0, "never visited: nothing to list");
     board_visit(&mut conn, &actor, &other.id, 200).unwrap();
     assert_eq!(events_since_last_look(&conn, &project.id, 200).unwrap().total, 1, "another project's visit moves only its own cursor");

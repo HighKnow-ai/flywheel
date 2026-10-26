@@ -5,8 +5,8 @@
 mod common;
 
 use common::new_story;
-use core::branch::story_branch_name;
-use core::domain::worktree::base_ref_for_story;
+use flywheel_core::branch::story_branch_name;
+use flywheel_core::domain::worktree::base_ref_for_story;
 
 #[test]
 fn story_branch_name_covers_every_behavior_case() {
@@ -87,7 +87,7 @@ fn ensure_worktree_refuses_when_the_derived_branch_already_exists() {
         .expect("failed to pre-create the colliding branch");
     assert!(status.success());
 
-    let result = core::domain::worktree::ensure_worktree(&mut conn, &story.id, &actor_id);
+    let result = flywheel_core::domain::worktree::ensure_worktree(&mut conn, &story.id, &actor_id);
     assert!(result.is_err(), "ensure_worktree should refuse when the branch already exists");
     // `anyhow::Error::to_string()` only prints the top-level context — the `{:?}` Debug impl
     // prints the full "Caused by:" chain, so a wrapped ("failed to create worktree for Story ...")

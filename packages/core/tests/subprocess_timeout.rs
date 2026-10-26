@@ -4,7 +4,7 @@
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-use core::proc::{output_with_timeout, FORGE_CLI_TIMEOUT_SECS, GIT_TIMEOUT_SECS};
+use flywheel_core::proc::{output_with_timeout, FORGE_CLI_TIMEOUT_SECS, GIT_TIMEOUT_SECS};
 
 /// Short enough that every guard-behaviour test below runs in well under a second.
 const SHORT_CEILING: Duration = Duration::from_millis(300);
@@ -80,7 +80,7 @@ fn ceiling_constants_match_wr_02() {
 }
 
 /// Proves the guard did not change the success path for `git.rs`'s own spawn helper: a real
-/// invocation through [`core::git::git_at`] against a stub-free, freshly `git init`-ed repository
+/// invocation through [`flywheel_core::git::git_at`] against a stub-free, freshly `git init`-ed repository
 /// still succeeds exactly as it did before this plan.
 #[test]
 fn git_at_still_succeeds_normally_on_a_real_repository() {
@@ -93,7 +93,7 @@ fn git_at_still_succeeds_normally_on_a_real_repository() {
         .expect("failed to spawn git init for the test fixture");
     assert!(status.success(), "git init should succeed for the test fixture");
 
-    let output = core::git::git_at(repo.path(), &["rev-parse", "--is-inside-work-tree"])
+    let output = flywheel_core::git::git_at(repo.path(), &["rev-parse", "--is-inside-work-tree"])
         .expect("git_at should still succeed on a real repository after routing through the guard");
     assert!(output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "true");

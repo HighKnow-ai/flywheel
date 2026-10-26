@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use desktop_lib::state::AppState;
+use flywheel_desktop_lib::state::AppState;
 use fixture::{board, SlowGit, PARK_DEADLINE};
 use tauri::Manager;
 
@@ -54,7 +54,7 @@ fn another_command_completes_while_needs_you_list_waits_on_a_slow_git() {
     let (items, (other, needs_you_was_parked)) = dispatch.block_on(async {
         let state = app.state::<AppState>();
         let needs_you = async {
-            let items = desktop_lib::commands::needs_you::needs_you_list(state.clone(), board.project_id.clone()).await;
+            let items = flywheel_desktop_lib::commands::needs_you::needs_you_list(state.clone(), board.project_id.clone()).await;
             needs_you_done.store(true, Ordering::SeqCst);
             items
         };
@@ -65,7 +65,7 @@ fn another_command_completes_while_needs_you_list_waits_on_a_slow_git() {
                 assert!(start.elapsed() < PARK_DEADLINE, "needs_you_list never reached git");
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
-            let stories = desktop_lib::commands::story::story_list(state.clone(), board.epic_id.clone());
+            let stories = flywheel_desktop_lib::commands::story::story_list(state.clone(), board.epic_id.clone());
             let still_parked = !needs_you_done.load(Ordering::SeqCst);
             slow.open_gate();
             (stories, still_parked)
@@ -99,7 +99,7 @@ fn another_command_completes_while_a_shaping_launch_waits_out_the_spawn_floor() 
     flywheel_core::db::apply_pragmas(&conn).unwrap();
     app.manage(AppState {
         db: Mutex::new(conn),
-        sidecar: Some(desktop_lib::sidecar::SidecarHandle::without_process(
+        sidecar: Some(flywheel_desktop_lib::sidecar::SidecarHandle::without_process(
             flywheel_core::git_retry::SpawnFloor::with_floor(FLOOR),
         )),
         pending_orphans: Mutex::new(Vec::new()),
@@ -112,19 +112,19 @@ fn another_command_completes_while_a_shaping_launch_waits_out_the_spawn_floor() 
     let (second, (other, launch_was_waiting)) = dispatch.block_on(async {
         // The first launch takes the repository's turn; with no sidecar behind the handle its
         // request then fails, which closes its session and leaves the Epic free to shape again.
-        let first = desktop_lib::commands::shaping::epic_shape(app.handle().clone(), board.epic_id.clone()).await;
+        let first = flywheel_desktop_lib::commands::shaping::epic_shape(app.handle().clone(), board.epic_id.clone()).await;
         assert!(first.unwrap_err().contains("not running"), "the first launch reached the sidecar");
 
         let started = Instant::now();
         let second = async {
-            let out = desktop_lib::commands::shaping::epic_shape(app.handle().clone(), board.epic_id.clone()).await;
+            let out = flywheel_desktop_lib::commands::shaping::epic_shape(app.handle().clone(), board.epic_id.clone()).await;
             launched.store(true, Ordering::SeqCst);
             (out, started.elapsed())
         };
         let other = async {
             tokio::time::sleep(Duration::from_millis(200)).await;
             let state = app.state::<AppState>();
-            let stories = desktop_lib::commands::story::story_list(state, board.epic_id.clone());
+            let stories = flywheel_desktop_lib::commands::story::story_list(state, board.epic_id.clone());
             (stories, !launched.load(Ordering::SeqCst))
         };
         tokio::join!(second, other)

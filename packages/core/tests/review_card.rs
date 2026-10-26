@@ -13,13 +13,13 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use common::with_scratch_worktree_root;
-use core::domain::handoff::hand_off;
-use core::domain::request_changes::request_changes;
-use core::domain::review::{rebase_comment, review_for_story};
-use core::domain::session::{agent_actor_id, close_session, start_session, SessionStatus};
-use core::domain::task::{add_task, set_task_state, TaskState};
-use core::domain::story::{set_story_state, Story, StoryState};
-use core::domain::worktree::ensure_worktree;
+use flywheel_core::domain::handoff::hand_off;
+use flywheel_core::domain::request_changes::request_changes;
+use flywheel_core::domain::review::{rebase_comment, review_for_story};
+use flywheel_core::domain::session::{agent_actor_id, close_session, start_session, SessionStatus};
+use flywheel_core::domain::task::{add_task, set_task_state, TaskState};
+use flywheel_core::domain::story::{set_story_state, Story, StoryState};
+use flywheel_core::domain::worktree::ensure_worktree;
 use rusqlite::Connection;
 use tempfile::TempDir;
 
@@ -105,7 +105,7 @@ fn the_rebase_action_sends_the_story_back_with_the_paths_in_its_comment() {
         let human = f.human.clone();
         request_changes(&mut f.conn, &human, &f.story.id, &comment).unwrap();
 
-        let review = core::domain::review::reviews_for_story(&f.conn, &f.story.id).unwrap().pop().unwrap();
+        let review = flywheel_core::domain::review::reviews_for_story(&f.conn, &f.story.id).unwrap().pop().unwrap();
         assert_eq!(review.outcome.as_deref(), Some("changes_requested"));
         assert!(review.comments.unwrap().contains("README.md"));
     });
@@ -129,10 +129,10 @@ fn needs_you_carries_the_conflicting_paths_on_the_review_item() {
     with_scratch_worktree_root(|_| {
         let f = in_review();
         let review_item = |f: &Fixture| {
-            core::query::needs_you::needs_you(&f.conn, &f.story.project_id)
+            flywheel_core::query::needs_you::needs_you(&f.conn, &f.story.project_id)
                 .unwrap()
                 .into_iter()
-                .find(|i| i.kind == core::query::needs_you::NeedsYouKind::Review)
+                .find(|i| i.kind == flywheel_core::query::needs_you::NeedsYouKind::Review)
                 .expect("a Review item")
         };
         assert!(review_item(&f).conflicts.is_empty(), "a clean branch is a plain Review");

@@ -9,14 +9,14 @@
 
 mod common;
 
-use core::domain::proposal::{proposals_on_epic, Proposal};
-use core::domain::round::{
+use flywheel_core::domain::proposal::{proposals_on_epic, Proposal};
+use flywheel_core::domain::round::{
     accept_all_recommended, answer_round_question, post_round, rounds_for_epic, AdrDraft, NewQuestion, NewRound, Round,
     RoundAnswer,
 };
-use core::domain::session::{agent_actor_id, start_shaping_session, ShapingSubject};
-use core::domain::session_kind::SessionKind;
-use core::domain::{epic, milestone};
+use flywheel_core::domain::session::{agent_actor_id, start_shaping_session, ShapingSubject};
+use flywheel_core::domain::session_kind::SessionKind;
+use flywheel_core::domain::{epic, milestone};
 use rusqlite::Connection;
 
 struct Fixture {

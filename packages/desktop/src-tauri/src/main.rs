@@ -1,7 +1,7 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use desktop_lib::{commands, menu, notify, scheduler, sidecar, state};
+use flywheel_desktop_lib::{commands, menu, notify, scheduler, sidecar, state};
 
 use state::AppState;
 use std::sync::Mutex;

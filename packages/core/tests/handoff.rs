@@ -14,18 +14,18 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use common::with_scratch_worktree_root;
-use core::domain::acceptance_criterion::create_criterion;
-use core::domain::check::{branch_head, current_result, remove_check, set_check, Check, CheckResult};
-use core::domain::handoff::{
+use flywheel_core::domain::acceptance_criterion::create_criterion;
+use flywheel_core::domain::check::{branch_head, current_result, remove_check, set_check, Check, CheckResult};
+use flywheel_core::domain::handoff::{
     hand_off, hand_off_with, plan_feedback_run, plan_handoff, run_checks, CheckObjection, HandoffSummary, HandoffToolCall,
 };
-use core::domain::proposal_apply::AdrBarLines;
-use core::domain::review::{open_review, reviews_for_story};
-use core::domain::session::{agent_actor_id, close_session, start_session, Session, SessionStatus};
-use core::domain::session_summary::list_summaries_for_story;
-use core::domain::story::{get_story, set_story_state, Story, StoryState};
-use core::domain::task::{add_task, set_task_state, TaskState};
-use core::domain::worktree::ensure_worktree;
+use flywheel_core::domain::proposal_apply::AdrBarLines;
+use flywheel_core::domain::review::{open_review, reviews_for_story};
+use flywheel_core::domain::session::{agent_actor_id, close_session, start_session, Session, SessionStatus};
+use flywheel_core::domain::session_summary::list_summaries_for_story;
+use flywheel_core::domain::story::{get_story, set_story_state, Story, StoryState};
+use flywheel_core::domain::task::{add_task, set_task_state, TaskState};
+use flywheel_core::domain::worktree::ensure_worktree;
 use rusqlite::Connection;
 use serde_json::json;
 use tempfile::TempDir;
@@ -223,7 +223,7 @@ fn an_agent_run_is_not_recorded_and_the_agent_can_neither_edit_nor_delete_a_chec
         let criterion = f.checks[0].criterion_id.clone();
         assert!(set_check(&mut f.conn, &agent, &criterion, "echo always green", None).is_err());
         assert!(remove_check(&mut f.conn, &agent, &criterion).is_err());
-        let kept = core::domain::check::check_for_criterion(&f.conn, &criterion).unwrap().unwrap();
+        let kept = flywheel_core::domain::check::check_for_criterion(&f.conn, &criterion).unwrap().unwrap();
         assert_eq!(kept.command, "true", "the agent's edit and delete changed nothing");
     });
 }

@@ -34,7 +34,7 @@ pub struct EventDto {
     pub sequence: i64,
     pub actor_id: String,
     pub event_type: String,
-    /// The one-line human sentence `core::domain::event::render_description` derived from this
+    /// The one-line human sentence `flywheel_core::domain::event::render_description` derived from this
     /// event's own payload (D-19) — the renderer never re-derives this text from `payload`
     /// itself, and the raw payload is not sent across the IPC boundary at all.
     pub description: String,

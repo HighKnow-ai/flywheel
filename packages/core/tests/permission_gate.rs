@@ -6,12 +6,12 @@ mod common;
 
 use common::with_scratch_worktree_root;
 
-use core::destructive::DestructiveCategory;
-use core::domain::session::start_session;
-use core::domain::permission_request::{answer_request, create_pending_request, AlreadyAnsweredError};
-use core::domain::permission_rule::{matching_rule, revoke_rule, rules_for_project, upsert_rule};
-use core::domain::project;
-use core::query::permissions::{
+use flywheel_core::destructive::DestructiveCategory;
+use flywheel_core::domain::session::start_session;
+use flywheel_core::domain::permission_request::{answer_request, create_pending_request, AlreadyAnsweredError};
+use flywheel_core::domain::permission_rule::{matching_rule, revoke_rule, rules_for_project, upsert_rule};
+use flywheel_core::domain::project;
+use flywheel_core::query::permissions::{
     blocked_count_for_project, blocked_story_ids_for_project, latest_run_id_for_story,
     pending_requests_for_run,
 };
@@ -350,7 +350,7 @@ fn permission_requests_status_outside_the_accepted_set_is_rejected_by_the_schema
             resolved_by, resolved_at, created_by, created_at
         ) VALUES (?1, ?2, ?3, ?4, 'Bash', NULL, 'maybe', NULL, NULL, ?5, ?6)",
         rusqlite::params![
-            core::ids::new_id(),
+            flywheel_core::ids::new_id(),
             run_id,
             story_id,
             project_id,
@@ -367,7 +367,7 @@ fn permission_requests_status_outside_the_accepted_set_is_rejected_by_the_schema
 
 #[test]
 fn migration_source_list_registers_the_permission_gate_tables_exactly_once() {
-    let sources = core::db::migration_sources();
+    let sources = flywheel_core::db::migration_sources();
     // The trailing `(` (this codebase's `CREATE TABLE <name> (` formatting) keeps a transient
     // `permission_requests_new` rebuild table, should a later migration add one, from matching too.
     let request_table_count =

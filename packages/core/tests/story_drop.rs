@@ -9,14 +9,14 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use common::with_scratch_worktree_root;
-use core::domain::acceptance_criterion::{create_criterion, criteria_for_story};
-use core::domain::epic::{set_epic_state, EpicState};
-use core::domain::session::{interrupt_session, start_session};
-use core::domain::session_summary::list_summaries_for_story;
-use core::domain::story::{get_story, set_story_state, StoryState};
-use core::domain::story_drop::drop_story;
-use core::domain::task::{add_task, tasks_for_story};
-use core::query::sessions::runs_for_story;
+use flywheel_core::domain::acceptance_criterion::{create_criterion, criteria_for_story};
+use flywheel_core::domain::epic::{set_epic_state, EpicState};
+use flywheel_core::domain::session::{interrupt_session, start_session};
+use flywheel_core::domain::session_summary::list_summaries_for_story;
+use flywheel_core::domain::story::{get_story, set_story_state, StoryState};
+use flywheel_core::domain::story_drop::drop_story;
+use flywheel_core::domain::task::{add_task, tasks_for_story};
+use flywheel_core::query::sessions::runs_for_story;
 use rusqlite::params;
 
 fn git(dir: &Path, args: &[&str]) -> String {
@@ -42,7 +42,7 @@ fn dropping_a_stopped_story_removes_its_worktree_and_branch_and_keeps_its_record
             .unwrap();
         let path = PathBuf::from(path);
         std::fs::write(path.join("half-done.txt"), "uncommitted\n").unwrap();
-        core::domain::session_summary::create_summary(&mut conn, &run.id, "parser half done", "").unwrap();
+        flywheel_core::domain::session_summary::create_summary(&mut conn, &run.id, "parser half done", "").unwrap();
         interrupt_session(&mut conn, &run.id, &actor).unwrap();
 
         drop_story(&mut conn, &actor, &story.id).expect("a Stopped Story drops");
@@ -105,7 +105,7 @@ fn only_the_developer_drops_a_story() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor, project, _repo) = common::seeded_git_project();
         let story = common::new_story(&mut conn, &project.id, &actor, "Agent may not");
-        let agent = core::domain::session::agent_actor_id(&conn).unwrap();
+        let agent = flywheel_core::domain::session::agent_actor_id(&conn).unwrap();
         assert!(drop_story(&mut conn, &agent, &story.id).is_err(), "Drop is the developer's act");
         assert_eq!(get_story(&conn, &story.id).unwrap().unwrap().state, "shaping");
     });

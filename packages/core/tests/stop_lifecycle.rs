@@ -10,11 +10,11 @@ use common::with_scratch_worktree_root;
 use std::path::Path;
 use std::process::Command;
 
-use core::domain::session::{interrupt_session, start_session};
-use core::domain::story::{set_story_state, StoryState};
+use flywheel_core::domain::session::{interrupt_session, start_session};
+use flywheel_core::domain::story::{set_story_state, StoryState};
 
 /// Run `git -C <repo_path> <args>` and return trimmed stdout — a minimal local helper mirroring
-/// `core::git::git_at`'s own explicit-path discipline, kept separate here so this test never
+/// `flywheel_core::git::git_at`'s own explicit-path discipline, kept separate here so this test never
 /// depends on the production wrapper it is proving `domain::session` never calls.
 fn git_output(repo_path: &Path, args: &[&str]) -> String {
     let output = Command::new("git")

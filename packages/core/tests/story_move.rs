@@ -7,14 +7,14 @@
 mod common;
 
 use common::with_scratch_worktree_root;
-use core::domain::acceptance_criterion::{create_criterion, criteria_for_story};
-use core::domain::epic::{create_epic, set_epic_state, EpicState};
-use core::domain::milestone::create_milestone;
-use core::domain::session::{agent_actor_id, start_session};
-use core::domain::story::{create_story, get_story, move_story_to_epic, set_story_state, stories_in_epic, StoryState};
-use core::domain::story_drop::drop_story;
-use core::domain::task::{add_task, tasks_for_story};
-use core::domain::worktree::worktree_for_story;
+use flywheel_core::domain::acceptance_criterion::{create_criterion, criteria_for_story};
+use flywheel_core::domain::epic::{create_epic, set_epic_state, EpicState};
+use flywheel_core::domain::milestone::create_milestone;
+use flywheel_core::domain::session::{agent_actor_id, start_session};
+use flywheel_core::domain::story::{create_story, get_story, move_story_to_epic, set_story_state, stories_in_epic, StoryState};
+use flywheel_core::domain::story_drop::drop_story;
+use flywheel_core::domain::task::{add_task, tasks_for_story};
+use flywheel_core::domain::worktree::worktree_for_story;
 use rusqlite::{params, Connection};
 
 /// A Milestone with two Epics: `from` holding `first` and `second`, `to` holding `resident`.
@@ -140,7 +140,7 @@ fn a_done_epic_takes_no_story() {
 fn a_story_moves_only_within_its_project() {
     let (mut conn, human, project) = common::seeded_project();
     let (_from, _to, first, _second, _resident) = fixture_in(&mut conn, &human, &project.id);
-    let other = core::domain::project::create_project(&mut conn, &human, "Other", "/other", "OTH", "main").unwrap();
+    let other = flywheel_core::domain::project::create_project(&mut conn, &human, "Other", "/other", "OTH", "main").unwrap();
     let (_, elsewhere, _, _, _) = fixture_in(&mut conn, &human, &other.id);
 
     let err = move_story_to_epic(&mut conn, &human, &first, &elsewhere).unwrap_err();
