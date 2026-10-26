@@ -5,14 +5,17 @@ name: CI
 # (#144): each job does only the part of the build its own checks need, so the slowest job, not the
 # sum of them, sets the wall-clock time.
 
-# A PR branch runs once, on pull_request; push only covers main itself. merge_group runs the same
-# jobs on the merge queue's temporary branch, so queued PRs are tested together as one combination
-# before any of them lands on main.
+# `next` is where every change arrives: the private monorepo's flywheel/ is this repository's
+# source of truth, and its export pushes each change there, never to `main`. A green run on `next`
+# fast-forwards `main` to the commit it tested (the `promote` job at the end), so `main` only ever
+# holds commits this workflow passed. A pull request runs once, on pull_request; it is not merged
+# here but imported into the source of truth, which is why there is no merge_group trigger any more.
+# `main` is not a push trigger: every commit reaching it was tested on `next` minutes before, so a
+# second run there would spend 25 macOS minutes and the five-job macOS concurrency on a repeat.
 on:
   push:
-    branches: [main]
+    branches: [next]
   pull_request:
-  merge_group:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -20,6 +23,9 @@ concurrency:
 
 permissions:
   contents: read
+
+# Every action is pinned to a full commit SHA with its version beside it: a tag is a pointer its
+# owner can move, and this file is edited in a private repository whose checks refuse a tag pin.
 
 # macOS 15, not 14, wherever macOS is used: Playwright pins macOS 14 to a frozen WebKit build
 # (revision 2251, browsers.json's `mac14` override) that its current driver could not connect to, so
@@ -31,19 +37,19 @@ jobs:
     name: Rust workspace tests
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: packages/sidecar/package-lock.json
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # 2026-10-16, the stable branch (it has no release tags)
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
         with:
           tool: cargo-nextest
 
@@ -76,17 +82,17 @@ jobs:
     name: Sidecar build and tests
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: packages/sidecar/package-lock.json
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # 2026-10-16, the stable branch (it has no release tags)
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - run: npm --prefix packages/sidecar ci
 
@@ -100,9 +106,9 @@ jobs:
     name: Offline UAT
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
@@ -112,9 +118,9 @@ jobs:
       - name: Exit-test script tests
         run: node --test scripts/exit-test/test/*.test.mjs
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # 2026-10-16, the stable branch (it has no release tags)
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - run: npm --prefix packages/sidecar ci
 
@@ -142,9 +148,9 @@ jobs:
     # jsdom and the Vite build need nothing from macOS.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
@@ -163,9 +169,9 @@ jobs:
     name: Desktop browser tests
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
@@ -181,7 +187,7 @@ jobs:
         id: playwright
         run: echo "version=$(node -p "require('./packages/desktop/node_modules/playwright/package.json').version")" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/Library/Caches/ms-playwright
           key: playwright-webkit-chromium-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
@@ -206,15 +212,17 @@ jobs:
         run: npm --prefix packages/desktop run test:layout-defects
 
   # Unsigned (D-185). The .dmg bundle costs 5-8 minutes and is the step that flaked, so it runs only
-  # on pushes to main, never on pull_request or merge_group runs.
+  # on pushes to `next`, never on pull_request runs. It is part of what has to pass before `main`
+  # moves, and the fast-forward to `main` starts no run of its own, so this is the bundle's only
+  # chance to fail first.
   dmg:
-    name: macOS bundle (main only)
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    name: macOS bundle (next only)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/next'
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
@@ -222,9 +230,9 @@ jobs:
             packages/desktop/package-lock.json
             packages/sidecar/package-lock.json
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # 2026-10-16, the stable branch (it has no release tags)
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - run: npm --prefix packages/sidecar ci
 
@@ -233,7 +241,7 @@ jobs:
       # tauri.conf.json's beforeBuildCommand runs the sidecar's build:dist and the desktop build.
       - run: npm --prefix packages/desktop run tauri build
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: flywheel-dmg
           path: target/release/bundle/dmg/*.dmg
@@ -241,7 +249,7 @@ jobs:
 
   # The one check the ruleset on main requires. It runs whatever happened above (`always()`), and
   # passes only when every job succeeded; the dmg job may instead be skipped, on every run but a push
-  # to main. A failed, cancelled or wrongly skipped job fails `build`.
+  # to next. A failed, cancelled or wrongly skipped job fails `build`.
   build:
     name: build
     if: always()
@@ -251,7 +259,7 @@ jobs:
       - name: Every job passed
         env:
           NEEDS: ${{ toJSON(needs) }}
-          DMG_EXPECTED: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          DMG_EXPECTED: ${{ github.event_name == 'push' && github.ref == 'refs/heads/next' }}
         run: |
           echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
           failed=$(echo "$NEEDS" | jq -r 'to_entries[]
@@ -262,3 +270,55 @@ jobs:
             echo "::error::not passed: $(echo $failed)"
             exit 1
           fi
+
+  # `next` -> `main`, the tested commit and nothing else. Fast-forward only: `main` is never
+  # rewritten, and a `next` that does not descend from `main` fails here rather than replacing it.
+  #
+  # WITH A DEPLOY KEY, AND NEITHER OF THE TWO OBVIOUS TOKENS:
+  #   - GITHUB_TOKEN cannot hold the `workflows` permission, and GitHub refuses any push from it
+  #     that brings a change under .github/workflows/ onto a branch, a fast-forward included. The
+  #     very first promotion carries one (this file), so it would fail exactly when it matters.
+  #   - The export App's key is installed on the private repository too; stored here, it would be
+  #     one leaked secret away from that repository.
+  #   A deploy key is write access to THIS repository and nothing else, SSH, with no workflow-file
+  #   restriction. PROMOTE_DEPLOY_KEY is its private half, a secret no pull_request run receives.
+  #
+  # What makes the push safe is the two rulesets on `main`, held in the private repository's
+  # Terraform (infra/terraform/github.tf, #550), not who pushes:
+  #   - `main` binds everybody, this key and admins included, with no bypass: it requires `build`
+  #     to have passed on the pushed commit, which this run just established, and forbids
+  #     non-fast-forward pushes and deletion.
+  #   - `main-writers` holds only the `update` rule, which refuses every push to `main` except from
+  #     a deploy key (bypass `always`) or an admin (bypass by pull request). It is a separate
+  #     ruleset because a bypass actor skips every rule of the ruleset it is listed in, and this
+  #     key must never skip `build`.
+  # A pull request rule on `main` would refuse this push, and none is needed: pull requests are
+  # imported into the source of truth, not merged here.
+  promote:
+    name: Fast-forward main
+    needs: [build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/next'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          ssh-key: ${{ secrets.PROMOTE_DEPLOY_KEY }}
+
+      - name: Fast-forward main to the tested commit
+        env:
+          TESTED: ${{ github.sha }}
+        run: |
+          git fetch --quiet origin main
+          if git merge-base --is-ancestor "$TESTED" origin/main; then
+            echo "main already contains $TESTED"
+            exit 0
+          fi
+          if ! git merge-base --is-ancestor origin/main "$TESTED"; then
+            echo "::error::$TESTED does not descend from main ($(git rev-parse origin/main)); refusing to rewrite main"
+            exit 1
+          fi
+          git push origin "$TESTED:refs/heads/main"
+          echo "main -> $TESTED"

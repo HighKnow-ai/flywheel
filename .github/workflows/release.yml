@@ -4,6 +4,10 @@ name: Release
 # tag is the only thing that starts it. There is deliberately no workflow_dispatch with a typed
 # version: D-184 rejected it as trivially desynced from the tag and the changelog.
 # The build steps are ci.yml's, in the same order, so a release is itself a clean-clone build.
+#
+# The `v*` tag is pushed by the private monorepo's export (a `flywheel-v*` tag there becomes `v*`
+# here, at the commit exported from it), never by hand, and only once that commit is on `main`.
+# Same runner and same pinned actions as ci.yml: macOS 15, every action at a full commit SHA.
 
 on:
   push:
@@ -14,12 +18,25 @@ permissions:
 
 jobs:
   release:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
-      # fetch-depth 0: the release-notes step reads history between tags.
-      - uses: actions/checkout@v4
+      # fetch-depth 0: the release-notes step reads history between tags, and the gate below
+      # reads main.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
+
+      # A release is built only from a commit ci.yml passed. `main` holds nothing else (it moves
+      # only by ci.yml's fast-forward after a green run, and its ruleset requires `build`), so
+      # "the tag is on main" is that statement, read from git rather than from a status API. It
+      # replaces re-running the sidecar and workspace tests here: they passed on this very commit.
+      - name: The tagged commit passed CI (it is on main)
+        run: |
+          git fetch --quiet origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::$GITHUB_SHA is not on main, so ci.yml has not passed on it. Not releasing."
+            exit 1
+          fi
 
       # First, before any toolchain is installed: a malformed tag fails here and writes nothing.
       - name: Stamp the tag as the version
@@ -27,7 +44,7 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: node scripts/release/apply-tag-version.mjs "$TAG"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
@@ -35,9 +52,9 @@ jobs:
             packages/desktop/package-lock.json
             packages/sidecar/package-lock.json
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # 2026-10-16, the stable branch (it has no release tags)
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - run: npm --prefix packages/sidecar ci
 
@@ -47,11 +64,6 @@ jobs:
       # build when a bundle.externalBin file is missing, so a fresh clone cannot compile or test
       # until the three binaries/flywheel-* files exist.
       - run: npm --prefix packages/sidecar run build:dist
-
-      # A release that cannot pass its own tests must not produce an artifact.
-      - run: npm --prefix packages/sidecar test
-
-      - run: cargo test --workspace
 
       # These commit subjects are the release's "what changed" text: real history, never a placeholder.
       - name: Release notes from history
@@ -77,7 +89,7 @@ jobs:
       # Not Apple-signed on purpose (D-185): nothing but criterion 1 waits on an Apple account.
       # Env group added later, NOT here:
       #   the Apple signing and notarization set  -> plan 11-07
-      - uses: tauri-apps/tauri-action@v0
+      - uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
