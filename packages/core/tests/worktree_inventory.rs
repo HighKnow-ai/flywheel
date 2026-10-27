@@ -6,14 +6,14 @@ mod common;
 
 use common::with_scratch_worktree_root;
 
-use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::PathBuf;
 
 use flywheel_core::domain::worktree::{
-    ensure_worktree, reclaim_eligibility, ReclaimDisposition as D, ReclaimReason as R,
+    ensure_worktree, porcelain_entries, reclaim_eligibility, ReclaimDisposition as D, ReclaimReason as R,
 };
-use flywheel_core::query::fleet::{finish_worktree_inventory, worktree_inventory_inputs, WorktreeInventoryRow};
+use flywheel_core::query::fleet::{
+    finish_worktree_inventory, finish_worktree_inventory_with, worktree_inventory_inputs, WorktreeInventoryRow,
+};
 use rusqlite::{params, Connection};
 
 // --- the pure table ---------------------------------------------------------------------------
@@ -63,12 +63,6 @@ fn a_story_can_only_be_reclaimable_by_being_closed() {
 
 // --- the read, against real git ---------------------------------------------------------------
 
-fn git(repo: &Path, args: &[&str]) -> String {
-    let out = Command::new("git").arg("-C").arg(repo).args(args).output().expect("spawn git");
-    assert!(out.status.success(), "git {args:?} failed: {}", String::from_utf8_lossy(&out.stderr));
-    String::from_utf8_lossy(&out.stdout).trim().to_string()
-}
-
 fn set_story_state(conn: &Connection, story_id: &str, state: &str) {
     conn.execute("UPDATE stories SET state = ?1 WHERE id = ?2", params![state, story_id]).unwrap();
 }
@@ -81,18 +75,19 @@ fn row_for<'a>(rows: &'a [WorktreeInventoryRow], story_id: &str) -> &'a Worktree
     rows.iter().find(|r| r.story_id == story_id).unwrap_or_else(|| panic!("no row for {story_id}"))
 }
 
-/// Make `git status` leave a line in `marker` every time it runs, so a test can count the porcelain
-/// reads the inventory actually performed. `core.fsmonitor` is consulted by status in every
-/// worktree of the repository.
-fn count_status_runs(repo: &Path, marker: &Path) {
-    let script = repo.join("../fsmonitor-count.sh");
-    std::fs::write(&script, format!("#!/bin/sh\necho x >> '{}'\nexit 0\n", marker.display())).unwrap();
-    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-    git(repo, &["config", "core.fsmonitor", script.to_str().unwrap()]);
-}
-
-fn status_runs(marker: &Path) -> usize {
-    std::fs::read_to_string(marker).map(|s| s.lines().count()).unwrap_or(0)
+/// The inventory with its porcelain reads recorded: every path the git half asked `git status
+/// --porcelain` about, beside the rows. The read itself is still the real [`porcelain_entries`], so
+/// dirtiness comes from git. The count is taken at the injected seam, not from a `core.fsmonitor`
+/// hook: git 2.54 no longer runs the hook on a porcelain read, and a hook that never runs makes
+/// "no read happened" pass vacuously.
+fn rows_recording_reads(conn: &Connection) -> (Vec<WorktreeInventoryRow>, Vec<PathBuf>) {
+    let mut reads = Vec::new();
+    let inputs = worktree_inventory_inputs(conn, 200).expect("inputs");
+    let rows = finish_worktree_inventory_with(inputs, |path| {
+        reads.push(path.to_path_buf());
+        porcelain_entries(path)
+    });
+    (rows, reads)
 }
 
 #[test]
@@ -161,25 +156,28 @@ fn a_row_whose_directory_is_gone_is_reported_not_fatal() {
 
 #[test]
 fn the_porcelain_read_runs_only_for_rows_that_passed_the_board_test_and_never_for_unreachable_projects() {
-    with_scratch_worktree_root(|root| {
-        let (mut conn, actor, project, repo) = common::seeded_git_project();
-        let marker = root.join("status-runs.log");
-        count_status_runs(repo.path(), &marker);
+    with_scratch_worktree_root(|_| {
+        let (mut conn, actor, project, _repo) = common::seeded_git_project();
 
+        let mut closed = Vec::new();
         for (name, state) in [("a", "merged"), ("b", "dropped"), ("c", "running"), ("d", "ready")] {
             let story = common::new_story(&mut conn, &project.id, &actor, name);
-            ensure_worktree(&mut conn, &story.id, &actor).unwrap();
+            let wt = ensure_worktree(&mut conn, &story.id, &actor).unwrap();
             set_story_state(&conn, &story.id, state);
+            if matches!(state, "merged" | "dropped") {
+                closed.push(PathBuf::from(wt.path));
+            }
         }
-        let _ = std::fs::remove_file(&marker);
-        let all = rows(&conn);
+        let (all, mut reads) = rows_recording_reads(&conn);
         assert_eq!(all.len(), 4);
-        assert_eq!(status_runs(&marker), 2, "only the two closed rows may cost a porcelain read");
+        reads.sort();
+        closed.sort();
+        assert_eq!(reads, closed, "only the two closed rows may cost a porcelain read");
 
         conn.execute("UPDATE projects SET status = 'unreachable' WHERE id = ?1", params![project.id]).unwrap();
-        let _ = std::fs::remove_file(&marker);
-        rows(&conn);
-        assert_eq!(status_runs(&marker), 0, "an unreachable project must reach no git call");
+        let (all, reads) = rows_recording_reads(&conn);
+        assert_eq!(all.len(), 4);
+        assert_eq!(reads, Vec::<PathBuf>::new(), "an unreachable project must reach no git call");
     });
 }
 

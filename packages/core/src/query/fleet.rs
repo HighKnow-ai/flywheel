@@ -25,7 +25,7 @@ use std::path::Path;
 use anyhow::Context;
 use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::domain::worktree::{porcelain_entries, reclaim_eligibility, ReclaimDisposition};
+use crate::domain::worktree::{porcelain_entries, reclaim_eligibility, PorcelainEntry, ReclaimDisposition};
 
 /// The hard ceiling on one fleet window. The Tauri command applies its own cap before it calls in
 /// here; this clamp is the backstop for any other caller.
@@ -511,6 +511,18 @@ pub fn worktree_inventory_inputs(conn: &Connection, limit: usize) -> anyhow::Res
 /// closed and has no live session. A porcelain read that fails is treated as dirty: a tree git
 /// cannot describe is never offered for reclaim.
 pub fn finish_worktree_inventory(inputs: Vec<WorktreeInventoryInput>) -> Vec<WorktreeInventoryRow> {
+    finish_worktree_inventory_with(inputs, porcelain_entries)
+}
+
+/// [`finish_worktree_inventory`] with the porcelain read injected. Production passes
+/// [`porcelain_entries`]; a test passes a wrapper that counts and records the paths it is asked
+/// about, which is the only way to prove which rows cost a git call. Counting from git's side
+/// (a `core.fsmonitor` hook) stopped working on git 2.54, which no longer consults the hook on
+/// `git status --porcelain`, so the count has to come from this seam rather than from git.
+pub fn finish_worktree_inventory_with(
+    inputs: Vec<WorktreeInventoryInput>,
+    mut read_porcelain: impl FnMut(&Path) -> anyhow::Result<Vec<PorcelainEntry>>,
+) -> Vec<WorktreeInventoryRow> {
     inputs
         .into_iter()
         .map(|input| {
@@ -520,7 +532,7 @@ pub fn finish_worktree_inventory(inputs: Vec<WorktreeInventoryInput>) -> Vec<Wor
             let story_closed = matches!(input.story_state.as_str(), "merged" | "dropped");
             let dirty = evaluable
                 && story_closed
-                && porcelain_entries(Path::new(&input.path)).map(|e| !e.is_empty()).unwrap_or(true);
+                && read_porcelain(Path::new(&input.path)).map(|e| !e.is_empty()).unwrap_or(true);
             let disposition = reclaim_eligibility(
                 &input.story_state,
                 input.live_run_status.as_deref(),
