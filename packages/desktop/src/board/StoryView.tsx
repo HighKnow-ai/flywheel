@@ -40,14 +40,13 @@ import { MoveToEpicControl } from "./MoveToEpic";
 import { ReadError } from "../components/ReadError";
 import { StateBadge } from "../components/StateBadge";
 import { StoryKey } from "../components/StoryKey";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/Button";
+import { Skeleton, cn, useLoadingPhase } from "@highknow/design";
 import { formatAge } from "../legend/runStatus";
 import { prefersReducedMotion, ToolCallLine } from "../session/FeedRow";
 import { buildFeedRows, findLiveCallKey, type FeedRowData } from "../session/feedRows";
 import { PageHeader, SurfaceBody } from "../shell/PageHeader";
 import { useUiStore } from "../state/uiStore";
-import { cn } from "@/lib/utils";
 
 /** The read of one Story, keyed under the project so `board:changed` keeps it live. The sidebar reads
  * the same key to name the current Story. */
@@ -70,6 +69,8 @@ export function StoryView({ projectId, projectName, storyId, onBack }: StoryView
     queryFn: () => storyGet(storyId),
   });
   const story = storyQuery.data ?? null;
+  // The loading rule (DESIGN.md § Feedback): nothing for 150 ms, then the skeleton, held at least 400 ms.
+  const storyPhase = useLoadingPhase(storyQuery.isPending);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -88,12 +89,17 @@ export function StoryView({ projectId, projectName, storyId, onBack }: StoryView
       <SurfaceBody>
         {/* One width for every surface of cards (DESIGN.md § Layout): up to 1240px, centred. */}
         <div className="mx-auto flex w-full max-w-[1240px] flex-col gap-4">
-          {storyQuery.isError && <ReadError title="Couldn't load this Story" query={storyQuery} />}
-          {storyQuery.isPending && <TitleCardSkeleton />}
-          {storyQuery.isSuccess && !story && (
-            <p className="m-0 text-body text-muted-foreground">This Story no longer exists.</p>
+          {storyPhase === "skeleton" ? (
+            <TitleCardSkeleton />
+          ) : (
+            <>
+              {storyQuery.isError && <ReadError title="Couldn't load this Story" query={storyQuery} />}
+              {storyQuery.isSuccess && !story && (
+                <p className="m-0 text-body text-muted-foreground">This Story no longer exists.</p>
+              )}
+              {story && <StoryBody projectId={projectId} story={story} />}
+            </>
           )}
-          {story && <StoryBody projectId={projectId} story={story} />}
         </div>
       </SurfaceBody>
     </div>
@@ -416,6 +422,7 @@ function StoryTitle({ story }: { story: StoryDto }) {
 function StoryBody({ projectId, story }: { projectId: string; story: StoryDto }) {
   const [error, setError] = useState<string | null>(null);
   const tasksQuery = useStoryTasks(projectId, story.id);
+  const tasksPhase = useLoadingPhase(tasksQuery.isPending);
   const criteriaQuery = useCriteria(projectId, story.id);
   const tasks = tasksQuery.data ?? [];
   const criteria = criteriaQuery.data ?? [];
@@ -525,11 +532,11 @@ function StoryBody({ projectId, story }: { projectId: string; story: StoryDto })
           count={<Count done={doneTasks} total={liveTasks.length} label="Tasks done" />}
         >
           {/* The empty checklist shows only once the read succeeded: a failed read is never "No Tasks yet". */}
-          {tasksQuery.isError ? (
-            <ReadError title="Couldn't load the Tasks" query={tasksQuery} />
-          ) : tasksQuery.isPending ? (
+          {tasksPhase === "skeleton" ? (
             <ListSkeleton rows={3} label="Loading the Tasks" />
-          ) : (
+          ) : tasksQuery.isError ? (
+            <ReadError title="Couldn't load the Tasks" query={tasksQuery} />
+          ) : tasksQuery.isPending ? null : (
             <TaskChecklist storyKey={story.key} storyId={story.id} tasks={tasks} />
           )}
         </Panel>

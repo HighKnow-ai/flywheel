@@ -1,7 +1,6 @@
 import { useId } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Field, FieldContent, FieldDescription, FieldLabel } from "@/components/ui/field";
-import { Switch } from "@/components/ui/switch";
+import { Field, FieldContent, FieldDescription, FieldLabel, Switch } from "@highknow/design";
 import { notify } from "@/lib/notify";
 import { settingsSetNotificationsEnabled, type SettingsDto } from "../adapters/tauri";
 

@@ -42,14 +42,18 @@ import { RelativeTime } from "../components/RelativeTime";
 import { ConfirmDestructive } from "../components/ConfirmDestructive";
 import { RUN_STATUS_LABELS, TERMINAL_STATUSES, formatAge, isRunStatus } from "../legend/runStatus";
 import { formatDuration, formatMoney, formatSessionName, formatTokens } from "@/lib/format";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+  ToggleGroup,
+  ToggleGroupItem,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  cn,
+} from "@highknow/design";
 import type { RunStatus } from "../legend/runStatus";
 import { useRegionBindings } from "../state/keyboard";
 import { useUiStore } from "../state/uiStore";
@@ -70,8 +74,7 @@ import type { QuestionPicks } from "./QuestionForm";
 import { RawLogView } from "./RawLogView";
 import { useProjects } from "../board/useBoardQuery";
 import { PageHeader } from "../shell/PageHeader";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { Button } from "@/components/Button";
 
 /**
  * Issue #100: which open question each unanswered question card in the feed answers, by row key. A

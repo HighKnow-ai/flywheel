@@ -14,26 +14,36 @@
  * A new Task is typed into one Input Group with its Add button inside.
  */
 import { StateBadge } from "../components/StateBadge";
-import { Label } from "@/components/ui/label";
-import { useRef, useState, type FormEvent } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, ChevronRight, CircleSlash, Ellipsis, NotebookText, Pencil, Plus } from "lucide-react";
-import { taskAdd, taskList, taskMove, taskRename, taskSetNote, taskSetState, type TaskDto } from "../adapters/tauri";
-import { Button } from "@/components/ui/button";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
+  Label,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
-import { Input } from "@/components/ui/input";
-import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
-import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
-import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+  Input,
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+  Textarea,
+  cn,
+} from "@highknow/design";
+import { useRef, useState, type FormEvent } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { ArrowDown, ArrowUp, ChevronRight, CircleSlash, Ellipsis, NotebookText, Pencil, Plus } from "lucide-react";
+import { taskAdd, taskList, taskMove, taskRename, taskSetNote, taskSetState, type TaskDto } from "../adapters/tauri";
+import { Button } from "@/components/Button";
 
 /** The words for each Task state (GLOSSARY.md "Task"). */
 const TASK_STATE_WORDS: Record<string, string> = {

@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { Plus } from "lucide-react";
 import "../../../styles/globals.css";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/Button";
 import { PageHeader } from "../../PageHeader";
 
 const LONG_PROJECT = "technical-presales-knowledge-base-for-acme"; // 42 characters

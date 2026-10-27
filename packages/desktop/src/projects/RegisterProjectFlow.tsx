@@ -19,10 +19,13 @@ import { useEffect, useId, useState, type FormEvent } from "react";
 import { ChevronRight, FolderOpen, OctagonX } from "lucide-react";
 import { useProjects, useRegisterProject, type Project } from "../board/useBoardQuery";
 import { openFolderDialog } from "../adapters/tauri";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
   Dialog,
   DialogClose,
   DialogContent,
@@ -30,9 +33,12 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+  Field,
+  FieldDescription,
+  FieldLabel,
+  Input,
+} from "@highknow/design";
+import { Button } from "@/components/Button";
 import { notify } from "@/lib/notify";
 
 /** A short, uppercase, greppable default derived from a repo path's directory name (D-10).

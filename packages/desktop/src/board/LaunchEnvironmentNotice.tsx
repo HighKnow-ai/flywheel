@@ -12,9 +12,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Settings, TriangleAlert } from "lucide-react";
 import { invokeCommand, type LaunchEnvironmentDto } from "../adapters/tauri";
 import { useUiStore } from "../state/uiStore";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { Alert, AlertDescription, AlertTitle, cn } from "@highknow/design";
+import { Button } from "@/components/Button";
 
 export const LAUNCH_ENVIRONMENT_QUERY_KEY = ["launch_environment"] as const;
 

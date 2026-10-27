@@ -149,9 +149,11 @@ describe("Milestone 4's exit test in WebKit: roster, Needs you, the triage drawe
     expect(within(files).queryAllByRole("button", { expanded: true })).toHaveLength(0);
     await press(within(files).getByRole("button", { name: "Expand all" }));
     await waitFor(() => expect(within(files).getAllByRole("group", { name: /^Diff of / }).length).toBeGreaterThan(20));
+    // Each region past the first 150 ms of its read draws its skeleton, and before that nothing (the loading
+    // rule), so the card reaches its full height only once the reads behind it land.
+    await waitFor(() => expect(card.getBoundingClientRect().bottom).toBeGreaterThan(window.innerHeight * 3));
     within(card).getByRole("heading", { name: "Review" }).scrollIntoView({ block: "start" });
     const inReach = within(card).getByRole("button", { name: "Merge FLY-3" }).getBoundingClientRect();
-    expect(card.getBoundingClientRect().bottom).toBeGreaterThan(window.innerHeight * 3);
     expect(inReach.top).toBeGreaterThanOrEqual(0);
     expect(inReach.bottom).toBeLessThanOrEqual(window.innerHeight);
 

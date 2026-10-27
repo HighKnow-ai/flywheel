@@ -10,7 +10,7 @@
  */
 import { useState } from "react";
 import { Plus } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/Button";
 import { StoryFormDialog } from "./WriteStoryDialog";
 
 /** A Done or Dropped record takes nothing new: the core refuses it, so the control is not offered. */

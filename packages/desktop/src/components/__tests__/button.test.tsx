@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { Play } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/Button";
 
 describe("Button loading", () => {
   it("shows the Spinner in place of the icon, keeps the label and sets aria-busy", () => {
@@ -69,5 +69,22 @@ describe("Button loading", () => {
     expect(screen.getByTestId("icon")).toBeInTheDocument();
     fireEvent.click(button);
     expect(onClick).toHaveBeenCalledOnce();
+  });
+});
+
+describe("Button tones", () => {
+  it("adds Flywheel's attention tone on top of the design system's neutral set", () => {
+    render(
+      <>
+        <Button variant="attention">Answer</Button>
+        <Button variant="neutral">Deny</Button>
+      </>,
+    );
+    const answer = screen.getByRole("button", { name: "Answer" });
+    expect(answer).toHaveAttribute("data-variant", "attention");
+    expect(answer.className).toMatch(/\bbg-attention\b/);
+    expect(answer.className).toMatch(/\btext-attention-foreground\b/);
+    // The package's own tones are still there, unchanged.
+    expect(screen.getByRole("button", { name: "Deny" }).className).toMatch(/\bbg-foreground\b/);
   });
 });

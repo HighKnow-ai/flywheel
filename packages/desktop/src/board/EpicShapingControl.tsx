@@ -28,10 +28,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, MessageCircleQuestionMark, MessagesSquare, RotateCcw, Terminal } from "lucide-react";
 import { epicShape, epicShapingRounds, epicShapingSession, shapingContinue, type EpicDto } from "../adapters/tauri";
 import { useUiStore } from "../state/uiStore";
-import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Button } from "@/components/Button";
+import { Tooltip, TooltipContent, TooltipTrigger, cn } from "@highknow/design";
 import { notify } from "@/lib/notify";
-import { cn } from "@/lib/utils";
 import { errorText } from "./StoryControls";
 
 type EpicRef = Pick<EpicDto, "id" | "key" | "title" | "state">;

@@ -5,7 +5,7 @@ import type { EpicProgressDto, ShapingMarkerDto } from "../adapters/tauri";
 import { StateBadge } from "../components/StateBadge";
 import { STAGE_LABELS } from "../shaping/RoundDock";
 import { StoryStateBar } from "./StoryStateBar";
-import { cn } from "@/lib/utils";
+import { cn } from "@highknow/design";
 
 /** Where an Epic in Shaping has got to, in words: "Stage 2 of 3, Slice into Stories · Round 3 · 2 of 5
  * answered" (issue #159). The core reads it; this only words it. */

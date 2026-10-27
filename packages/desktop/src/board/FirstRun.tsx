@@ -12,8 +12,8 @@ import { FolderPlus } from "lucide-react";
 import { openFolderDialog } from "../adapters/tauri";
 import logoUrl from "../assets/logo.svg";
 import { RegisterProjectDialog, folderName, type PendingRegistration } from "../projects/RegisterProjectFlow";
-import { Button } from "@/components/ui/button";
-import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { Button } from "@/components/Button";
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@highknow/design";
 import { LaunchEnvironmentNotice } from "./LaunchEnvironmentNotice";
 
 export { deriveKeyPrefix } from "../projects/RegisterProjectFlow";

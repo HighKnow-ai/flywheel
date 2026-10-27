@@ -10,7 +10,7 @@
 import { useState } from "react";
 import { ArrowRightLeft, ChevronsUpDown } from "lucide-react";
 import { storyMove, type StoryDto } from "../adapters/tauri";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/Button";
 import {
   Command,
   CommandEmpty,
@@ -19,8 +19,10 @@ import {
   CommandItem,
   CommandList,
   CommandSeparator,
-} from "@/components/ui/command";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@highknow/design";
 import { notify } from "@/lib/notify";
 import { isOpenRecord } from "./AddRecordControls";
 import { useProjectEpics } from "./StoryBoard";

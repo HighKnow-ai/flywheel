@@ -43,12 +43,23 @@ import {
 import { proposalListForTriage, type ProposalDto, type TriageProposalDto } from "../adapters/tauri";
 import { DuplicateFlag } from "./DuplicateFlag";
 import { DECIDED, EvidenceLine, notifyDecided, proposalKindWords } from "./proposalWords";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/Badge";
+import { Button } from "@/components/Button";
+import {
+  Card,
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  Skeleton,
+  useLoadingPhase,
+} from "@highknow/design";
 import { ReadError } from "@/components/ReadError";
 import { ProposalDecision, type AmendField } from "../shaping/GhostCard";
 import { formatAge } from "../legend/runStatus";
@@ -392,6 +403,9 @@ function TriageList({
   const groups = groupsOf(shown.map((s) => s.item));
   const leavingIds = new Set(shown.filter((s) => s.leaving).map((s) => s.key));
   const empty = loaded && shown.length === 0;
+  // The loading rule (DESIGN.md § Feedback): nothing for 150 ms of a first read, then the skeleton, held 400 ms.
+  const firstLoad = !loaded && !query.isError && shown.length === 0;
+  const loadingPhase = useLoadingPhase(firstLoad);
 
   // Opened from an Epic's marker: that Epic's group comes into view, its heading holding the keyboard.
   const landed = useRef(false);
@@ -409,8 +423,9 @@ function TriageList({
     emptyRef.current?.focus();
   }, [empty]);
 
+  if (loadingPhase === "skeleton") return <TriageSkeleton />;
   if (query.isError) return <ReadError title="Couldn't load the Proposals" query={query} />;
-  if (!loaded && shown.length === 0) return <TriageSkeleton />;
+  if (firstLoad) return null;
   if (empty) {
     return (
       <Empty

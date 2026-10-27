@@ -1,5 +1,5 @@
-import { cn } from "@/lib/utils";
-import { Badge } from "@/components/ui/badge";
+import { cn } from "@highknow/design";
+import { Badge } from "@/components/Badge";
 import { Icon, type IconName } from "@/components/Icon";
 import { RUN_STATUS_LABELS, isFleetState } from "../legend/runStatus";
 

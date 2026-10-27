@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Trash2 } from "lucide-react";
 import { ConfirmDestructive } from "@/components/ConfirmDestructive";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/Button";
 
 function renderDrop(onConfirm: () => unknown) {
   render(

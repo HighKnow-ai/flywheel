@@ -58,15 +58,27 @@ import {
 import { StateBadge } from "../components/StateBadge";
 import { StoryKey } from "../components/StoryKey";
 import { ReadError } from "../components/ReadError";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
-import { Item } from "@/components/ui/item";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/Badge";
+import { Button } from "@/components/Button";
+import {
+  Card,
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+  Item,
+  Skeleton,
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  cn,
+  useLoadingPhase,
+} from "@highknow/design";
 import { notify } from "@/lib/notify";
 import { LeavingItem, useLeavingItems } from "./leaving";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { formatAge } from "../legend/runStatus";
 import { PermissionRequestCard, RequestHeaderless, type PermissionDecision } from "../session/PermissionRequestCard";
 import { questionsFromPayload } from "../session/feedRows";
@@ -79,7 +91,6 @@ import { JudgedOnChange, judgedOnWord } from "./JudgedOnChange";
 import { ContinueShapingButton } from "./EpicShapingControl";
 import { ContinueMilestoneShapingButton } from "./MilestoneShapingControl";
 import { TriageButton } from "../proposals/ProposalDrawer";
-import { cn } from "@/lib/utils";
 
 /** Whether a live session is held on the item: the only Needs-you items drawn in yellow. */
 export function isWaitingOnYou(item: NeedsYouItemDto): boolean {
@@ -207,6 +218,9 @@ export function NeedsYouList({ projectId, className }: { projectId: string; clas
   const keys = items.map(keyOf).join("|");
   const { shown, done } = useLeavingItems(items, keyOf);
   const empty = query.isSuccess && shown.length === 0;
+  // The loading rule (DESIGN.md § Feedback): nothing for 150 ms of a first read, then the skeleton, held 400 ms.
+  const firstLoad = !query.isSuccess && !query.isError && shown.length === 0;
+  const loadingPhase = useLoadingPhase(firstLoad);
 
   useEffect(() => {
     if (!empty || !focusEmpty.current) return;
@@ -245,10 +259,11 @@ export function NeedsYouList({ projectId, className }: { projectId: string; clas
       {announcement}
     </span>
   );
+  if (loadingPhase === "skeleton") return <NeedsYouSkeleton className={className} />;
   if (query.isError) {
     return <ReadError title="Couldn't load Needs you" query={query} className={className} />;
   }
-  if (!query.isSuccess && shown.length === 0) return <NeedsYouSkeleton className={className} />;
+  if (firstLoad) return null;
   if (empty) {
     return (
       <Empty

@@ -1,6 +1,5 @@
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger, cn } from "@highknow/design";
 import { MISSING, formatAbsoluteTime, formatRelativeTime } from "@/lib/format";
-import { cn } from "@/lib/utils";
 
 /**
  * A time as it reads at a glance ("3m ago") with the absolute time in a Tooltip and on `<time dateTime>`

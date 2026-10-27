@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { STATE_VOCABULARY, StateBadge, stateToneOf, stateWordOf, type StateTone } from "../StateBadge";
 import { isIconName } from "../Icon";
-import { cn } from "@/lib/utils";
+import { cn } from "@highknow/design";
 
 /**
  * StateBadge is the one place a state picks a colour (docs/design/direction.md § Components, rule 1). Every

@@ -21,9 +21,9 @@
 import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Send } from "lucide-react";
 import type { QuestionPrompt } from "./feedRows";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Button } from "@/components/Button";
 import {
+  Checkbox,
   Field,
   FieldContent,
   FieldDescription,
@@ -31,10 +31,11 @@ import {
   FieldLegend,
   FieldSet,
   FieldTitle,
-} from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { cn } from "@/lib/utils";
+  Input,
+  RadioGroup,
+  RadioGroupItem,
+  cn,
+} from "@highknow/design";
 import { useUiStore, type QuestionDraft } from "../state/uiStore";
 
 /** What the developer picked, keyed by each question's text. */

@@ -35,7 +35,23 @@
  */
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { TruncateTip } from "@/components/TruncateTip";
-import { Label } from "@/components/ui/label";
+import {
+  Label,
+  Alert,
+  AlertDescription,
+  AlertTitle,
+  Progress,
+  Checkbox,
+  Textarea,
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  cn,
+} from "@highknow/design";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Check,
@@ -77,21 +93,7 @@ import { DecisionsSection } from "./DecisionsSection";
 import { ReviewFiles } from "./ReviewFiles";
 import { useUiStore } from "../state/uiStore";
 import { notify } from "../lib/notify";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { cn } from "@/lib/utils";
+import { Button } from "@/components/Button";
 
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);

@@ -12,3 +12,7 @@ We rejected keeping hand-written CSS with custom properties (`styles/tokens.css`
 - This Story installs nothing. Story #105 adds the packages with exact pinned versions (as the repo pins `lucide-react` 1.43.0), runs `shadcn init` for Tailwind v4, and generates only the components `direction.md` lists. Fonts are self-hosted through `@fontsource` (Barlow, Barlow Semi Condensed, JetBrains Mono).
 - shadcn components are copied once, not tracked upstream. An upstream fix reaches us only if we re-run the CLI for that component and merge it by hand.
 - The single adapter module for Tauri calls (`adapters/tauri.ts`) is unaffected. This decision is about styling and controls only, so the relay target the stack table protects stays open.
+
+## Amendment, 2026-10-27: the primitives come from `@highknow/design`
+
+The shadcn/ui primitives are no longer copied into `packages/desktop/src/components/ui/`. They come compiled from the published `@highknow/design` package at an exact version ([ADR 0021](0021-highknow-tokens-are-the-source-and-public-sans-is-the-face.md), amendment of 2026-10-27), which generates them with the same `radix-nova` style and carries Flywheel's retheme. `components.json` and the `shadcn` CLI leave this package: a new primitive is added to the design system, not generated here. Flywheel still owns what is Flywheel's: its tones on Button and Badge, `StateBadge`, `StoryKey`, `Icon`, and every screen. The Tailwind, Radix and `cmdk` choices above are unchanged; they now arrive as the package's dependencies.

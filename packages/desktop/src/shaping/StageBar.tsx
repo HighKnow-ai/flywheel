@@ -40,10 +40,10 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
+  cn,
+} from "@highknow/design";
+import { Button } from "@/components/Button";
 import { notify } from "@/lib/notify";
-import { cn } from "@/lib/utils";
 
 /** An Epic's Stages, in order. */
 export const EPIC_STAGES = ["challenge_spec", "slice", "criteria"] as const;

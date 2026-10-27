@@ -19,10 +19,8 @@ import { useQuery } from "@tanstack/react-query";
 import { startSession, storyGet } from "../adapters/tauri";
 import { useBoardChangedInvalidation } from "../board/useBoardChangedInvalidation";
 import { Play } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Kbd, KbdGroup } from "@/components/ui/kbd";
-import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/Button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, Kbd, KbdGroup, Textarea } from "@highknow/design";
 
 const INSTRUCTION_PLACEHOLDER = "Anything else the agent should know for this run? (optional)";
 

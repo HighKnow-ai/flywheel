@@ -6,7 +6,7 @@
  *
  * Reached from exactly three places: the app menu's "Settings…" item, `⌘,`, and the command palette.
  *
- * Five Card sections, top to bottom (#209 rebuilt them on `components/ui/`):
+ * Five Card sections, top to bottom (#209 rebuilt them on the shadcn primitives, now `@highknow/design`):
  * 1. **Credentials**: a Radio Group of the two global paths (local Claude Code credentials, the default, or an
  *    API key), the write-only Keychain-backed key field (only while the global path is the API key), and the
  *    non-blocking backend-unavailable notice.
@@ -26,15 +26,39 @@ import { Tip } from "@/components/Tip";
 import { TruncateTip } from "@/components/TruncateTip";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Info, KeyRound, ShieldAlert } from "lucide-react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Field, FieldContent, FieldDescription, FieldError, FieldLabel, FieldTitle } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Alert,
+  AlertDescription,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+  FieldTitle,
+  Input,
+  RadioGroup,
+  RadioGroupItem,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Skeleton,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  useLoadingPhase,
+  PageBody,
+} from "@highknow/design";
+import { Button } from "@/components/Button";
 import { ReadError } from "@/components/ReadError";
 import { formatAbsoluteTime } from "@/lib/format";
 import { notify } from "@/lib/notify";
@@ -288,6 +312,7 @@ function OpenCommandTemplateField({
   const inputId = useId();
   const queryKey = openCommandTemplateQueryKey(surface);
   const templateQuery = useQuery({ queryKey, queryFn: () => openCommandTemplate(surface) });
+  const templatePhase = useLoadingPhase(templateQuery.isPending);
   const [draft, setDraft] = useState<string | null>(null);
 
   const saveMutation = useMutation({
@@ -316,8 +341,11 @@ function OpenCommandTemplateField({
   return (
     <Field data-invalid={saveMutation.isError || undefined}>
       <FieldLabel htmlFor={inputId}>{label}</FieldLabel>
-      {templateQuery.isPending ? (
+      {templatePhase === "skeleton" ? (
         <Skeleton aria-hidden="true" className="h-8.5 w-full" />
+      ) : templateQuery.isPending ? (
+        // The field keeps its height for the first 150 ms, so the form does not move when the input lands.
+        <div aria-hidden="true" className="h-8.5" />
       ) : (
         <Input
           id={inputId}
@@ -441,6 +469,8 @@ export function SettingsSurface({ onBack }: SettingsSurfaceProps) {
 
   const settings = settingsQuery.data;
   const loading = settingsQuery.isPending;
+  // The loading rule (DESIGN.md § Feedback): nothing for 150 ms, then the skeleton, held at least 400 ms.
+  const credentialsPhase = useLoadingPhase(loading);
   const projects = projectsQuery.data ?? [];
   const backendUnavailable = backendQuery.data ? !backendQuery.data.available : false;
   const globalMode = (globalMutation.isPending ? globalMutation.variables : settings?.globalCredentialMode) as
@@ -451,7 +481,7 @@ export function SettingsSurface({ onBack }: SettingsSurfaceProps) {
       <PageHeader onBack={onBack} crumbs={[{ label: "Settings" }]} />
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-5 pt-1 pb-10">
+        <PageBody width="wide">
           {settingsQuery.isError ? (
             <ReadError title="Couldn't load your settings" query={settingsQuery} />
           ) : (
@@ -460,9 +490,9 @@ export function SettingsSurface({ onBack }: SettingsSurfaceProps) {
                 title="Credentials"
                 description="What Flywheel's agents sign in with, unless a project says otherwise."
               >
-                {loading || !settings || !globalMode ? (
+                {credentialsPhase === "skeleton" ? (
                   <CredentialsSkeleton />
-                ) : (
+                ) : loading || !settings || !globalMode ? null : (
                   <>
                     <CredentialChoice
                       value={globalMode}
@@ -530,7 +560,7 @@ export function SettingsSurface({ onBack }: SettingsSurfaceProps) {
           >
             <PermissionRulesTable projects={projects} loadingProjects={projectsQuery.isPending} />
           </Section>
-        </div>
+        </PageBody>
       </div>
     </div>
   );

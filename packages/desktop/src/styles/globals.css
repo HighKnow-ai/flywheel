@@ -1,80 +1,36 @@
 /*
- * Flywheel's one stylesheet of record: the Andon world (docs/design/direction.md, ADR 0004).
+ * Flywheel's stylesheet of record: the Andon world (docs/design/direction.md, ADR 0004, ADR 0021).
  *
- * Every colour is a token here, under the variable name shadcn/ui uses, so its generated components in
- * components/ui/ theme without edits. Flywheel adds its own roles beside them: `attention` (Waiting on you),
- * `running` (an agent at work, or your next action) with its `running-muted` wash and `running-border` hair,
- * `strip` and `lamp` (the andon strip's hardware), `subtle-foreground` (meta) and `destructive-text`. `:root` holds light, `.dark` holds dark (set on <html>
- * by theme/colorScheme.ts from `prefers-color-scheme`), and `@theme inline` maps each to a Tailwind colour
- * (`--color-attention: var(--attention)`, so `bg-attention` works).
+ * THE BASE IS HIGHKNOW'S PUBLISHED DESIGN SYSTEM, `@highknow/design`, at the exact version
+ * package.json pins (ADR 0021, amendment of 2026-10-27). Its `theme.css` declares every shared colour role
+ * under the variable name shadcn/ui uses (the grounds, ink, brand blue as fill and as `running` text, red,
+ * the rules, the control boundary, the ring, the sidebar), the type scale, the shadows, the curve and its
+ * durations; `base.css` paints the floor, the focus ring, the scrollbars, the disclosure motion and reduced
+ * motion; `fonts.css` self-hosts Public Sans Variable and JetBrains Mono. Its components come compiled with it,
+ * and its `theme.css` names them for Tailwind, so nothing here says `@source`.
  *
- * One meaning per colour. Yellow is Waiting on you and nothing else; brand blue is an agent at work or your
- * next action; red is Stopped or failed; graphite is the strip. Every other state is a neutral grey told apart
- * by its icon and word (components/StateBadge.tsx). theme/tokens.ts mirrors these values and
- * theme/__tests__/contrast.test.ts owns every ratio: it parses this file block by block.
+ * WHAT THIS FILE ADDS IS FLYWHEEL'S OWN, AND NOTHING THE PACKAGE ALREADY DECLARES (theme/__tests__/
+ * contrast.test.ts fails on a base role declared again here): safety yellow (`attention`, Waiting on you and
+ * nothing else), graphite (`strip`, the andon strip's hardware) and its `lamp`, the Diff Tints (ADR 0011), the
+ * chart greys, `--duration-lamp` (the one authored moment), the spacing and radius aliases, the live-agent
+ * pulse and the review diff. `:root` holds light and `.dark` holds dark (set on <html> by theme/colorScheme.ts
+ * from `prefers-color-scheme`); `@theme inline` maps each role to a Tailwind colour (`bg-attention`).
+ *
+ * One meaning per colour. Yellow is Waiting on you; brand blue is an agent at work or your next action; red is
+ * Stopped or failed; graphite is the strip. Every other state is a neutral grey told apart by its icon and word
+ * (components/StateBadge.tsx). theme/tokens.ts mirrors the values, and theme/__tests__/contrast.test.ts owns
+ * every ratio, reading the package's blocks and this file's together.
  */
 @import "tailwindcss";
-@import "tw-animate-css";
-@import "shadcn/tailwind.css";
+@import "@highknow/design/theme.css";
+@import "@highknow/design/base.css";
+@import "@highknow/design/fonts.css";
 
-/*
- * Self-hosted type (SIL OFL 1.1, through @fontsource): a render on one machine matches another. Public Sans
- * Variable is HighKnow's face (ADR 0021): one variable file per style covers every weight, and the browser
- * fetches only the unicode-range subsets a page uses.
- */
-@import "@fontsource-variable/public-sans/wght.css";
-@import "@fontsource-variable/public-sans/wght-italic.css";
-@import "@fontsource/jetbrains-mono/latin-400.css";
-
-@custom-variant dark (&:is(.dark *));
-
-/*
- * Light. The ink, secondary ink, rules, control boundary, brand text, brand wash, brand hair and error are
- * HighKnow's values (docs/design/highknow-tokens.json; theme/__tests__/brand-tokens.test.ts holds them equal).
- * The grounds, safety yellow, graphite, the lamps and the Diff Tints are Flywheel's own.
- */
+/* Light: Flywheel's roles. Safety yellow, graphite, the lamps and the Diff Tints are Flywheel's own. */
 :root {
-  color-scheme: light;
-
-  --font-ui: "Public Sans Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-ui-condensed: var(--font-ui);
-  --font-code: "JetBrains Mono", ui-monospace, monospace;
-
-  --background: #e6e8ec;
-  --foreground: #12151c;
-  --card: #ffffff;
-  --card-foreground: #12151c;
-  --popover: #ffffff;
-  --popover-foreground: #12151c;
-  --primary: #3c64dd;
-  --primary-foreground: #ffffff;
-  --running: #22409c;
-  --running-muted: #eef1fd;
-  --running-border: #c8d2f7;
   --attention: #ffd400;
   --attention-foreground: #14120a;
   --attention-muted: #fff7cc;
-  --destructive: #c0223a;
-  --destructive-foreground: #ffffff;
-  --destructive-text: #c0223a;
-  --secondary: #f4f5f7;
-  --secondary-foreground: #12151c;
-  --muted: #f4f5f7;
-  --muted-foreground: #4a5261;
-  --subtle-foreground: #676d79;
-  --accent: #eef0f3;
-  --accent-foreground: #12151c;
-  --border: #cdd2dd;
-  --input: #8792a6;
-  --ring: #3c64dd;
-  --sidebar: #f8f9fa;
-  --sidebar-foreground: #12151c;
-  --sidebar-primary: #ffffff;
-  --sidebar-primary-foreground: #12151c;
-  --sidebar-accent: #e9ebef;
-  --sidebar-accent-foreground: #12151c;
-  --sidebar-border: #e4e7ee;
-  --sidebar-ring: #3c64dd;
   --strip: #17191e;
   --strip-foreground: #f2f3f5;
   --strip-muted-foreground: #a4a9b3;
@@ -86,16 +42,10 @@
   --chart-3: #3c64dd;
   --chart-4: #c3c7ce;
 
-  /* Depth (direction rule 5): cards draw --border plus this; popovers and dialogs the overlay shadow. */
-  --shadow-card: 0 1px 2px rgb(15 20 30 / 0.08);
-  --shadow-overlay: 0 8px 24px rgb(15 20 30 / 0.16);
-  --scrim: rgb(15 20 30 / 0.4);
-
-  --radius: 0.625rem;
   --radius-control: calc(var(--radius) * 0.8);
   --radius-chip: calc(var(--radius) * 0.6);
 
-  /* Spacing on a 4px base (direction rule 6), for the inline styles screens still carry until #107. */
+  /* Spacing on a 4px base (direction rule 6), for the inline styles and session/markdown.css. */
   --space-xs: 4px;
   --space-sm: 8px;
   --space-md: 16px;
@@ -103,66 +53,16 @@
   --space-xl: 32px;
   --space-2xl: 48px;
 
-  /* Motion (DESIGN.md § Motion, direction rule 7): one curve, HighKnow's ease-out-quint, and one duration per
-     job. The lamp lighting is the one authored moment; everything else is feedback and continuity.
-       feedback      120ms  a press, a hover, a check ticking: acknowledgement, never latency
-       state         160ms  a value changing in place: a pill, a row tint, a chevron turning
-       lamp          240ms  a lamp lighting on the andon strip
-       overlay       260ms  an overlay arriving or a disclosure opening (layout)
-       overlay-exit  180ms  the same leaving: exits are faster than entrances
-     `--ease` stays the name the screens use; `--ease-out-quint` is the shared token. Every Tailwind
-     `transition*` utility defaults to the state duration on this curve (`@theme inline` below). */
-  --ease-out-quint: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease: var(--ease-out-quint);
-  --duration-feedback: 120ms;
-  --duration-state: 160ms;
+  /* The lamp lighting on the andon strip: the one authored moment (DESIGN.md § Motion). The package carries
+     the other four durations (feedback 120, state 160, overlay 260, overlay-exit 180) and the curve. */
   --duration-lamp: 240ms;
-  --duration-overlay: 260ms;
-  --duration-overlay-exit: 180ms;
 }
 
-/*
- * Dark is Flywheel's own scheme. Only the lifted brand text and ring (#7d99ff) and the error text (#ff6b82)
- * are HighKnow's dark values; the brand and error fills are the same in both schemes.
- */
+/* Dark is Flywheel's own scheme; the package's `.dark` holds the shared roles, this the Andon ones. */
 .dark {
-  color-scheme: dark;
-
-  --background: #0b0c0e;
-  --foreground: #eceef1;
-  --card: #1a1c20;
-  --card-foreground: #eceef1;
-  --popover: #1a1c20;
-  --popover-foreground: #eceef1;
-  --primary: #3c64dd;
-  --primary-foreground: #ffffff;
-  --running: #7d99ff;
-  --running-muted: #19213a;
-  --running-border: #2c3a6b;
   --attention: #ffd400;
   --attention-foreground: #14120a;
   --attention-muted: #352d00;
-  --destructive: #c0223a;
-  --destructive-foreground: #ffffff;
-  --destructive-text: #ff6b82;
-  --secondary: #23262b;
-  --secondary-foreground: #eceef1;
-  --muted: #23262b;
-  --muted-foreground: #a0a6b1;
-  --subtle-foreground: #90969f;
-  --accent: #23262b;
-  --accent-foreground: #eceef1;
-  --border: #2c2f36;
-  --input: #6e7480;
-  --ring: #7d99ff;
-  --sidebar: #121316;
-  --sidebar-foreground: #eceef1;
-  --sidebar-primary: #1a1c20;
-  --sidebar-primary-foreground: #eceef1;
-  --sidebar-accent: #1e2025;
-  --sidebar-accent-foreground: #eceef1;
-  --sidebar-border: #2c2f36;
-  --sidebar-ring: #7d99ff;
   --strip: #000000;
   --strip-foreground: #f2f3f5;
   --strip-muted-foreground: #9aa0aa;
@@ -173,54 +73,12 @@
   --chart-2: #7d838f;
   --chart-3: #3c64dd;
   --chart-4: #4a4f58;
-
-  /* A shadow cannot be seen on a near-black floor, so in dark the 1px --border edge carries every region. */
-  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.5);
-  --shadow-overlay: 0 8px 24px rgb(0 0 0 / 0.6);
-  --scrim: rgb(0 0 0 / 0.5);
 }
 
 @theme inline {
-  --font-sans: var(--font-ui);
-  --font-heading: var(--font-ui);
-  --font-condensed: var(--font-ui-condensed);
-  --font-mono: var(--font-code);
-
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-running: var(--running);
-  --color-running-muted: var(--running-muted);
-  --color-running-border: var(--running-border);
   --color-attention: var(--attention);
   --color-attention-foreground: var(--attention-foreground);
   --color-attention-muted: var(--attention-muted);
-  --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
-  --color-destructive-text: var(--destructive-text);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-subtle-foreground: var(--subtle-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
   --color-strip: var(--strip);
   --color-strip-foreground: var(--strip-foreground);
   --color-strip-muted-foreground: var(--strip-muted-foreground);
@@ -231,85 +89,17 @@
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
-
-  --shadow-card: var(--shadow-card);
-  --shadow-overlay: var(--shadow-overlay);
-
-  /* Cards 10px, buttons and inputs 8px, pills fully round. */
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-
-  /* The type scale (direction § Type): 12 · 13 · 14 · 15 · 17 · 24 · 26 · 34 · 52. */
-  --text-meta: 12px;
-  --text-meta--line-height: 1.35;
-  --text-small: 13px;
-  --text-small--line-height: 1.4;
-  --text-body: 14px;
-  --text-body--line-height: 1.45;
-  --text-row: 15px;
-  --text-row--line-height: 1.35;
-  --text-section: 17px;
-  --text-section--line-height: 1.3;
-  --text-title: 24px;
-  --text-title--line-height: 1.2;
-  --text-milestone: 26px;
-  --text-milestone--line-height: 1.15;
-  --text-count: 34px;
-  --text-count--line-height: 1;
-  --text-lead: 52px;
-  --text-lead--line-height: 1;
-
-  --ease-flywheel: var(--ease);
-  /* A bare `transition-colors` (or any `transition*`) runs on the state duration and the one curve. */
-  --default-transition-duration: var(--duration-state);
-  --default-transition-timing-function: var(--ease);
 }
 
 @layer base {
-  * {
-    @apply border-border;
-  }
-
+  /* The window is the app: the shell fills it, and each surface scrolls inside it. */
   html,
   body,
   #root {
     height: 100%;
-    margin: 0;
   }
 
-  body {
-    @apply bg-background font-sans text-body text-foreground antialiased;
-  }
-
-  button:not(:disabled),
-  [role="button"]:not(:disabled) {
-    cursor: pointer;
-  }
-
-  /* Browser surfaces (direction rule 8): selection, caret, focus ring and scrollbars carry the palette. */
-  ::selection {
-    background: var(--primary);
-    color: var(--primary-foreground);
-  }
-
-  input,
-  textarea,
-  [contenteditable] {
-    caret-color: var(--running);
-  }
-
-  :focus-visible {
-    outline: 2px solid var(--ring);
-    outline-offset: 2px;
-  }
-
-  * {
-    scrollbar-width: thin;
-    scrollbar-color: var(--border) transparent;
-  }
-
+  /* WKWebView draws its own scrollbars unless told; the package's `scrollbar-color` covers the rest. */
   ::-webkit-scrollbar {
     width: 8px;
     height: 8px;
@@ -323,28 +113,10 @@
   ::-webkit-scrollbar-track {
     background: transparent;
   }
-
-  code,
-  kbd,
-  pre,
-  samp {
-    font-family: var(--font-code);
-  }
 }
 
-/*
- * The two type roles that are not a size on the scale (the sizes are `text-meta` to `text-lead` above): the
- * condensed label and tabular figures, which count wherever numerals line up.
- */
+/* Tabular figures that are also lining, wherever numerals line up (counts, times, the strip). */
 @layer components {
-  /* Public Sans, uppercase and tracked: count labels, strip labels, sidebar group names only. */
-  .type-condensed {
-    font-family: var(--font-ui-condensed);
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-  }
-
   .tabular-nums {
     font-variant-numeric: tabular-nums lining-nums;
   }
@@ -430,107 +202,4 @@
   padding: 2px 10px;
   background: var(--muted);
   color: var(--muted-foreground);
-}
-
-/*
- * A disclosure (components/ui/collapsible.tsx) opens by growing to the height Radix measures and closes by
- * shrinking back, on the overlay durations. `overflow: hidden` is held only while the height moves, so a
- * focus ring inside an open disclosure is never clipped.
- */
-@keyframes disclosure-open {
-  from {
-    height: 0;
-    overflow: hidden;
-  }
-  to {
-    height: var(--radix-collapsible-content-height);
-    overflow: hidden;
-  }
-}
-
-@keyframes disclosure-close {
-  from {
-    height: var(--radix-collapsible-content-height);
-    overflow: hidden;
-  }
-  to {
-    height: 0;
-    overflow: hidden;
-  }
-}
-
-@keyframes fade-in {
-  from {
-    opacity: 0;
-  }
-}
-
-@keyframes fade-out {
-  to {
-    opacity: 0;
-  }
-}
-
-/* In the components layer, so a screen's own `animate-*` utility can still override it. */
-@layer components {
-  [data-slot="collapsible-content"][data-state="open"] {
-    animation: disclosure-open var(--duration-overlay) var(--ease);
-  }
-
-  [data-slot="collapsible-content"][data-state="closed"] {
-    animation: disclosure-close var(--duration-overlay-exit) var(--ease);
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    [data-slot="collapsible-content"][data-state="open"] {
-      animation: fade-in var(--duration-state) var(--ease);
-    }
-
-    [data-slot="collapsible-content"][data-state="closed"] {
-      animation: fade-out var(--duration-feedback) var(--ease);
-    }
-  }
-}
-
-/*
- * Reduced motion keeps meaning (DESIGN.md § Motion): spatial movement goes, short opacity and colour
- * cross-fades stay. The durations are untouched, so a hover tint, a pill changing state and an overlay
- * fading in all still read; what goes is every translate, scale, rotate and height change.
- *   - Overlays (tw-animate-css's enter/exit) lose their slide and zoom and keep their fade.
- *   - A transition on transform snaps the movement and keeps the colour and opacity parts.
- *   - A disclosure opens and closes as a cross-fade, not a height change.
- *   - The Spinner breathes instead of turning, so pending still reads.
- */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  ::before,
-  ::after {
-    --tw-enter-translate-x: 0 !important;
-    --tw-enter-translate-y: 0 !important;
-    --tw-enter-scale: 1 !important;
-    --tw-enter-rotate: 0 !important;
-    --tw-exit-translate-x: 0 !important;
-    --tw-exit-translate-y: 0 !important;
-    --tw-exit-scale: 1 !important;
-    --tw-exit-rotate: 0 !important;
-    scroll-behavior: auto !important;
-  }
-
-  /*
-   * An arbitrary `transition-[…]` names its own properties, and those are layout ones (height, flex-grow, width,
-   * padding, margin, grid rows) more often than not: it keeps only the same colour, opacity and shadow parts,
-   * so a segment, a rail or a row lands at its new size in one frame while any fade beside it still runs. An
-   * element that says what it does under reduced motion itself (a `motion-reduce:` class) is left to it.
-   */
-  .transition,
-  .transition-all,
-  .transition-transform,
-  [class*="transition-["]:not([class*="motion-reduce:"]) {
-    transition-property:
-      color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, opacity, box-shadow !important;
-  }
-
-  .animate-spin {
-    animation: agent-pulse 1.2s var(--ease) infinite;
-  }
 }

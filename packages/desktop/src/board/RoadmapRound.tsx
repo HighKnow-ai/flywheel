@@ -16,7 +16,7 @@
  *   holds", dismissed or decided.
  */
 import { useId, useRef, useState, type FormEvent } from "react";
-import { Label } from "@/components/ui/label";
+import { Label, Input, cn } from "@highknow/design";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleMinus, Compass, Hand, ListPlus, LoaderCircle, RotateCcw, SquareTerminal, X } from "lucide-react";
 import {
@@ -29,8 +29,7 @@ import {
   type RoadmapProposalDto,
   type RoadmapRoundDto,
 } from "../adapters/tauri";
-import { Button } from "../components/ui/button";
-import { Input } from "../components/ui/input";
+import { Button } from "@/components/Button";
 import { formatAge } from "../legend/runStatus";
 import { prefersReducedMotion } from "../session/FeedRow";
 import { useUiStore } from "../state/uiStore";
@@ -45,7 +44,6 @@ import {
 } from "../shaping/ProposalParts";
 import { errorText } from "./StoryControls";
 import { notify } from "@/lib/notify";
-import { cn } from "@/lib/utils";
 
 /**
  * Where the keyboard goes once the strip has re-read after a decision, a start or a dismissal: the next

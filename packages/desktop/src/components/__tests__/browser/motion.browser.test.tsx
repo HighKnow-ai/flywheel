@@ -12,9 +12,8 @@ import { describe, expect, it } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { Play } from "lucide-react";
 import "../../../styles/globals.css";
-import { Button } from "../../ui/button";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../../ui/collapsible";
-import { Spinner } from "../../ui/spinner";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger, Spinner } from "@highknow/design";
+import { Button } from "../../Button";
 
 const reduced = import.meta.env.VITE_EXPECT_MOTION === "reduce";
 
@@ -142,7 +141,7 @@ describe(`motion foundation (${reduced ? "reduced motion" : "full motion"})`, ()
   it(reduced ? "lets the Spinner breathe instead of turning" : "turns the Spinner", () => {
     render(<Spinner />);
     const spinner = screen.getByRole("status", { name: "Loading" });
-    expect(animationOf(spinner).animationName).toBe(reduced ? "agent-pulse" : "spin");
+    expect(animationOf(spinner).animationName).toBe(reduced ? "breathe" : "spin");
   });
 
   it("keeps a loading Button's width and label", () => {

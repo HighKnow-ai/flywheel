@@ -26,11 +26,8 @@ import {
   type DecisionFlagDto,
   type NewAdrDto,
 } from "../adapters/tauri";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
+import { Button } from "@/components/Button";
+import { Label, RadioGroup, RadioGroupItem, Textarea, cn } from "@highknow/design";
 
 /** The four bar lines (docs/mvp-spec.md §6), in the spec's order. */
 const BAR_LINES: { key: keyof AdrBarLinesDto; label: string }[] = [

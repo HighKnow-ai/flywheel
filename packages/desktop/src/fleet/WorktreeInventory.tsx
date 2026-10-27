@@ -44,15 +44,27 @@ import { StoryKey } from "../components/StoryKey";
 import { PageHeader, SurfaceBody } from "../shell/PageHeader";
 import { STICKY_HEADER, TABLE_CARD, useWidth } from "./FleetSurface";
 import { useWorktreeInventory, worktreeInventoryQueryKey } from "./useFleet";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+  Checkbox,
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  cn,
+} from "@highknow/design";
+import { Badge } from "@/components/Badge";
+import { Button } from "@/components/Button";
 import { formatRelativeTime } from "@/lib/format";
 import { notify } from "@/lib/notify";
-import { cn } from "@/lib/utils";
 
 /** Every reason the core's `ReclaimReason` can return, so a test can prove each one has a word. */
 export const RECLAIM_REASONS: readonly InventoryReason[] = [

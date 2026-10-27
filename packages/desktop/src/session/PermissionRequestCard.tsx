@@ -38,22 +38,25 @@
  * hook, which ignores keys typed into the pattern field.
  */
 import { createContext, useContext, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { Label } from "@/components/ui/label";
-import { Check, KeyRound, MessageCircleQuestionMark, ShieldAlert, ShieldCheck, X } from "lucide-react";
-import { useRegionBindings } from "../state/keyboard";
-import { Button } from "@/components/ui/button";
-import { ButtonGroup } from "@/components/ui/button-group";
-import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
-import { Kbd } from "@/components/ui/kbd";
 import {
+  Label,
+  ButtonGroup,
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+  Kbd,
   Popover,
   PopoverContent,
   PopoverDescription,
   PopoverHeader,
   PopoverTitle,
   PopoverTrigger,
-} from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
+  cn,
+} from "@highknow/design";
+import { Check, KeyRound, MessageCircleQuestionMark, ShieldAlert, ShieldCheck, X } from "lucide-react";
+import { useRegionBindings } from "../state/keyboard";
+import { Button } from "@/components/Button";
 import { ASK_USER_QUESTION_TOOL, questionsFromPayload } from "./feedRows";
 import { QuestionForm, type QuestionPicks } from "./QuestionForm";
 import { toolDisplayName } from "./toolVerbs";

@@ -7,7 +7,7 @@
  * Also here: what a decision says once it lands (a toast through `notify`), and an evidence line's paths shown
  * relative to the filing Story's worktree, middle-truncated, the whole path in a Tooltip.
  */
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@highknow/design";
 import { notify } from "@/lib/notify";
 
 const VERBS = ["create", "amend", "reorder", "retire"] as const;

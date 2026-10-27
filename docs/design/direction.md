@@ -4,7 +4,7 @@ Decided in [Pick Flywheel's new visual world from three rendered directions](htt
 
 Cyril compared three code-rendered directions on 2026-10-21: **A, Plakat** (Swiss poster grid), **B, Andon**, and **C, Departures** (airport departures board). He picked **Andon**, with two changes: fewer colours, and a system built on shadcn/ui and Tailwind so that the build lands as one design. This file is the contract for that world. [ADR 0004](../adr/0004-tailwind-and-shadcn-ui-for-the-desktop-ui.md) records the stack decision. Story #105 builds the tokens and components, and #107 restyles the screens.
 
-**Since #196 (2026-10-25), Flywheel takes HighKnow's tokens where they fit** ([ADR 0021](../adr/0021-highknow-tokens-are-the-source-and-public-sans-is-the-face.md)): the light ink, secondary ink, rules, control boundary, brand text, brand wash, brand hair and error, HighKnow's lifted brand and error text on dark, the Public Sans face, the `ease-out-quint` curve, and the mark in its real colours. The grounds, the dark scheme, safety yellow, graphite, the lamps and the Diff Tints stay Flywheel's own. § [From HighKnow](#from-highknow) lists the mapping, and the source is the vendored [`highknow-tokens.json`](highknow-tokens.json).
+**Since #196 (2026-10-25), Flywheel takes HighKnow's tokens where they fit** ([ADR 0021](../adr/0021-highknow-tokens-are-the-source-and-public-sans-is-the-face.md)): the light ink, secondary ink, rules, control boundary, brand text, brand wash, brand hair and error, HighKnow's lifted brand and error text on dark, the Public Sans face, the `ease-out-quint` curve, and the mark in its real colours. The grounds, the dark scheme, safety yellow, graphite, the lamps and the Diff Tints stay Flywheel's own. § [From HighKnow](#from-highknow) lists the mapping. **Since 2026-10-27 the source is the published `@highknow/design` package** (ADR 0021, amendment of 2026-10-27), whose base is this contract's own values: the shared roles below live in its `theme.css`, Flywheel's roles in `globals.css`.
 
 The mockup, rendered from code over demonstration data shaped like Flywheel's own M3 backlog, is [`directions/andon.html`](directions/andon.html). Open it in a browser and add `?theme=dark` for the dark scheme.
 
@@ -44,7 +44,7 @@ Wherever Flywheel shows a logo (the rail and the first-run empty state), it is t
 
 ## Tokens (shadcn/ui variable names, Tailwind v4)
 
-Each token keeps the variable name shadcn/ui uses, so its generated components theme correctly without edits. Flywheel adds `attention`, `running`, `strip`, `lamp` and `subtle-foreground`. In `globals.css`, `:root` holds light, `.dark` holds dark, and `@theme inline` maps each name to a Tailwind colour (`--color-attention: var(--attention)`, so `bg-attention` works). `.dark` is set from `prefers-color-scheme` and from the existing theme setting. A value marked **HK** is HighKnow's (§ [From HighKnow](#from-highknow)).
+Each token keeps the variable name shadcn/ui uses, so its generated components theme correctly without edits. Flywheel adds `attention`, `running`, `strip`, `lamp` and `subtle-foreground`. The shared roles are declared by `@highknow/design`'s `theme.css` and Flywheel's own in `globals.css`; in each, `:root` holds light, `.dark` holds dark, and `@theme inline` maps each name to a Tailwind colour (`--color-attention: var(--attention)`, so `bg-attention` works). `.dark` is set from `prefers-color-scheme` and from the existing theme setting. A value marked **HK** is HighKnow's (§ [From HighKnow](#from-highknow)).
 
 | Token | Light | Dark | Used for |
 |---|---|---|---|
@@ -89,7 +89,7 @@ Each token keeps the variable name shadcn/ui uses, so its generated components t
 
 ### From HighKnow
 
-Decided in #196 ([ADR 0021](../adr/0021-highknow-tokens-are-the-source-and-public-sans-is-the-face.md)). The source is HighKnow's `packages/config/tailwind-preset.css`, exported as `packages/config/tokens.json` and vendored here as [`highknow-tokens.json`](highknow-tokens.json) with the commit it was copied from. `theme/__tests__/brand-tokens.test.ts` holds each variable below equal to the vendored value.
+Decided in #196 ([ADR 0021](../adr/0021-highknow-tokens-are-the-source-and-public-sans-is-the-face.md)). The source was HighKnow's token export, vendored here until 2026-10-27; it is now the published `@highknow/design` package, which declares each variable below itself (ADR 0021, amendment of 2026-10-27). The vendored copy and its equality test are retired; `theme/__tests__/contrast.test.ts` reads the package's values.
 
 | HighKnow token | Value | Flywheel variables, light | Flywheel variables, dark |
 |---|---|---|---|
@@ -148,7 +148,7 @@ Regions are told apart by three things together: a ground step, the 1px `--borde
 
 ## Type
 
-- **Public Sans Variable** (HighKnow's face, since #196 and [ADR 0021](../adr/0021-highknow-tokens-are-the-source-and-public-sans-is-the-face.md)), at 400, 500, 600 and 700, for everything people read. The condensed role (`.type-condensed`, `--font-ui-condensed`) is the same family at 600, uppercase with 0.04 to 0.08em tracking, only for count labels, the strip's labels and sidebar group names, never as an eyebrow above a heading. **JetBrains Mono** 400 for Story keys, branches, paths and commands. Both are SIL OFL 1.1 and self-hosted through `@fontsource` packages (`@fontsource-variable/public-sans` 5.3.0), so a render on one machine matches another (PRODUCT.md house method). Numerals are tabular wherever they count: Public Sans carries a `tnum` feature, which `.tabular-nums` turns on, and `brand-tokens.test.ts` reads the font file to prove it. Until #196 the face was Barlow, with Barlow Semi Condensed for the condensed role.
+- **Public Sans Variable** (HighKnow's face, since #196 and [ADR 0021](../adr/0021-highknow-tokens-are-the-source-and-public-sans-is-the-face.md)), at 400, 500, 600 and 700, for everything people read. The condensed role (`.type-condensed`, `--font-ui-condensed`) is the same family at 600, uppercase with 0.04 to 0.08em tracking, only for count labels, the strip's labels and sidebar group names, never as an eyebrow above a heading. **JetBrains Mono** 400 for Story keys, branches, paths and commands. Both are SIL OFL 1.1 and self-hosted through `@fontsource` packages (`@fontsource-variable/public-sans` 5.3.0), so a render on one machine matches another (PRODUCT.md house method). Numerals are tabular wherever they count: Public Sans carries a `tnum` feature, which `.tabular-nums` turns on, and `theme/__tests__/face.test.ts` reads the font file to prove it. Until #196 the face was Barlow, with Barlow Semi Condensed for the condensed role.
 - **Scale:** 12 (meta, labels) · 13 (secondary) · 14 (body, rows, buttons) · 15 (row titles) · 17 (section headings) · 24 (Story title) · 26 (Milestone name) · 34 (count boxes) · 52 (the lead count). Weight steps from 400 to 700. The ratio between body and page title is 1.7, against Mission Control's 1.15.
 
 ## Icons
@@ -172,7 +172,7 @@ Regions are told apart by three things together: a ground step, the 1px `--borde
 
 ### shadcn/ui components the app uses
 
-Generated into `packages/desktop/src/components/ui/` by the shadcn CLI. The code is ours to edit, built on Radix primitives:
+Compiled into `@highknow/design` (ADR 0004, amendment of 2026-10-27), shadcn/ui on Radix primitives with this contract's retheme; Flywheel imports them from the package and adds its `attention` tone to Button and Badge:
 
 | Component | Where |
 |---|---|

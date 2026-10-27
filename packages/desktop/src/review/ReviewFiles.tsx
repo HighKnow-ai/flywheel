@@ -19,9 +19,8 @@ import { Decoration, Diff, Hunk, parseDiff } from "react-diff-view";
 import "react-diff-view/style/index.css";
 import { ChevronRight, ChevronsDownUp, ChevronsUpDown, FileCode } from "lucide-react";
 import { reviewFilePatch, type ReviewFileDto } from "../adapters/tauri";
-import { Button } from "@/components/ui/button";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { cn } from "@/lib/utils";
+import { Button } from "@/components/Button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger, cn } from "@highknow/design";
 
 /** The most files a diff may have for every file to open by default: past it, every diff starts folded. */
 export const OPEN_BY_DEFAULT_MAX = 5;

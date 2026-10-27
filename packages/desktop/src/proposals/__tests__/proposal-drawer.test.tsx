@@ -458,12 +458,17 @@ describe("Proposal kinds, decisions and states (issue #203)", () => {
     expect(middleTruncate("/Users/cyril/a.ts")).toBe("~/a.ts");
   });
 
-  it("shows Skeleton while the drawer's read is under way", async () => {
+  it("shows Skeleton once the drawer's read has run past 150 ms", async () => {
     proposalListForTriage.mockImplementation(() => new Promise(() => {}));
     renderBoardBits();
     fireEvent.click(await screen.findByRole("button", { name: "Triage 4 Proposals" }));
     const drawer = await screen.findByRole("dialog", { name: /Triage Proposals/ });
-    expect(drawer.querySelector('[data-slot="triage-skeleton"]')).toHaveAttribute("aria-busy", "true");
+    const skeleton = await waitFor(() => {
+      const found = drawer.querySelector('[data-slot="triage-skeleton"]');
+      expect(found).not.toBeNull();
+      return found;
+    });
+    expect(skeleton).toHaveAttribute("aria-busy", "true");
     expect(drawer.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
   });
 

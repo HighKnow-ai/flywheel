@@ -64,12 +64,19 @@ import type { EpicProgressDto } from "../adapters/tauri";
 import { StateBadge } from "../components/StateBadge";
 import { StoryKey } from "../components/StoryKey";
 import { ReadError } from "../components/ReadError";
-import { Item, ItemActions, ItemContent } from "@/components/ui/item";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  Skeleton,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  cn,
+  useLoadingPhase,
+} from "@highknow/design";
 import { PageHeader, SurfaceBody } from "../shell/PageHeader";
 import { useUiStore } from "../state/uiStore";
-import { cn } from "@/lib/utils";
 
 export interface StoryBoardProps {
   projectId: string;
@@ -224,12 +231,15 @@ function StoryRoster({
   // Each Epic of the shown Milestone carries its own bar, from the header's one core read (#106).
   const progressQuery = useMilestoneProgress(projectId, selection.requested);
   const epicProgress = new Map((progressQuery.data?.epics ?? []).map((e) => [e.epicId, e]));
+  const loadingPhase = useLoadingPhase(storiesQuery.isPending);
 
   // A failed read is the one error state (DESIGN.md § Feedback). Without the Stories there is no roster, so the
   // ReadError takes its place; without the roster's own read (`roster_rows`) the Stories still list, under a
   // ReadError saying their attention and actions could not be read.
+  // The loading rule (DESIGN.md § Feedback): nothing for 150 ms, then the skeleton, held at least 400 ms.
+  if (loadingPhase === "skeleton") return <RosterSkeleton />;
   if (storiesQuery.isError) return <ReadError title="Couldn't load the roster" query={storiesQuery} />;
-  if (storiesQuery.isPending) return <RosterSkeleton />;
+  if (storiesQuery.isPending) return null;
   const rowsError = rowsQuery.isError && (
     <ReadError
       title="Couldn't load the roster"

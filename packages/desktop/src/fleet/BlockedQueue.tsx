@@ -45,9 +45,8 @@ import { useOpenWaitingRound, waitingRoundWords } from "./waitingRound";
 import { ageText, blockedQueueQueryKey, fleetQueryKey } from "./useFleet";
 import { ChevronRight, CircleDashed, MessageCircleQuestionMark, Terminal } from "lucide-react";
 import { StateBadge } from "../components/StateBadge";
-import { Button } from "@/components/ui/button";
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
-import { Kbd } from "@/components/ui/kbd";
+import { Button } from "@/components/Button";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle, Kbd } from "@highknow/design";
 
 /** What the waiting session is about: its Story's key and title. */
 function subjectText(entry: BlockedQueueEntryDto): { key: string; detail: string | null } {

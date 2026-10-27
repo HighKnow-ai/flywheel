@@ -563,6 +563,25 @@ describe("StoryBoard: the roster reads at a glance (issue #202)", () => {
     expect(loading.querySelectorAll("[data-slot=skeleton]").length).toBeGreaterThan(3);
   });
 
+  it("shows nothing for a roster read that lands inside 150 ms, so a fast read never flashes a skeleton", async () => {
+    seedRoster([story("s1", "FLY-2", "One", "ready")], [row("s1")]);
+    renderBoard();
+    await rosterRowsOnScreen(1);
+    expect(screen.queryByLabelText("Loading the roster")).toBeNull();
+  });
+
+  it("holds the roster's skeleton at least 400 ms once it has shown", async () => {
+    milestoneList.mockResolvedValue([milestone("m1", "M1")]);
+    let land: (stories: ReturnType<typeof story>[]) => void = () => {};
+    storyListForProject.mockReturnValue(new Promise((resolve) => (land = resolve)));
+    renderBoard();
+    await screen.findByLabelText("Loading the roster");
+    const shownAt = Date.now();
+    land([story("s1", "FLY-2", "One", "ready")]);
+    await waitFor(() => expect(screen.queryByLabelText("Loading the roster")).toBeNull());
+    expect(Date.now() - shownAt).toBeGreaterThanOrEqual(350);
+  });
+
   it("shows ReadError with Try again when the Stories cannot be read, and Try again reads them again", async () => {
     milestoneList.mockResolvedValue([milestone("m1", "M1")]);
     storyListForProject.mockRejectedValue(new Error("core went away"));

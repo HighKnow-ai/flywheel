@@ -27,8 +27,11 @@ import {
   SidebarMenuItem,
   SidebarMenuSkeleton,
   SidebarProvider,
-} from "@/components/ui/sidebar";
-import { Skeleton } from "@/components/ui/skeleton";
+  Skeleton,
+  TooltipProvider,
+  Toaster,
+  useLoadingPhase,
+} from "@highknow/design";
 import { CommandPalette } from "./shell/CommandPalette";
 import { activeSurface, dispatchAction, useGlobalBindings, type ActionId } from "./state/keyboard";
 import { useMenuLayerSync } from "./state/menuSync";
@@ -39,8 +42,6 @@ const FleetSurface = React.lazy(() => import("./fleet/FleetSurface").then((m) =>
 const WorktreeInventory = React.lazy(() =>
   import("./fleet/WorktreeInventory").then((m) => ({ default: m.WorktreeInventory })),
 );
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { Toaster } from "@/components/ui/sonner";
 import { useColorScheme } from "./theme/colorScheme";
 import "./styles/globals.css";
 
@@ -135,11 +136,14 @@ function AppShell() {
   useWatchedRun();
 
   // Boot (critique F47, issue #210): the shell in its own shape, the rail and the board drawn as
-  // Skeletons, until the first project list resolves. No copy and no spinner (DESIGN.md § Feedback).
-  if (!projectsQuery.data) {
+  // Skeletons, until the first project list resolves. No copy and no spinner (DESIGN.md § Feedback). The
+  // design system's loading rule: the floor alone for the first 150 ms, so a fast boot never flashes the
+  // skeleton, and once drawn the skeleton holds at least 400 ms.
+  const bootPhase = useLoadingPhase(projectsQuery.isPending);
+  if (bootPhase !== "ready" || !projectsQuery.data) {
     return (
       <>
-        <BootShell />
+        {bootPhase === "blank" ? null : <BootShell />}
         <OrphanRecoveryModal />
       </>
     );

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { Spinner } from "@/components/ui/spinner";
+import { Spinner } from "@highknow/design";
 
 describe("Spinner", () => {
   it("alone is a status named Loading, 16px, turning", () => {

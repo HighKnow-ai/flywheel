@@ -6,15 +6,23 @@ import { milestoneProgress, type MilestoneProgressDto } from "../adapters/tauri"
 import { Icon, type IconName } from "../components/Icon";
 import { ReadError } from "../components/ReadError";
 import { StateBadge } from "../components/StateBadge";
-import { Collapsible, CollapsibleTrigger } from "../components/ui/collapsible";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../components/ui/empty";
-import { Skeleton } from "../components/ui/skeleton";
+import {
+  Collapsible,
+  CollapsibleTrigger,
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+  Skeleton,
+  cn,
+  useLoadingPhase,
+} from "@highknow/design";
 import { ConfirmExitTest, milestoneExitTestConfirmable } from "./ConfirmExitTest";
 import { AddEpicToMilestone } from "./AddRecordControls";
 import { EPIC_STATE_WORDS } from "./EpicProgress";
 import { MilestoneShapingControl, useMilestoneAttention } from "./MilestoneShapingControl";
 import { BAR_SEGMENTS, StoryStateBar, type BarSegment } from "./StoryStateBar";
-import { cn } from "@/lib/utils";
 
 /**
  * The count boxes beside the lead box, as the Andon mockup lays them out: the life of a Story on the first
@@ -44,10 +52,12 @@ const BOX_ORDER: readonly BarSegment["key"][] = ["inReview", "running", "ready",
  */
 export function MilestoneHeader({ projectId, milestoneId = null }: { projectId: string; milestoneId?: string | null }) {
   const progressQuery = useMilestoneProgress(projectId, milestoneId);
+  const loadingPhase = useLoadingPhase(progressQuery.isPending);
 
-  if (progressQuery.isPending) {
+  if (loadingPhase === "skeleton") {
     return <Skeleton aria-label="Loading the Milestone" className="h-[188px] w-full rounded-lg" />;
   }
+  if (progressQuery.isPending) return null;
   if (progressQuery.isError) {
     return <ReadError title="Couldn't load the Milestone's progress" query={progressQuery} />;
   }
@@ -254,7 +264,7 @@ function LeadBox({ merged, total }: { merged: number; total: number }) {
       className="row-span-2 flex min-w-[124px] flex-col justify-between gap-2 rounded-md border border-border bg-strip px-3 pt-2.5 pb-2 text-strip-foreground"
     >
       <span className="type-condensed text-meta text-strip-muted-foreground">Stories merged</span>
-      <span className="text-lead font-bold tracking-[-0.02em] tabular-nums">
+      <span className="text-lead-count font-bold tracking-[-0.02em] tabular-nums">
         {merged}
         <span className="text-[26px] font-semibold tracking-normal text-strip-muted-foreground">/{total}</span>
       </span>

@@ -35,9 +35,15 @@ import {
   Wrench,
   type LucideIcon,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  cn,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@highknow/design";
 import { StateBadge } from "@/components/StateBadge";
 import { Markdown } from "./Markdown";
 import { QuestionForm, type QuestionPicks } from "./QuestionForm";

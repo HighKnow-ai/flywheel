@@ -15,18 +15,24 @@
  */
 import { useState, type FormEvent } from "react";
 import { TruncateTip } from "@/components/TruncateTip";
-import { Label } from "@/components/ui/label";
+import {
+  Label,
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+  Input,
+  Skeleton,
+  cn,
+  useLoadingPhase,
+} from "@highknow/design";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil, Plus, SquareTerminal, X } from "lucide-react";
 import { checkRemove, checkSet, criterionList, type AcceptanceCriterionDto, type CheckDto } from "../adapters/tauri";
 import { ReadError } from "../components/ReadError";
 import { StateBadge } from "../components/StateBadge";
-import { Button } from "@/components/ui/button";
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
-import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/Button";
 import { notify } from "@/lib/notify";
-import { cn } from "@/lib/utils";
 
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -80,12 +86,13 @@ export function CriteriaList({
   emptyText = "No Acceptance criteria yet",
 }: CriteriaListProps) {
   const criteriaQuery = useCriteria(projectId, storyId);
+  const criteriaPhase = useLoadingPhase(criteriaQuery.isPending);
   const criteria = criteriaQuery.data ?? [];
 
   return (
     <div className="flex flex-col">
       {criteriaQuery.isError && <ReadError title="Couldn't load the Acceptance criteria" query={criteriaQuery} />}
-      {criteriaQuery.isPending && !compact && (
+      {criteriaPhase === "skeleton" && !compact && (
         <div role="status" aria-label="Loading the Acceptance criteria" className="flex flex-col gap-2.5 py-1">
           <Skeleton className="h-4 w-3/4" />
           <Skeleton className="h-4 w-1/2" />

@@ -1,6 +1,5 @@
 import { useRef, useState, type ReactElement, type ReactNode } from "react";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
+import { Tooltip, TooltipContent, TooltipTrigger, cn } from "@highknow/design";
 
 /**
  * The whole text of something cut short, in a Tooltip, and only while it is cut short (F58 in the M4 critique:

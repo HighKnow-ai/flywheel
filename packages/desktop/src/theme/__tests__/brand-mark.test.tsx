@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { SidebarProvider } from "@/components/ui/sidebar";
+import { SidebarProvider } from "@highknow/design";
 import { FirstRun } from "../../board/FirstRun";
 import { ProjectRail } from "../../projects/ProjectRail";
 import { contrastRatio } from "../contrast";

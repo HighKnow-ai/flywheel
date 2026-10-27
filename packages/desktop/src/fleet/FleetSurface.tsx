@@ -68,12 +68,25 @@ import { BlockedQueue } from "./BlockedQueue";
 import { ageText, useBlockedQueue, useFleet, useWaitingRounds } from "./useFleet";
 import { PageHeader, SurfaceBody } from "../shell/PageHeader";
 import { agentCount, lampsFromFleet } from "../shell/AndonStrip";
-import { Button } from "@/components/ui/button";
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/Button";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+  cn,
+} from "@highknow/design";
 import { formatMoney, formatTokens } from "@/lib/format";
-import { cn } from "@/lib/utils";
 
 function prefersReducedMotion(): boolean {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;

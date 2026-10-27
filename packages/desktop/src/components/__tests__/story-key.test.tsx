@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { StoryKey } from "@/components/StoryKey";
 import { RelativeTime } from "@/components/RelativeTime";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { TooltipProvider } from "@highknow/design";
 import { formatAbsoluteTime } from "@/lib/format";
 
 describe("StoryKey", () => {

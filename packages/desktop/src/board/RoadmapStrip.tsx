@@ -38,19 +38,30 @@ import { ChevronDown, ChevronRight, Flag, GripVertical, Map as MapIcon, Plus } f
 import { milestoneCreate, milestoneList, milestoneMove, type MilestoneDto } from "../adapters/tauri";
 import { ReadError } from "../components/ReadError";
 import { StateBadge } from "../components/StateBadge";
-import { Button } from "../components/ui/button";
-import { Collapsible, CollapsibleTrigger } from "../components/ui/collapsible";
-import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../components/ui/empty";
-import { Skeleton } from "../components/ui/skeleton";
-import { Input } from "../components/ui/input";
-import { Tooltip, TooltipContent, TooltipTrigger } from "../components/ui/tooltip";
+import { Button } from "@/components/Button";
+import {
+  Collapsible,
+  CollapsibleTrigger,
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+  Skeleton,
+  Input,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  cn,
+  useLoadingPhase,
+} from "@highknow/design";
 import { useUiStore } from "../state/uiStore";
 import { ConfirmExitTest, milestoneExitTestConfirmable } from "./ConfirmExitTest";
 import { EPIC_STATE_WORDS } from "./EpicProgress";
 import { GhostRow, LastRoundNote, RevisitRoadmapButton, RoundBand, useRoadmapRound } from "./RoadmapRound";
 import { MilestoneShapingControl } from "./MilestoneShapingControl";
 import { errorText } from "./StoryControls";
-import { cn } from "@/lib/utils";
 
 /** The project's Roadmap, under the board's key so `board:changed` keeps it live. */
 export function useRoadmap(projectId: string) {
@@ -117,6 +128,8 @@ function beforeIdFor(milestones: MilestoneDto[], from: number, to: number): stri
 export function RoadmapStrip({ projectId }: { projectId: string }) {
   const roadmap = useRoadmap(projectId);
   const milestones = roadmap.data ?? [];
+  // The loading rule (DESIGN.md § Feedback): nothing for 150 ms, then the skeleton, held at least 400 ms.
+  const roadmapPhase = useLoadingPhase(roadmap.isPending);
   const roundView = useRoadmapRound(projectId).data;
   const openRound = roundView?.open ?? null;
   const proposals = openRound ? (roundView?.proposals ?? []) : [];
@@ -268,7 +281,9 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
           Alt with the Up or Down arrow moves it on the Roadmap.
         </p>
 
-        {roadmap.isPending && <Skeleton aria-label="Loading the Roadmap" className="mx-4 my-2 h-5 rounded-sm" />}
+        {roadmapPhase === "skeleton" && (
+          <Skeleton aria-label="Loading the Roadmap" className="mx-4 my-2 h-5 rounded-sm" />
+        )}
         {roadmap.isError && <ReadError title="Couldn't load the Roadmap" query={roadmap} className="m-3 w-auto" />}
         {roadmap.isSuccess && milestones.length === 0 && !adding && (
           <Empty className="gap-3 p-5">

@@ -18,14 +18,11 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Tip } from "@/components/Tip";
 import { TruncateTip } from "@/components/TruncateTip";
-import { Label } from "@/components/ui/label";
+import { Label, Textarea, Kbd, cn } from "@highknow/design";
 import { Ban, Check, CircleCheck, FileText, PenLine, ScrollText, Send, X } from "lucide-react";
 import type { AdrDraftDto, RoundQuestionDto } from "../adapters/tauri";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/Button";
 import { OrderChip } from "./ProposalParts";
-import { Textarea } from "@/components/ui/textarea";
-import { Kbd } from "@/components/ui/kbd";
-import { cn } from "@/lib/utils";
 
 /** The longest answer the core accepts (`round::MAX_ROUND_TEXT_LEN`). */
 const MAX_ANSWER_LEN = 4000;

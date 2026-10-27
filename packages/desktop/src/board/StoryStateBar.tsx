@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 import type { StoryStateCountsDto } from "../adapters/tauri";
 import type { IconName } from "../components/Icon";
-import { cn } from "@/lib/utils";
+import { cn } from "@highknow/design";
 
 /**
  * The stacked bar of Story states (docs/mvp-spec.md §7; direction.md § Tokens, `--chart-*`), shared by the

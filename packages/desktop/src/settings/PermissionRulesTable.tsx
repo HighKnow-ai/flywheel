@@ -16,15 +16,28 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ShieldOff } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Button } from "@/components/Button";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+  Skeleton,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  cn,
+  useLoadingPhase,
+} from "@highknow/design";
 import { ReadError } from "@/components/ReadError";
 import { RelativeTime } from "@/components/RelativeTime";
 import { notify } from "@/lib/notify";
-import { cn } from "@/lib/utils";
 import { listPermissionRules, revokePermissionRule, type PermissionRuleDto } from "../adapters/tauri";
 import { useBoardChangedInvalidation } from "../board/useBoardChangedInvalidation";
 import type { Project } from "../board/useBoardQuery";
@@ -119,7 +132,10 @@ export function PermissionRulesTable({ projects, loadingProjects = false }: Perm
   // for a non-empty roster. Never `rulesQuery.isPending` alone: it stays true for a zero-project roster, where
   // the query is disabled and never settles.
   const loading = loadingProjects || (rulesQuery.isPending && projects.length > 0);
-  if (loading) return <RowsSkeleton />;
+  // The loading rule (DESIGN.md § Feedback): nothing for 150 ms, then the skeleton, held at least 400 ms.
+  const loadingPhase = useLoadingPhase(loading);
+  if (loadingPhase === "skeleton") return <RowsSkeleton />;
+  if (loading) return null;
   if (rulesQuery.isError) return <ReadError title="Couldn't load the permission rules" query={rulesQuery} />;
 
   const rules: RuleRow[] = rulesQuery.data ?? [];

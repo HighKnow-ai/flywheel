@@ -36,10 +36,9 @@ import {
 } from "../adapters/tauri";
 import { ContinueShapingButton } from "../board/EpicShapingControl";
 import { QuestionCard } from "./QuestionCard";
-import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/Button";
+import { Progress, cn } from "@highknow/design";
 import { notify } from "@/lib/notify";
-import { cn } from "@/lib/utils";
 
 /** The Stage names as the developer reads them (GLOSSARY.md "Stage"). */
 export const STAGE_LABELS: Record<string, string> = {

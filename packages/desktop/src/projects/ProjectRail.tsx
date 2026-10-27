@@ -65,15 +65,13 @@ import { isRunStatus } from "../legend/runStatus";
 import { StateBadge } from "../components/StateBadge";
 import { StoryKey } from "../components/StoryKey";
 import { ConfirmDestructive } from "../components/ConfirmDestructive";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/Badge";
+import { Button } from "@/components/Button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
@@ -89,10 +87,12 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
   useSidebar,
-} from "@/components/ui/sidebar";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  cn,
+} from "@highknow/design";
 import { notify } from "@/lib/notify";
-import { cn } from "@/lib/utils";
 import { useRegisterProjectFlow, useRegistrationErrorToast } from "./RegisterProjectFlow";
 import { agentCount, lampsFromFleet } from "../shell/AndonStrip";
 import { useUiStore } from "../state/uiStore";

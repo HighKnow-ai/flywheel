@@ -17,7 +17,7 @@
  * Every read is keyed under the project, so the one `board:changed` subscription keeps it live.
  */
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { Label } from "@/components/ui/label";
+import { Label, Input, Textarea, cn } from "@highknow/design";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Check, Flag, PenLine, X } from "lucide-react";
 import {
@@ -44,10 +44,7 @@ import { useUiStore } from "../state/uiStore";
 import { GhostCard } from "./GhostCard";
 import { RoundDock } from "./RoundDock";
 import { MILESTONE_STAGES, StageBar } from "./StageBar";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
+import { Button } from "@/components/Button";
 import { useSettle } from "./ProposalParts";
 
 export interface MilestoneShapingViewProps {

@@ -13,24 +13,24 @@
  */
 import { useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { ArrowLeft, Search } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Kbd } from "@/components/ui/kbd";
+import { Button } from "@/components/Button";
 import {
+  Kbd,
   Breadcrumb,
   BreadcrumbEllipsis,
   BreadcrumbItem,
   BreadcrumbList,
   BreadcrumbPage,
   BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  cn,
+} from "@highknow/design";
 import { useUiStore } from "../state/uiStore";
 
 export interface Crumb {

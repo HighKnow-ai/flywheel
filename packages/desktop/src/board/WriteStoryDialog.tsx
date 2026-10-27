@@ -35,7 +35,7 @@ import {
 import { StoryKey } from "../components/StoryKey";
 import { notify } from "../lib/notify";
 import { errorText } from "./StoryControls";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/Button";
 import {
   Command,
   CommandEmpty,
@@ -44,8 +44,6 @@ import {
   CommandItem,
   CommandList,
   CommandSeparator,
-} from "@/components/ui/command";
-import {
   Dialog,
   DialogClose,
   DialogContent,
@@ -53,12 +51,19 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { Field, FieldDescription, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+  Input,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  Textarea,
+  cn,
+} from "@highknow/design";
 
 interface CriterionDraft {
   statement: string;

@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { Toaster } from "@/components/ui/sonner";
+import { Toaster } from "@highknow/design";
 import { notify } from "@/lib/notify";
 
 beforeAll(() => {

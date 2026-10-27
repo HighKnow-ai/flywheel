@@ -17,7 +17,7 @@ import {
   CommandItem,
   CommandList,
   CommandShortcut,
-} from "@/components/ui/command";
+} from "@highknow/design";
 import { storyListForProject } from "../adapters/tauri";
 import type { Project } from "../board/useBoardQuery";
 import { StateBadge } from "../components/StateBadge";

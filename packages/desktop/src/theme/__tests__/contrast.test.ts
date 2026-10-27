@@ -1,7 +1,7 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { contrastRatio, relativeLuminance } from "../contrast";
 import { MODES, PALETTES, MOTION, type Mode, type Palette } from "../tokens";
+import { BASE, DESIGN, GLOBALS, declared, text } from "./stylesheets";
 
 /**
  * The runnable assertion that owns every contrast number in the Andon world (docs/design/direction.md
@@ -13,11 +13,10 @@ import { MODES, PALETTES, MOTION, type Mode, type Palette } from "../tokens";
  * are told apart by a ground step, the 1px --border edge and the card shadow together; a region pair is not
  * held to 3:1, but its step may not shrink below what direction.md measured, and in dark (where the ground
  * step is small) the edge is mandatory and asserted as drawn.
+ *
+ * The values are read where they are declared (ADR 0021, amendment of 2026-10-27): the shared roles in the
+ * installed `@highknow/design` `theme.css`, Flywheel's roles in `styles/globals.css`.
  */
-
-const SRC = decodeURIComponent(import.meta.url.replace(/^file:\/\//, "")).replace(/\/theme\/__tests__\/[^/]+$/, "/");
-const read = (rel: string): string => new TextDecoder().decode(readFileSync(SRC + rel));
-const GLOBALS = read("styles/globals.css");
 
 const AA_TEXT = 4.5;
 const NON_TEXT = 3;
@@ -114,15 +113,26 @@ const REGION_FLOORS: Record<Mode, Record<string, [Role, Role, number]>> = {
 
 const cssName = (role: string): string => "--" + role.replace(/([a-z])([A-Z0-9])/g, "$1-$2").toLowerCase();
 
-/** The declarations of one top-level block of globals.css (`:root` or `.dark`), as name -> value. */
-function block(selector: string): Record<string, string> {
-  const start = GLOBALS.search(new RegExp(`^${selector.replace(".", "\\.")} \\{`, "m"));
-  expect(start, `globals.css has a top-level ${selector} block`).toBeGreaterThanOrEqual(0);
-  const body = GLOBALS.slice(start, GLOBALS.indexOf("\n}", start));
-  return Object.fromEntries([...body.matchAll(/^\s*(--[a-z0-9-]+):\s*([^;]+);/gm)].map((m) => [m[1], m[2].trim()]));
-}
+const SCHEMES = { light: declared(":root"), dark: declared(".dark") };
+const BLOCKS: Record<Mode, Record<string, string>> = { light: SCHEMES.light.all, dark: SCHEMES.dark.all };
 
-const BLOCKS: Record<Mode, Record<string, string>> = { light: block(":root"), dark: block(".dark") };
+describe("globals.css adds Flywheel's roles and redeclares none of the design system's", () => {
+  it.each(MODES)("%s", (mode) => {
+    const { base, own } = SCHEMES[mode];
+    expect(Object.keys(base).length, "the package's block was read").toBeGreaterThan(20);
+    expect(Object.keys(own).filter((name) => name in base)).toEqual([]);
+  });
+
+  it("imports the package's theme, base styles and fonts, in that order, after Tailwind", () => {
+    const imports = [...GLOBALS.matchAll(/^@import "([^"]+)";/gm)].map((m) => m[1]);
+    expect(imports).toEqual([
+      "tailwindcss",
+      "@highknow/design/theme.css",
+      "@highknow/design/base.css",
+      "@highknow/design/fonts.css",
+    ]);
+  });
+});
 
 describe("relativeLuminance and contrastRatio", () => {
   it("are the WCAG formula", () => {
@@ -136,7 +146,7 @@ for (const mode of MODES) {
   const p = PALETTES[mode];
   const ratio = (a: Role, b: Role) => contrastRatio(p[a], p[b]);
 
-  describe(`${mode}: globals.css and theme/tokens.ts agree`, () => {
+  describe(`${mode}: the stylesheets and theme/tokens.ts agree`, () => {
     it.each(Object.keys(p) as Role[])("%s", (role) => {
       expect(BLOCKS[mode][cssName(role)], `${mode} ${cssName(role)}`).toBe(p[role]);
     });
@@ -207,28 +217,28 @@ describe("one meaning per colour", () => {
  */
 describe("the mandatory 1px edge", () => {
   const SURFACES: Record<string, { file: string; pattern: RegExp }> = {
-    Card: { file: "components/ui/card.tsx", pattern: /data-slot="card"[\s\S]*?\bborder border-border\b/ },
-    Dialog: { file: "components/ui/dialog.tsx", pattern: /bg-popover[^"]*\bborder border-border\b/ },
-    AlertDialog: { file: "components/ui/alert-dialog.tsx", pattern: /bg-popover[^"]*\bborder border-border\b/ },
-    Popover: { file: "components/ui/popover.tsx", pattern: /bg-popover[^"]*\bborder border-border\b/ },
-    DropdownMenu: { file: "components/ui/dropdown-menu.tsx", pattern: /bg-popover[^"]*\bborder border-border\b/ },
-    Sidebar: { file: "components/ui/sidebar.tsx", pattern: /group-data-\[side=left\]:border-r/ },
+    Card: { file: "dist/components/ui/card.js", pattern: /"data-slot": "card"[\s\S]*?\bborder border-border\b/ },
+    Dialog: { file: "dist/components/ui/dialog.js", pattern: /bg-popover[^"]*\bborder border-border\b/ },
+    AlertDialog: { file: "dist/components/ui/alert-dialog.js", pattern: /bg-popover[^"]*\bborder border-border\b/ },
+    Popover: { file: "dist/components/ui/popover.js", pattern: /bg-popover[^"]*\bborder border-border\b/ },
+    DropdownMenu: { file: "dist/components/ui/dropdown-menu.js", pattern: /bg-popover[^"]*\bborder border-border\b/ },
+    Sidebar: { file: "dist/components/ui/sidebar.js", pattern: /group-data-\[side=left\]:border-r/ },
   };
 
   it.each(Object.keys(SURFACES))("%s draws its --border edge", (name) => {
     const { file, pattern } = SURFACES[name];
-    const source = read(file);
+    const source = text(DESIGN + file);
     expect(source, `${file} draws the edge`).toMatch(pattern);
     expect(source, `${file} never removes the edge in dark`).not.toMatch(/dark:border-(0|none|transparent)\b/);
   });
 
-  it("globals.css paints every element's default border in --border, so a bare `border` is the edge", () => {
-    expect(GLOBALS).toMatch(/\* \{\s*@apply border-border;/);
+  it("the base styles paint every element's default border in --border, so a bare `border` is the edge", () => {
+    expect(BASE).toMatch(/\* \{\s*@apply border-border;/);
   });
 });
 
 describe("motion", () => {
-  it("globals.css declares the one curve (HighKnow's ease-out-quint) and the durations theme/tokens.ts records", () => {
+  it("the stylesheets declare the one curve (HighKnow's ease-out-quint) and the durations theme/tokens.ts records", () => {
     const root = BLOCKS.light;
     expect(root["--ease-out-quint"]).toBe(MOTION.easeOutQuint);
     expect(root["--ease"]).toBe(MOTION.ease);
@@ -251,7 +261,7 @@ describe("motion", () => {
   });
 
   it("under prefers-reduced-motion takes movement away but keeps the durations, so colour and opacity still cross-fade", () => {
-    const reduced = GLOBALS.slice(GLOBALS.indexOf("@media (prefers-reduced-motion: reduce)"));
+    const reduced = BASE.slice(BASE.indexOf("@media (prefers-reduced-motion: reduce)"));
     expect(reduced).not.toMatch(/--duration-state: 0s;/);
     expect(reduced).not.toMatch(/transition-duration: 0s !important;/);
     expect(reduced).toMatch(/--tw-enter-translate-y: 0 !important;/);

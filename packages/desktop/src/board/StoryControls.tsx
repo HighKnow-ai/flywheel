@@ -45,24 +45,35 @@ import { ReadError } from "../components/ReadError";
 import { RelativeTime } from "../components/RelativeTime";
 import { StateBadge } from "../components/StateBadge";
 import { useUiStore } from "../state/uiStore";
-import { Button } from "@/components/ui/button";
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
-import { Input } from "@/components/ui/input";
-import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemTitle } from "@/components/ui/item";
-import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Button } from "@/components/Button";
 import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+  Input,
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemTitle,
+  Label,
+  Skeleton,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+  cn,
+  useLoadingPhase,
+} from "@highknow/design";
 import { formatDuration, formatSessionName, formatTokens } from "@/lib/format";
 import { notify } from "@/lib/notify";
-import { cn } from "@/lib/utils";
 
 /** The words for each Story state (GLOSSARY.md "Story state"). */
 export const STORY_STATE_WORDS: Record<string, string> = {
@@ -547,9 +558,12 @@ export function SessionList({ projectId, story }: { projectId: string; story: St
     queryFn: () => sessionSummariesForStory(story.id),
   });
   const now = Date.now();
+  // The loading rule (DESIGN.md § Feedback): nothing for 150 ms, then the skeleton, held at least 400 ms.
+  const loadingPhase = useLoadingPhase(sessionsQuery.isPending);
 
+  if (loadingPhase === "skeleton") return <ListSkeleton rows={2} label="Loading the sessions" />;
   if (sessionsQuery.isError) return <ReadError title="Couldn't load the sessions" query={sessionsQuery} />;
-  if (sessionsQuery.isPending) return <ListSkeleton rows={2} label="Loading the sessions" />;
+  if (sessionsQuery.isPending) return null;
   const sessions = sessionsQuery.data;
   if (sessions.length === 0) {
     return (

@@ -8,8 +8,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
+} from "@highknow/design";
+import { Button } from "@/components/Button";
 
 function errorLine(error: unknown): string {
   if (error instanceof Error) return error.message;

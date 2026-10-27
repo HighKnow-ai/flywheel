@@ -31,8 +31,8 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Button } from "@/components/Button";
+import { Tooltip, TooltipContent, TooltipTrigger, cn } from "@highknow/design";
 import { Activity, ChevronRight, CirclePause, Hand, LoaderCircle } from "lucide-react";
 import { storyStopped, type FleetRowDto, type ShapingFleetRowDto, type WaitingRoundDto } from "../adapters/tauri";
 import { endingWords } from "../board/StoryControls";
@@ -48,7 +48,6 @@ import {
 import { formatAge } from "../legend/runStatus";
 import { prefersReducedMotion } from "../session/FeedRow";
 import { useUiStore } from "../state/uiStore";
-import { cn } from "@/lib/utils";
 
 export type LampTone = "waiting" | "running" | "stopped";
 

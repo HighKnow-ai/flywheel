@@ -15,15 +15,11 @@
  */
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode, type Ref } from "react";
 import { TruncateTip } from "@/components/TruncateTip";
-import { Label } from "@/components/ui/label";
+import { Label, ButtonGroup, Input, Kbd, cn } from "@highknow/design";
 import { Ban, Check, CircleDashed, PenLine, X } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { ButtonGroup } from "@/components/ui/button-group";
-import { Input } from "@/components/ui/input";
-import { Kbd } from "@/components/ui/kbd";
+import { Badge } from "@/components/Badge";
+import { Button } from "@/components/Button";
 import { notify } from "@/lib/notify";
-import { cn } from "@/lib/utils";
 
 /** The longest rejection reason `proposal_reject` accepts. */
 export const MAX_REASON_LEN = 500;

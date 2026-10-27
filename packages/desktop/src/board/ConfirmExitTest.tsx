@@ -37,12 +37,12 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "../components/ui/alert-dialog";
-import { Button } from "../components/ui/button";
+  cn,
+} from "@highknow/design";
+import { Button } from "@/components/Button";
 import { useRoadmapRound } from "./RoadmapRound";
 import { errorText } from "./StoryControls";
 import { notify } from "@/lib/notify";
-import { cn } from "@/lib/utils";
 
 /** An Epic's exit test can be confirmed once shaping is closed and every Story is Merged or Dropped. */
 export function epicExitTestConfirmable(state: string, stories: Pick<StoryDto, "state">[]): boolean {

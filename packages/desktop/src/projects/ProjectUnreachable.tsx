@@ -18,9 +18,18 @@ import { PageHeader, SurfaceBody } from "../shell/PageHeader";
 import { useUiStore } from "../state/uiStore";
 import { ActionFailure } from "./RegisterProjectFlow";
 import { ConfirmDestructive } from "@/components/ConfirmDestructive";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@highknow/design";
+import { Button } from "@/components/Button";
 
 /**
  * `project_relocate` (01-11-PLAN.md Task 2) — co-located here; the query key matches

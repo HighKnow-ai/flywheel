@@ -1,5 +1,5 @@
 import type * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn } from "@highknow/design";
 
 /**
  * A record's key (`FLY-12`, an Epic's `E-3`), drawn the same everywhere (DESIGN.md § Components): the code

@@ -14,7 +14,7 @@
  * the agent posts a Round and the developer answers it.
  */
 import { useId, useState } from "react";
-import { Label } from "@/components/ui/label";
+import { Label, Textarea, HoverCard, HoverCardContent, HoverCardTrigger, cn } from "@highknow/design";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookA, Check, Layers, PenLine, ScrollText, X } from "lucide-react";
 import {
@@ -35,11 +35,8 @@ import { GhostCard, specChangeOf } from "./GhostCard";
 import { RoundDock } from "./RoundDock";
 import { StageBar } from "./StageBar";
 import { StoryColumns } from "./StoryColumns";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
-import { cn } from "@/lib/utils";
+import { Button } from "@/components/Button";
+import { Badge } from "@/components/Badge";
 import { useSettle } from "./ProposalParts";
 
 /** The read the view and the board's Epic card share, keyed under the project. */

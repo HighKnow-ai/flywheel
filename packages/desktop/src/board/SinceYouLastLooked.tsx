@@ -34,8 +34,7 @@ import { formatAge } from "../legend/runStatus";
 import { errorText } from "./StoryControls";
 import { stateWordOf } from "../components/StateBadge";
 import { StoryKey } from "../components/StoryKey";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../components/ui/collapsible";
-import { cn } from "@/lib/utils";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger, cn } from "@highknow/design";
 
 const KIND_ICON: Record<string, LucideIcon> = {
   "story.state_changed": ArrowRight,

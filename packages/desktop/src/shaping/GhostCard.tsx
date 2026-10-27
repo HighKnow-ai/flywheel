@@ -15,11 +15,9 @@
  * card keeps what was turned down and why, without competing with the live field.
  */
 import { useId, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
-import { Label } from "@/components/ui/label";
+import { Label, Input, Textarea } from "@highknow/design";
 import { useQueryClient } from "@tanstack/react-query";
 import { proposalAccept, proposalAmend, proposalReject, type ProposalDto } from "../adapters/tauri";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
   AmendActions,
   DecisionGroup,

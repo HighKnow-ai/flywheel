@@ -24,7 +24,7 @@
  */
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type RefObject } from "react";
 import { TruncateTip } from "@/components/TruncateTip";
-import { Label } from "@/components/ui/label";
+import { Label, Input, ScrollArea, ScrollBar, Textarea, cn } from "@highknow/design";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowDown,
@@ -39,11 +39,7 @@ import {
 import { proposalAccept, proposalAmend, proposalReject, type ProposalDto, type StoryDto } from "../adapters/tauri";
 import { CriteriaList, useCriteria } from "../board/CriteriaList";
 import { StateBadge } from "../components/StateBadge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
-import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
+import { Button } from "@/components/Button";
 import {
   AmendActions,
   DecisionGroup,

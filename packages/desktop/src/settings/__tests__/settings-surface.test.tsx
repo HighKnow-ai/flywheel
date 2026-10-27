@@ -355,12 +355,14 @@ describe("SettingsSurface — credential path (Task 1)", () => {
     expect(screen.queryByText("Per-project credentials")).not.toBeInTheDocument();
   });
 
-  it("renders skeleton rows under the section heading while the settings read is in flight", () => {
+  it("renders skeleton rows under the section heading once the settings read has run past 150 ms", async () => {
     getSettingsMock.mockReturnValue(new Promise(() => {})); // never resolves
     renderSettings();
 
     expect(screen.getByText("Credentials")).toBeInTheDocument();
-    expect(screen.getByTestId("settings-skeleton")).toBeInTheDocument();
+    // The design system's loading rule: a read that lands inside 150 ms never flashes a skeleton.
+    expect(screen.queryByTestId("settings-skeleton")).not.toBeInTheDocument();
+    expect(await screen.findByTestId("settings-skeleton")).toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "Local Claude Code credentials" })).not.toBeInTheDocument();
   });
 
@@ -525,7 +527,7 @@ describe("SettingsSurface — permission rules (Task 2)", () => {
     renderSettings();
 
     await screen.findByText("Permission rules");
-    expect(screen.getByTestId("permission-rules-skeleton")).toBeInTheDocument();
+    expect(await screen.findByTestId("permission-rules-skeleton")).toBeInTheDocument();
     expect(screen.queryByText(EMPTY_DESCRIPTION)).not.toBeInTheDocument();
   });
 

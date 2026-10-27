@@ -1,5 +1,5 @@
 import type { ReactElement, ReactNode } from "react";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@highknow/design";
 
 /**
  * A short explanation or an exact value in the one Tooltip, in place of a `title=` attribute (F58 in the M4
