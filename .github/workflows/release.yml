@@ -19,6 +19,8 @@ permissions:
 jobs:
   release:
     runs-on: macos-15
+    # Bounded: observed 8.9 min (one run).
+    timeout-minutes: 25
     steps:
       # fetch-depth 0: the release-notes step reads history between tags, and the gate below
       # reads main.
