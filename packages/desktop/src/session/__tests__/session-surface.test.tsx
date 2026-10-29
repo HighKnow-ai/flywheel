@@ -17,6 +17,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SessionSurface } from "../SessionSurface";
 import { sessionFeedQueryKey } from "../../board/useBoardQuery";
 import { resetUiState, useUiStore } from "../../state/uiStore";
+import { at } from "../../test/present";
 
 /** Issue #205: Stop confirms in ConfirmDestructive. Opens it and returns its action button. */
 async function openStopConfirm(): Promise<HTMLElement> {
@@ -898,7 +899,7 @@ describe("SessionSurface raw view, status strip, and run-status badge (plan 02-0
 
     await screen.findByRole("log", { name: "Raw session log" });
     expect(screen.queryByText("Event number 0")).not.toBeInTheDocument();
-    await screen.findByText(rawLines[0]);
+    await screen.findByText(at(rawLines, 0));
 
     screen.getByRole("radio", { name: "Structured" }).click();
 
@@ -1313,7 +1314,9 @@ describe("SessionSurface status from the stored session row (issue #110)", () =>
     /** The header's shape: its two lines and what each holds, by slot, never by the words inside. */
     function headerShape() {
       const header = screen.getByTestId("session-header");
-      const [titleLine, metaLine] = Array.from(header.children);
+      const children = Array.from(header.children);
+      const titleLine = at(children, 0);
+      const metaLine = at(children, 1);
       return {
         lines: header.children.length,
         badge: titleLine.querySelector('[data-slot="badge"]') !== null,

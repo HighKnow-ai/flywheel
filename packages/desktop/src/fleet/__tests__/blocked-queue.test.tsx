@@ -11,6 +11,7 @@ import type { BlockedQueueEntryDto, WaitingRoundDto } from "../../adapters/tauri
 import { resetUiState, useUiStore } from "../../state/uiStore";
 import { PermissionRequestCard } from "../../session/PermissionRequestCard";
 import { BlockedQueue } from "../BlockedQueue";
+import { at } from "../../test/present";
 
 const answerMock = vi.fn();
 
@@ -97,11 +98,11 @@ describe("BlockedQueue keyboard ownership", () => {
     const owners = document.querySelectorAll('[data-keyboard-owner="true"]');
     expect(owners).toHaveLength(1);
     expect(owners[0]).toHaveAttribute("data-run-id", "run-1");
-    const hints = document.querySelectorAll('[data-field="owner"]');
+    const hints = [...document.querySelectorAll('[data-field="owner"]')];
     expect(hints).toHaveLength(1);
     expect(hints[0]).toHaveTextContent("Keys A and D answer this one");
     // The keys are drawn as keys (#208), not as words in a sentence.
-    expect(Array.from(hints[0].querySelectorAll("kbd")).map((k) => k.textContent)).toEqual(["A", "D"]);
+    expect(Array.from(at(hints, 0).querySelectorAll("kbd")).map((k) => k.textContent)).toEqual(["A", "D"]);
   });
 
   it("draws Open session at the roster's in-row size (#208)", () => {
@@ -150,15 +151,15 @@ describe("BlockedQueue contents", () => {
 
   it("names the project, subject and wait time of each waiting request", () => {
     renderQueue([entry(1), entry(2)]);
-    const rows = screen.getAllByRole("listitem");
-    expect(within(rows[0]).getByText("Project 1")).toBeInTheDocument();
-    expect(rows[0].querySelector('[data-field="subject"]')).toHaveTextContent("P1-1 Task 1");
-    expect(rows[0].querySelector('[data-field="age"]')).toHaveTextContent("10m");
+    const first = at(screen.getAllByRole("listitem"), 0);
+    expect(within(first).getByText("Project 1")).toBeInTheDocument();
+    expect(first.querySelector('[data-field="subject"]')).toHaveTextContent("P1-1 Task 1");
+    expect(first.querySelector('[data-field="age"]')).toHaveTextContent("10m");
   });
 
   it("an answer goes through the one existing answer wrapper and nothing else", () => {
     renderQueue([entry(1), entry(2)]);
-    const second = screen.getAllByRole("group", { name: "Bash wants to:" })[1];
+    const second = at(screen.getAllByRole("group", { name: "Bash wants to:" }), 1);
     fireEvent.click(within(second).getByRole("button", { name: "Allow once" }));
     expect(answerMock).toHaveBeenCalledTimes(1);
     expect(answerMock).toHaveBeenCalledWith("req-2", "allow");

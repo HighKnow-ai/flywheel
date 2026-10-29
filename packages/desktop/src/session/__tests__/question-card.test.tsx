@@ -13,6 +13,7 @@ import { FeedRow } from "../FeedRow";
 import { buildFeedRows } from "../feedRows";
 import { PermissionRequestCard } from "../PermissionRequestCard";
 import { openQuestionRows } from "../SessionSurface";
+import { at } from "../../test/present";
 
 const answerPermissionMock = vi.fn();
 const answerQuestionMock = vi.fn();
@@ -116,7 +117,7 @@ describe("the question card", () => {
     fireEvent.click(screen.getByLabelText(/Linux/));
     fireEvent.click(screen.getByRole("button", { name: "Send answer" }));
     await waitFor(() => expect(onAnswerQuestion).toHaveBeenCalledTimes(1));
-    expect(onAnswerQuestion.mock.calls[0][1]).toEqual({
+    expect(at(onAnswerQuestion.mock.calls, 0)[1]).toEqual({
       "Which colour should the button be?": ["Teal"],
       "Which platforms should we ship to?": ["Linux"],
     });
@@ -148,7 +149,7 @@ describe("the question card", () => {
 
     const onAnswerQuestion = vi.fn().mockResolvedValue(undefined);
     const { container } = render(
-      <FeedRow row={rows[0]} expanded={false} onToggleExpand={() => {}} onAnswerQuestion={onAnswerQuestion} />,
+      <FeedRow row={at(rows, 0)} expanded={false} onToggleExpand={() => {}} onAnswerQuestion={onAnswerQuestion} />,
     );
     expectNoPermissionControls(container);
     expect(screen.getByText("The session waits until you answer")).toBeTruthy();

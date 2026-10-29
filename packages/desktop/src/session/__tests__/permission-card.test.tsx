@@ -590,7 +590,7 @@ describe("Always allow <pattern> in this project (issue #48)", () => {
     render(
       <PermissionRequestCard
         variant="feed"
-        requests={[npmTestRequest({ suggestedRule: undefined, toolName: "WebFetch" })]}
+        requests={[npmTestRequest({ suggestedRule: null, toolName: "WebFetch" })]}
         onAnswer={vi.fn()}
       />,
     );

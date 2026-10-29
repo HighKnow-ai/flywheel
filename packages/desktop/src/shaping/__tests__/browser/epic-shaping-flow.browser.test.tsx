@@ -186,7 +186,7 @@ describe("shaping an Epic from Shape to Ready in WebKit", () => {
     for (const [key, check] of [
       ["FLY-13", "npm test -- tool-verbs"],
       ["FLY-14", "npm test -- feed-row"],
-    ]) {
+    ] as const) {
       const column = screen.getByRole("listitem", { name: new RegExp(`^\\d\\. ${key} `) });
       expect(within(column).getByText("Ready")).toBeTruthy();
       expect(within(column).getByText(check)).toBeTruthy();

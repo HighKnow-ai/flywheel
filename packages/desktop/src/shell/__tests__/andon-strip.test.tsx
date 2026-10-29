@@ -354,7 +354,7 @@ describe("AndonStrip", () => {
     renderStrip();
     // jsdom has no layout: every lamp is shown, so check the rule on the pure order instead.
     await screen.findByRole("button", { name: /Open Epic FLY-8/ });
-    expect(stripLamps(many, [ROUND])[0].kind).toBe("round");
+    expect(stripLamps(many, [ROUND])[0]?.kind).toBe("round");
   });
 
   it("keeps its height and says so when no agent is running", async () => {

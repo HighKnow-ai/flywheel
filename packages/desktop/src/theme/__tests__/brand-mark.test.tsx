@@ -15,6 +15,7 @@ import { SidebarProvider } from "@highknow/design";
 import { FirstRun } from "../../board/FirstRun";
 import { ProjectRail } from "../../projects/ProjectRail";
 import { contrastRatio } from "../contrast";
+import { present } from "../../test/present";
 
 vi.mock("../../adapters/tauri", () => ({
   invokeCommand: () => Promise.resolve(undefined),
@@ -67,10 +68,9 @@ function hslToHex(h: number, s: number, l: number): string {
 
 describe("assets/logo.svg is the brand tile with the white glyph", () => {
   it("fills its tile with the pinned brand #3c64dd", () => {
-    const fill = LOGO.match(/<rect[^>]*fill="hsl\((\d+),\s*(\d+)%,\s*(\d+)%\)"/);
-    expect(fill, "the tile's fill").not.toBeNull();
-    const [, h, s, l] = fill!.map(Number);
-    expect(hslToHex(h, s / 100, l / 100)).toBe("#3c64dd");
+    const fill = present(LOGO.match(/<rect[^>]*fill="hsl\((\d+),\s*(\d+)%,\s*(\d+)%\)"/), "the tile's fill");
+    const channel = (group: number) => Number(present(fill[group], `the fill's group ${group}`));
+    expect(hslToHex(channel(1), channel(2) / 100, channel(3) / 100)).toBe("#3c64dd");
   });
 
   it("draws the glyph in white, readable on the tile", () => {

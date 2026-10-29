@@ -65,10 +65,12 @@ function transitionsOf(element: Element): Map<string, CSSTransition> {
 function glows(boxShadow: string): boolean {
   if (boxShadow === "none") return false;
   // WebKit writes a colour as `rgba(r, g, b, a)` or, for a color-mix(), as `oklab(l a b / alpha)`.
-  return [...boxShadow.matchAll(/(rgba?|oklab|oklch|color|lab|lch)\(([^)]*)\)/g)].some(([, fn, args]) => {
-    if (args.includes("/")) return Number(args.split("/")[1].trim()) > 0;
+  // Both groups sit outside any optional part, so every match sets them.
+  return [...boxShadow.matchAll(/(rgba?|oklab|oklch|color|lab|lch)\(([^)]*)\)/g)].some(([, fn, args = ""]) => {
+    const [, alpha] = args.split("/");
+    if (alpha !== undefined) return Number(alpha.trim()) > 0;
     const parts = args.split(",");
-    return !(fn === "rgba" && parts.length === 4 && Number(parts[3].trim()) === 0);
+    return !(fn === "rgba" && parts.length === 4 && Number(parts[3]?.trim()) === 0);
   });
 }
 

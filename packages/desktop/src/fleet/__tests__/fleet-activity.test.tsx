@@ -19,6 +19,7 @@ import { buildFeedRows } from "../../session/SessionSurface";
 import { feedRowText, toolCallLabel } from "../../session/FeedRow";
 import { FleetSurface, ACTIVITY_MAX_CHARS, activityLine } from "../FleetSurface";
 import { FLEET_ACTIVITY_THROTTLE_MS, blockedQueueQueryKey, fleetQueryKey } from "../useFleet";
+import { at } from "../../test/present";
 
 const fleetListMock = vi.fn<() => Promise<FleetListDto>>();
 const subscribeAgentEventMock = vi.fn();
@@ -211,14 +212,14 @@ describe("the fleet and the session feed use the same words", () => {
       { type: "unknown", raw: "garbled", line: 7 },
     ];
     for (const event of fixtures) {
-      const fromFeed = feedRowText(buildFeedRows([event])[0]);
+      const fromFeed = feedRowText(at(buildFeedRows([event]), 0));
       expect(activityLine(activity(line(event)))).toBe(fromFeed);
     }
   });
 
   it("narration is the feed's text cut at its first clause, nothing reworded", () => {
     const event = { type: "assistant_text", seq: 1, text: "Checking the schema first. Then the query." };
-    const full = feedRowText(buildFeedRows([event])[0]);
+    const full = feedRowText(at(buildFeedRows([event]), 0));
     expect(full).toBe("Checking the schema first. Then the query.");
     expect(activityLine(activity(line(event)))).toBe("Checking the schema first.");
   });

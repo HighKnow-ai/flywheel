@@ -56,10 +56,9 @@ function problemsInView(): string[] {
     seen.add(row.key);
   }
   const byTop = [...mounted].sort((a, b) => a.rect.top - b.rect.top);
-  for (let i = 1; i < byTop.length; i += 1) {
+  for (const [i, below] of byTop.entries()) {
     const above = byTop[i - 1];
-    const below = byTop[i];
-    if (below.rect.top < above.rect.bottom - 1) {
+    if (above && below.rect.top < above.rect.bottom - 1) {
       problems.push(
         `${below.key} (top ${below.rect.top.toFixed(1)}) overlaps ${above.key} (bottom ${above.rect.bottom.toFixed(1)})`,
       );

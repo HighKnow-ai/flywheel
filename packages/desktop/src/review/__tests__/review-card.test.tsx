@@ -12,6 +12,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReviewCard, OpenReviewControl } from "../ReviewCard";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 import type { AdrDecisionDto, DecisionChangeDto, ReviewCheckDto, StoryDto, StoryReviewDto } from "../../adapters/tauri";
+import { at } from "../../test/present";
 
 const storyReview = vi.fn();
 const storyMerge = vi.fn();
@@ -355,11 +356,11 @@ describe("the Decisions section", () => {
 /** Issue #164: the flags, and Not an ADR and Wrong decision beside Keep. */
 const FLAGGED: DecisionChangeDto[] = [
   {
-    ...DECISIONS[0],
+    ...at(DECISIONS, 0),
     flags: [{ kind: "wording_or_supersede", number: null, takenBy: null, baseBranch: null, superseded: null }],
   },
   {
-    ...DECISIONS[1],
+    ...at(DECISIONS, 1),
     flags: [
       {
         kind: "renumber",
@@ -377,7 +378,7 @@ const FLAGGED: DecisionChangeDto[] = [
       },
     ],
   },
-  DECISIONS[2],
+  at(DECISIONS, 2),
 ];
 
 function withDecision(change: DecisionChangeDto, decision: AdrDecisionDto): DecisionChangeDto {
@@ -457,7 +458,7 @@ describe("ADR flags and decisions", () => {
     storyReview.mockResolvedValue(
       review({
         criteria: review().criteria.map((c) => ({ ...c, accepted: true })),
-        decisions: [withDecision(FLAGGED[1], { kind: "not_an_adr", whatIsWrong: null, shouldBe: null })],
+        decisions: [withDecision(at(FLAGGED, 1), { kind: "not_an_adr", whatIsWrong: null, shouldBe: null })],
         adrReviewPoints: points,
       }),
     );
@@ -486,8 +487,8 @@ describe("ADR flags and decisions", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Request changes on FLY-7" }));
     const also = screen.getByRole("list", { name: "Also sent: 2 ADR review points" });
-    expect(within(also).getByText(points[0])).toBeInTheDocument();
-    expect(within(also).getByText(points[1])).toBeInTheDocument();
+    expect(within(also).getByText(at(points, 0))).toBeInTheDocument();
+    expect(within(also).getByText(at(points, 1))).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Send FLY-7 back to Running" }));
     await waitFor(() => expect(storyRequestChanges).toHaveBeenCalledWith("s1", ""));
   });
@@ -496,7 +497,7 @@ describe("ADR flags and decisions", () => {
     storyReview.mockResolvedValue(
       review({
         decisions: [
-          withDecision(DECISIONS[1], {
+          withDecision(at(DECISIONS, 1), {
             kind: "wrong_decision",
             whatIsWrong: "It keeps the lock",
             shouldBe: "Release it first",
@@ -682,7 +683,7 @@ describe("the review card's order, objections, files and Re-run Checks (issue #1
     expect(within(failing).getByText("parses_empty tests a case the spec rules out.")).toBeInTheDocument();
 
     const criteria = screen.getByRole("list", { name: "FLY-7 criteria to accept" });
-    const first = within(criteria).getAllByRole("listitem")[0];
+    const first = at(within(criteria).getAllByRole("listitem"), 0);
     expect(within(first).getByText("It runs only the unit tests.")).toBeInTheDocument();
     expect(within(first).getByText("cargo test -p config")).toBeInTheDocument();
     // A failing Check's objection is shown once, in the failing panel, not again on its criterion.

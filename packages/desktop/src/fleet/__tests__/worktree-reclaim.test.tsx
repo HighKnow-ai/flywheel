@@ -16,6 +16,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReclaimOutcomeDto, WorktreeInventoryRowDto } from "../../adapters/tauri";
 import { resetUiState } from "../../state/uiStore";
 import { RECLAIM_REASON_WORDS, WorktreeInventory } from "../WorktreeInventory";
+import { at } from "../../test/present";
 
 const inventoryMock = vi.fn<() => Promise<WorktreeInventoryRowDto[]>>();
 const notifyMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), dismiss: vi.fn() }));
@@ -115,7 +116,7 @@ describe("selection", () => {
 
   it("says how many selected rows were never measured instead of counting them as zero", async () => {
     inventoryMock.mockResolvedValue([
-      ROWS[0],
+      at(ROWS, 0),
       row({ storyId: "n", storyKey: "ALP-9", sizeBytes: null, sizeMeasuredAt: null }),
     ]);
     renderInventory();
@@ -173,7 +174,7 @@ describe("confirmation", () => {
     expect(reclaimMock).not.toHaveBeenCalled();
     fireEvent.click(within(dialog).getByRole("button", { name: "Reclaim 2 worktrees" }));
     await waitFor(() => expect(reclaimMock).toHaveBeenCalledTimes(1));
-    expect(reclaimMock.mock.calls[0][0]).toEqual(["a", "b"]);
+    expect(at(reclaimMock.mock.calls, 0)[0]).toEqual(["a", "b"]);
   });
 
   it("calls nothing when the confirmation is cancelled", async () => {

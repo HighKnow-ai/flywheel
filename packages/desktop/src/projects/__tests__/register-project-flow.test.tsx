@@ -12,6 +12,7 @@ vi.mock("@/lib/notify", () => ({
 }));
 
 import { useRegistrationErrorToast } from "../RegisterProjectFlow";
+import { at } from "../../test/present";
 
 describe("useRegistrationErrorToast", () => {
   beforeEach(() => notifyError.mockReset());
@@ -19,7 +20,7 @@ describe("useRegistrationErrorToast", () => {
   it("raises one error toast for a failure", () => {
     renderHook(() => useRegistrationErrorToast(true, new Error("disk full")));
     expect(notifyError).toHaveBeenCalledTimes(1);
-    expect(notifyError.mock.calls[0][0]).toMatch(/register this project/);
+    expect(at(notifyError.mock.calls, 0)[0]).toMatch(/register this project/);
   });
 
   it("raises nothing while nothing has failed", () => {

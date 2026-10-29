@@ -21,6 +21,7 @@ import { useTriageDrawer } from "../../../proposals/triageStore";
 import App from "../../../App";
 import { answer, installFixtureBackend, setReviewInFixture } from "../../../test/critique/m2-fixture";
 import { recordFlicker, type FlickerReport } from "../../../test/flicker-recorder";
+import { at } from "../../../test/present";
 
 type Args = Record<string, unknown> | undefined;
 type Override = (cmd: string, args: Args, base: unknown) => unknown;
@@ -93,7 +94,7 @@ async function renderBoard() {
 }
 
 async function press(name: string | RegExp) {
-  const button = (await screen.findAllByRole("button", { name }))[0];
+  const button = at(await screen.findAllByRole("button", { name }), 0);
   button.scrollIntoView({ block: "center" });
   await userEvent.click(button);
 }
@@ -137,7 +138,7 @@ async function measure(target: HTMLElement, run: () => Promise<void>): Promise<F
 
 /** A clock ticking ("10s ago" to "11s ago") is time passing, not the refetch: only digits differ. */
 const notAClock = (change: string) => {
-  const [head, after] = change.split(" -> ");
+  const [head = "", after] = change.split(" -> "); // `split` always yields a first piece
   const before = head.slice(head.indexOf("] ") + 2);
   return before.replace(/\d+/g, "#") !== after?.replace(/\d+/g, "#");
 };
@@ -293,7 +294,7 @@ describe("no-flicker: a live session's refetches update in place", () => {
   it("the session feed appends the new lines and keeps the old rows", async () => {
     await renderBoard();
     await press(/Open FLY-4 Make clicking/);
-    const old = (await screen.findAllByText(/npm --prefix packages\/desktop test -- keyboard/))[0];
+    const old = at(await screen.findAllByText(/npm --prefix packages\/desktop test -- keyboard/), 0);
     await quiet();
     const push = liveSession("ses-4b");
     const report = await measure(root(), () => liveBurst(push));
@@ -428,7 +429,7 @@ describe("no-flicker: a refetch with changed data updates in place", () => {
     await renderBoard();
     await press("Open review of FLY-3");
     const card = await screen.findByRole("region", { name: "Review" });
-    const diff = (await within(card).findAllByRole("group", { name: /^Diff of / }))[0];
+    const diff = at(await within(card).findAllByRole("group", { name: /^Diff of / }), 0);
     await quiet();
     let reading = 0;
     let running = true;

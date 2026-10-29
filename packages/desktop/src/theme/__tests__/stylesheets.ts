@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect } from "vitest";
+import { present } from "../../test/present";
 
 /**
  * The stylesheets the theme tests read, as text. Flywheel's colours live in two files since it took the
@@ -28,7 +29,10 @@ export function block(css: string, selector: string, file: string): Record<strin
   expect(start, `${file} has a top-level ${selector} block`).toBeGreaterThanOrEqual(0);
   const body = css.slice(start, css.indexOf("\n}", start));
   return Object.fromEntries(
-    [...body.matchAll(/^\s*(--[a-z0-9-]+):\s*([^;]+);/gm)].map((m) => [m[1], m[2].replace(/\s+/g, " ").trim()]),
+    [...body.matchAll(/^\s*(--[a-z0-9-]+):\s*([^;]+);/gm)].map(([, name, value]) => [
+      present(name, "a custom property's name"),
+      present(value, `${name}'s value`).replace(/\s+/g, " ").trim(),
+    ]),
   );
 }
 

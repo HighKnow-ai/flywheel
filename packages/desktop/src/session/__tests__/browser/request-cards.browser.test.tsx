@@ -13,6 +13,7 @@ import { page, userEvent } from "vitest/browser";
 import "../../../styles/globals.css";
 import { applyColorScheme } from "../../../theme/colorScheme";
 import { PermissionRequestCard, type PendingPermissionRequest } from "../../PermissionRequestCard";
+import { at } from "../../../test/present";
 
 // The app sets `.dark` on <html> from the system appearance; do the same, so the dark config measures the dark world.
 applyColorScheme();
@@ -120,8 +121,10 @@ describe(`the request cards in an engine (${SCHEME})`, () => {
         const denies = cards.map((card) => within(card).getByRole("button", { name: "Deny" }));
         const allows = cards.map((card) => within(card).getByRole("button", { name: "Allow once" }));
         // Same slot: the first of the group, at the same x on both cards, Allow once straight after it.
-        expect(Math.abs(rect(denies[0]).left - rect(denies[1]).left)).toBeLessThan(1);
-        for (let i = 0; i < 2; i += 1) expect(rect(denies[i]).right).toBeLessThanOrEqual(rect(allows[i]).left + 1);
+        expect(Math.abs(rect(at(denies, 0)).left - rect(at(denies, 1)).left)).toBeLessThan(1);
+        for (let i = 0; i < 2; i += 1) {
+          expect(rect(at(denies, i)).right).toBeLessThanOrEqual(rect(at(allows, i)).left + 1);
+        }
 
         for (const card of within(scope).getAllByRole("group", { name: /wants to:|has a question/ })) {
           const box = rect(card);
@@ -135,8 +138,8 @@ describe(`the request cards in an engine (${SCHEME})`, () => {
       // The question card lays its two questions side by side only when the card itself is wide enough.
       for (const region of ["column", "feed"]) {
         const form = within(screen.getByTestId(region)).getByRole("form", { name: "Answer the agent's question" });
-        const [first, second] = form.querySelectorAll("fieldset");
-        const sideBySide = Math.abs(rect(first).top - rect(second).top) < 1;
+        const fieldsets = [...form.querySelectorAll("fieldset")];
+        const sideBySide = Math.abs(rect(at(fieldsets, 0)).top - rect(at(fieldsets, 1)).top) < 1;
         expect(sideBySide, `${region} at ${width}px`).toBe(rect(form).width >= 672);
       }
       expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth);
@@ -149,8 +152,8 @@ describe(`the request cards in an engine (${SCHEME})`, () => {
     const answer = () => new Promise<void>(() => {});
     render(
       <div className="flex w-[400px] flex-col gap-3 bg-background p-6">
-        <PermissionRequestCard variant="compact" requests={[REQUESTS[0]]} onAnswer={answer} />
-        <PermissionRequestCard variant="compact" requests={[REQUESTS[1]]} onAnswer={answer} />
+        <PermissionRequestCard variant="compact" requests={[at(REQUESTS, 0)]} onAnswer={answer} />
+        <PermissionRequestCard variant="compact" requests={[at(REQUESTS, 1)]} onAnswer={answer} />
       </div>,
     );
     await settle();

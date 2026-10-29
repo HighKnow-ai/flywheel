@@ -12,6 +12,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StoryBoard } from "../StoryBoard";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 import type { EpicDto, MilestoneDto, RosterRowDto, StoryDto } from "../../adapters/tauri";
+import { at } from "../../test/present";
 
 const EPICS = 20;
 const STORIES_PER_EPIC = 50;
@@ -84,11 +85,11 @@ const epics: EpicDto[] = Array.from({ length: EPICS }, (_, i) => ({
 const stories: StoryDto[] = Array.from({ length: STORIES }, (_, i) => ({
   id: `s${pad(i + 1, 4)}`,
   projectId: "p1",
-  epicId: epics[Math.floor(i / STORIES_PER_EPIC)].id,
+  epicId: at(epics, Math.floor(i / STORIES_PER_EPIC)).id,
   key: `FLY-${i + 1}`,
   title: `Story ${i + 1}`,
   description: null,
-  state: (["ready", "merged", "running", "running", "running", "in_review"] as const)[i % 6],
+  state: at(["ready", "merged", "running", "running", "running", "in_review"] as const, i % 6),
   runsAfterStoryId: null,
   rank: pad(i, 4),
 }));

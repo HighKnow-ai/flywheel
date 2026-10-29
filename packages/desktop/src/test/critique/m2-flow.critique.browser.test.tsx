@@ -38,6 +38,7 @@ import {
   setTriageDuplicateInFixture,
   shapeMilestoneInFixture,
 } from "./m2-fixture";
+import { at } from "../present";
 import { capture, CRITIQUE_RUN, settle, writeDefectReport } from "./capture";
 
 async function shot(name: string) {
@@ -586,16 +587,17 @@ async function storyColumnsInView() {
 // The first match: since Needs you (#156) a Story's controls show both in its card and on its roster row,
 // and either is the same control.
 async function click(label: string | RegExp) {
-  await userEvent.click((await screen.findAllByRole("button", { name: label }))[0]);
+  await userEvent.click(at(await screen.findAllByRole("button", { name: label }), 0));
 }
 
 async function openStory(key: string, title: string | RegExp) {
   await userEvent.click(
-    (
+    at(
       await screen.findAllByRole("button", {
         name: new RegExp(`^Open Story ${key} ${typeof title === "string" ? title : title.source}$`),
-      })
-    )[0],
+      }),
+      0,
+    ),
   );
 }
 
@@ -1360,7 +1362,7 @@ describe.runIf(CRITIQUE_RUN)("M2 to M4 flow screens", () => {
     await boardReady();
     await click("Triage 4 Proposals");
     const drawer = await screen.findByRole("dialog", { name: /Triage Proposals/ });
-    const list = (await within(drawer).findAllByRole("list", { name: "Proposed Acceptance criteria" }))[0];
+    const list = at(await within(drawer).findAllByRole("list", { name: "Proposed Acceptance criteria" }), 0);
     list.scrollIntoView({ block: "center" });
     await shot("112-triage-drawer-new-story-criteria");
   });
@@ -1642,7 +1644,7 @@ describe.runIf(CRITIQUE_RUN)("M2 to M4 flow screens", () => {
 
   it("116 board: + Story on an Epic card opens Write a Story with that Epic chosen (issue #168)", async () => {
     await boardReady();
-    await userEvent.click((await screen.findAllByRole("button", { name: /^Add a Story to / }))[0]);
+    await userEvent.click(at(await screen.findAllByRole("button", { name: /^Add a Story to / }), 0));
     await screen.findByRole("dialog", { name: "Write a Story" });
     await shot("116-board-add-story-on-epic-card");
   });

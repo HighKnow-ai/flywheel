@@ -37,22 +37,22 @@ const AA = 4.5;
 type Rgba = [number, number, number, number];
 
 function parse(colour: string): Rgba {
-  const parts = colour.match(/[\d.]+/g)?.map(Number) ?? [];
-  expect(parts.length, `unparseable colour ${colour}`).toBeGreaterThanOrEqual(3);
-  return [parts[0], parts[1], parts[2], parts[3] ?? 1];
+  const [r, g, b, a = 1] = colour.match(/[\d.]+/g)?.map(Number) ?? [];
+  if (r === undefined || g === undefined || b === undefined) throw new Error(`unparseable colour ${colour}`);
+  return [r, g, b, a];
 }
 
 function luminance([r, g, b]: Rgba): number {
-  const [R, G, B] = [r, g, b].map((v) => {
+  const linear = (v: number): number => {
     const c = v / 255;
     return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  });
-  return 0.2126 * R + 0.7152 * G + 0.0722 * B;
+  };
+  return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
 }
 
 function contrast(a: Rgba, b: Rgba): number {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-  return (hi + 0.05) / (lo + 0.05);
+  const [la, lb] = [luminance(a), luminance(b)];
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
 }
 
 /** The engine's own value of a system colour keyword, read the way the engine resolves it, not assumed. */

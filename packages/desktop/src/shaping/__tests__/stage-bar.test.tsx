@@ -12,6 +12,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { EpicShapingView } from "../EpicShapingView";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 import type { EpicDto, EpicShapingDto, OpenItemDto, RoundDto, StageDto, StageStatusDto } from "../../adapters/tauri";
+import { at } from "../../test/present";
 
 const epicShapingRounds = vi.fn();
 const epicShapingSession = vi.fn();
@@ -122,7 +123,7 @@ describe("the Stage bar (issue #126)", () => {
       "Slice into Stories, not started",
       "Write the Acceptance criteria, not started",
     ]);
-    expect(steps[0].getAttribute("aria-current")).toBe("step");
+    expect(at(steps, 0).getAttribute("aria-current")).toBe("step");
   });
 
   it("lists what is still open and keeps Close Stage disabled until nothing is", async () => {
@@ -189,7 +190,7 @@ describe("the Stage bar (issue #126)", () => {
     await waitFor(() => expect(stageClose).toHaveBeenCalledWith("s1"));
 
     await waitFor(() =>
-      expect(within(screen.getByRole("region", { name: "Stages" })).getAllByRole("listitem")[1].textContent).toBe(
+      expect(at(within(screen.getByRole("region", { name: "Stages" })).getAllByRole("listitem"), 1).textContent).toBe(
         "Slice into Stories, open, Stage 2 of 3",
       ),
     );

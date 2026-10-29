@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import askFixture from "../../../../../scripts/uat/fixtures/live-opus5-ask-user-question.json";
 import unmodelledFixture from "../../../../../scripts/uat/fixtures/live-opus5-unmodelled-shapes.json";
 import { buildFeedRows, isReadOnlyGitCommand } from "../feedRows";
+import { at } from "../../test/present";
 
 const AT = "2026-10-19T10:00:00.000Z";
 let seq = 0;
@@ -161,18 +162,19 @@ describe("tool results pair with their call", () => {
 
 describe("requests and Proposals are cards", () => {
   it("turns the captured AskUserQuestion call into a question card answered by the CLI's result", () => {
-    const line = askFixture.shapes[0].line;
+    const line = at(askFixture.shapes, 0).line;
     const block = line.message.content.find((b) => b.type === "tool_use")!;
     const rows = buildFeedRows([
       ev({ type: "tool_call", toolName: block.name, input: block.input, toolUseId: block.id }),
       result(askFixture.cliAnsweredToolResult.tool_use_id, askFixture.cliAnsweredToolResult.content),
     ]);
     expect(rows).toHaveLength(1);
-    const card = rows[0];
+    const card = at(rows, 0);
     expect(card.kind).toBe("question");
     if (card.kind !== "question") return;
-    expect(card.questions[0].question).toBe("Which events should generate a notification in the first version?");
-    expect(card.questions[0].options.length).toBeGreaterThan(1);
+    const [first] = card.questions;
+    expect(first?.question).toBe("Which events should generate a notification in the first version?");
+    expect(first?.options.length).toBeGreaterThan(1);
     expect(card.answer).toBe("The user did not answer the questions.");
   });
 

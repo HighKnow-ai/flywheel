@@ -11,6 +11,7 @@ import { StoryBoard } from "../StoryBoard";
 import { StoryView } from "../StoryView";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 import type { RunSummaryDto, SessionSummaryDto, StoryDto } from "../../adapters/tauri";
+import { at } from "../../test/present";
 
 const storyListForProject = vi.fn();
 const storyStopped = vi.fn();
@@ -257,20 +258,20 @@ describe("The Story view: the Story's session list (issue #54)", () => {
     const list = await screen.findByRole("list", { name: "Sessions of FLY-2" });
     const items = await within(list).findAllByRole("listitem");
     expect(items).toHaveLength(2);
-    expect(within(items[0]).getByText("Session 2")).toBeInTheDocument();
-    expect(within(items[0]).getByText(/01JSESSIONNEXT/)).toBeInTheDocument();
-    expect(within(items[0]).getByText("Live")).toBeInTheDocument();
-    expect(within(items[1]).getByText("Session 1")).toBeInTheDocument();
+    expect(within(at(items, 0)).getByText("Session 2")).toBeInTheDocument();
+    expect(within(at(items, 0)).getByText(/01JSESSIONNEXT/)).toBeInTheDocument();
+    expect(within(at(items, 0)).getByText("Live")).toBeInTheDocument();
+    expect(within(at(items, 1)).getByText("Session 1")).toBeInTheDocument();
     // A crash is a failure: red, in words, never the raw enum.
-    const crashed = within(items[1]).getByText("Crashed").closest("[data-tone]");
+    const crashed = within(at(items, 1)).getByText("Crashed").closest("[data-tone]");
     expect(crashed).toHaveAttribute("data-tone", "destructive");
-    expect(within(items[1]).queryByText("crash")).toBeNull();
-    expect(within(items[1]).getByText(/Summary written by Flywheel/)).toBeInTheDocument();
-    expect(within(items[1]).queryByText(/Stub summary/)).toBeNull();
-    expect(within(items[1]).getByText(/ended \(crash\) without handing off/)).toBeInTheDocument();
-    expect(within(items[1]).getByText("ran 1h 00m")).toBeInTheDocument();
+    expect(within(at(items, 1)).queryByText("crash")).toBeNull();
+    expect(within(at(items, 1)).getByText(/Summary written by Flywheel/)).toBeInTheDocument();
+    expect(within(at(items, 1)).queryByText(/Stub summary/)).toBeNull();
+    expect(within(at(items, 1)).getByText(/ended \(crash\) without handing off/)).toBeInTheDocument();
+    expect(within(at(items, 1)).getByText("ran 1h 00m")).toBeInTheDocument();
 
-    fireEvent.click(within(items[1]).getByRole("button", { name: /Open feed/ }));
+    fireEvent.click(within(at(items, 1)).getByRole("button", { name: /Open feed/ }));
     expect(useUiStore.getState().activeSessionId).toBe("01JSESSIONDEAD0000000000000");
     expect(useUiStore.getState().activeSessionStoryId).toBe("s1");
   });

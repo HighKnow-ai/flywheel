@@ -22,6 +22,7 @@ import { useTriageDrawer } from "../../proposals/triageStore";
 import App from "../../App";
 import { setReviewInFixture } from "./m2-fixture";
 import { BIG, installStressBackend, setBigReviewMergeable, STRESS, type StressOptions } from "./stress-fixture";
+import { at } from "../present";
 import { capture, CRITIQUE_RUN, settle, SIZES, writeDefectReport } from "./capture";
 
 const { LONG_STORY, REVIEW_STORY } = STRESS;
@@ -66,7 +67,7 @@ async function bigBoard(before?: () => void, options: StressOptions = {}) {
 
 async function click(label: string | RegExp, container: HTMLElement | null = null) {
   const scope = container ? within(container) : screen;
-  await userEvent.click((await scope.findAllByRole("button", { name: label }))[0]);
+  await userEvent.click(at(await scope.findAllByRole("button", { name: label }), 0));
 }
 
 describe.runIf(CRITIQUE_RUN)("Stress screens", () => {
@@ -91,7 +92,7 @@ describe.runIf(CRITIQUE_RUN)("Stress screens", () => {
   it("s02 board of a big project, the roster scrolled to its end", async () => {
     await bigBoard();
     const all = await screen.findAllByText(/Per-tenant monthly token budget|Show cost per RFP|Okta SAML/);
-    const last = all[all.length - 1];
+    const last = at(all, all.length - 1);
     last.scrollIntoView({ block: "end" });
     await capture("s02-stress-board-scrolled");
   });
@@ -159,7 +160,7 @@ describe.runIf(CRITIQUE_RUN)("Stress screens", () => {
     await bigBoard(() => useUiStore.getState().setActiveSessionId("ses-b1", LONG_STORY.id));
     await screen.findAllByText(/All six formatting tests pass now/);
     const calls = await screen.findAllByRole("button", { name: /preserve-formatting\.test\.ts/ });
-    const failed = calls[calls.length - 1];
+    const failed = at(calls, calls.length - 1);
     await userEvent.click(failed);
     failed.scrollIntoView({ block: "start" });
     await capture("s10-stress-feed-failed-call");
@@ -216,7 +217,7 @@ describe.runIf(CRITIQUE_RUN)("Stress screens", () => {
       name: /patch-sheet-xml-in-place|shared-strings-index/,
     });
     for (const t of toggles.slice(0, 2)) await userEvent.click(t);
-    toggles[0].scrollIntoView({ block: "start" });
+    at(toggles, 0).scrollIntoView({ block: "start" });
     await capture("s17-stress-review-files");
   });
 
@@ -225,7 +226,7 @@ describe.runIf(CRITIQUE_RUN)("Stress screens", () => {
     await bigBoard(() => useUiStore.getState().openStory(BIG, REVIEW_STORY.id));
     const card = await screen.findByRole("region", { name: "Review" });
     await userEvent.click(
-      (await within(card).findAllByRole("button", { name: new RegExp(`^Merge ${REVIEW_STORY.key}`) }))[0],
+      at(await within(card).findAllByRole("button", { name: new RegExp(`^Merge ${REVIEW_STORY.key}`) }), 0),
     );
     const dialog = await screen.findByRole("alertdialog");
     await capture("s18-stress-merge-confirm");
@@ -250,7 +251,7 @@ describe.runIf(CRITIQUE_RUN)("Stress screens", () => {
     await screen.findAllByText("Make clicking and navigation predictable");
     await click("Open review of FLY-3");
     const card = await screen.findByRole("region", { name: "Review" });
-    await userEvent.click((await within(card).findAllByRole("button", { name: /^Merge FLY-3/ }))[0]);
+    await userEvent.click(at(await within(card).findAllByRole("button", { name: /^Merge FLY-3/ }), 0));
     await screen.findByRole("alertdialog");
     await capture("s19-clean-merge-with-failing-check-confirm");
   });
@@ -289,7 +290,7 @@ describe.runIf(CRITIQUE_RUN)("Stress screens", () => {
       noProjects: true,
       pickedFolder: "/Users/cymarechal/code/customer-demo-environments-for-the-q4-enterprise-roadshow",
     });
-    await userEvent.click((await screen.findAllByRole("button", { name: /folder|register|add/i }))[0]);
+    await userEvent.click(at(await screen.findAllByRole("button", { name: /folder|register|add/i }), 0));
     await settle();
     await capture("s25-register-project");
   });
@@ -301,10 +302,11 @@ describe.runIf(CRITIQUE_RUN)("Stress screens", () => {
       registerError:
         "/Users/cymarechal/Downloads/not-a-repo is not a git repository (git rev-parse --show-toplevel exited 128)",
     });
-    await userEvent.click((await screen.findAllByRole("button", { name: /folder|register|add/i }))[0]);
+    await userEvent.click(at(await screen.findAllByRole("button", { name: /folder|register|add/i }), 0));
     await settle();
     const confirm = screen.queryAllByRole("button", { name: /register|add|continue/i });
-    if (confirm.length) await userEvent.click(confirm[0]);
+    const [first] = confirm;
+    if (first) await userEvent.click(first);
     await settle();
     await capture("s26-register-project-error");
   });

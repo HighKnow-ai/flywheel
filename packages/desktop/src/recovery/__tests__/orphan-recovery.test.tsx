@@ -13,6 +13,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { OrphanRecoveryModal } from "../OrphanRecoveryModal";
 import type { OrphanKillDto, PendingOrphanDto } from "../../adapters/tauri";
+import { at, present } from "../../test/present";
 
 const pendingOrphansMock = vi.fn();
 const orphanKillMock = vi.fn();
@@ -323,7 +324,11 @@ describe("OrphanRecoveryModal — criterion 2 honesty (03-10 Task 3)", () => {
     ]);
     orphanKillMock.mockImplementation((runId: string) =>
       Promise.resolve(
-        killDto({ killed: false, pid: { "run-a": 101, "run-b": 202, "run-c": 303 }[runId], detail: "still running" }),
+        killDto({
+          killed: false,
+          pid: present({ "run-a": 101, "run-b": 202, "run-c": 303 }[runId], `a pid for ${runId}`),
+          detail: "still running",
+        }),
       ),
     );
     renderModal();
@@ -400,8 +405,8 @@ describe("OrphanRecoveryModal — synchronous double activation (03-17, T-03-17-
     renderModal();
 
     const stops = await screen.findAllByRole("button", { name: ROW_STOP });
-    stops[0].click();
-    stops[1].click();
+    at(stops, 0).click();
+    at(stops, 1).click();
 
     await waitFor(() => expect(orphanKillMock).toHaveBeenCalledTimes(2));
     const calledIds = orphanKillMock.mock.calls.map((call: unknown[]) => call[0]);
@@ -420,7 +425,7 @@ describe("OrphanRecoveryModal — synchronous double activation (03-17, T-03-17-
     const stopAll = screen.getByRole("button", { name: STOP_ALL });
 
     stopAll.click();
-    stops[0].click();
+    at(stops, 0).click();
 
     await waitFor(() => expect(orphanKillMock).toHaveBeenCalledTimes(2));
     expect(orphanKillMock.mock.calls.filter((call: unknown[]) => call[0] === "run-a")).toHaveLength(1);
@@ -437,7 +442,7 @@ describe("OrphanRecoveryModal — synchronous double activation (03-17, T-03-17-
     renderModal();
 
     const stops = await screen.findAllByRole("button", { name: ROW_STOP });
-    stops[0].click();
+    at(stops, 0).click();
 
     await screen.findByText(/Couldn’t stop it \(PID 1\)/);
 

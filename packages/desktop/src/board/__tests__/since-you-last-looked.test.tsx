@@ -10,6 +10,7 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SinceYouLastLooked } from "../SinceYouLastLooked";
 import type { LookedEventDto, SinceLastLookedDto } from "../../adapters/tauri";
+import { at } from "../../test/present";
 
 const boardVisit = vi.fn();
 
@@ -85,11 +86,11 @@ describe("SinceYouLastLooked", () => {
     const list = screen.getByRole("list", { name: "Since you last looked" });
     const rows = within(list).getAllByRole("listitem");
     expect(rows).toHaveLength(3);
-    expect(rows[0].textContent).toContain("FLY-12");
-    expect(rows[0].textContent).toContain("Make clicking predictable");
-    expect(rows[0].textContent).toContain("Handed off for review");
-    expect(rows[1].textContent).toContain("Moved Story from In review to Merged");
-    expect(rows[2].textContent).toContain("Opened roadmap Round 2");
+    expect(at(rows, 0).textContent).toContain("FLY-12");
+    expect(at(rows, 0).textContent).toContain("Make clicking predictable");
+    expect(at(rows, 0).textContent).toContain("Handed off for review");
+    expect(at(rows, 1).textContent).toContain("Moved Story from In review to Merged");
+    expect(at(rows, 2).textContent).toContain("Opened roadmap Round 2");
 
     fireEvent.click(toggle);
     expect(screen.queryByRole("list", { name: "Since you last looked" })).toBeNull();

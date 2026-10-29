@@ -12,6 +12,7 @@ import { StoryBoard } from "../StoryBoard";
 import { StoryView } from "../StoryView";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 import type { EpicDto, MilestoneDto, MilestoneProgressDto, StoryDto } from "../../adapters/tauri";
+import { at } from "../../test/present";
 
 const milestoneList = vi.fn();
 const milestoneProgress = vi.fn();
@@ -145,7 +146,7 @@ beforeEach(() => {
   milestoneProgress
     .mockReset()
     .mockImplementation((_p: string, id: string | null) =>
-      Promise.resolve(progress(MILESTONES.find((m) => (id === null ? m.current : m.id === id)) ?? MILESTONES[0])),
+      Promise.resolve(progress(MILESTONES.find((m) => (id === null ? m.current : m.id === id)) ?? at(MILESTONES, 0))),
     );
   epicList.mockReset().mockImplementation((milestoneId: string) => Promise.resolve(EPICS[milestoneId] ?? []));
   epicCreate.mockReset().mockResolvedValue(epic("e5", "m3", "FLY-5", "Since you last looked", "shaping"));
@@ -224,7 +225,7 @@ describe("Move to Epic… in the Story view", () => {
     fireEvent.click(await within(list).findByRole("option", { name: /FLY-3 Merge/ }));
     await waitFor(() => expect(storyMove).toHaveBeenCalledWith("10", "e3"));
     await waitFor(() => expect(notifySuccess).toHaveBeenCalledWith("Moved FLY-10 to FLY-3", expect.anything()));
-    const { undo } = notifySuccess.mock.calls[0][1] as { undo: () => void };
+    const { undo } = at(notifySuccess.mock.calls, 0)[1] as { undo: () => void };
     undo();
     await waitFor(() => expect(storyMove).toHaveBeenLastCalledWith("10", "e1"));
   });

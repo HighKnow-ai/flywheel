@@ -19,6 +19,7 @@ import type {
   RoadmapRoundViewDto,
   StoryDto,
 } from "../../adapters/tauri";
+import { at } from "../../test/present";
 
 const milestoneList = vi.fn();
 const milestoneProgress = vi.fn();
@@ -177,7 +178,7 @@ beforeEach(() => {
   milestoneProgress
     .mockReset()
     .mockImplementation((_project: string, id: string | null) =>
-      Promise.resolve(progress(roadmap.find((m) => (id === null ? m.current : m.id === id)) ?? roadmap[0])),
+      Promise.resolve(progress(roadmap.find((m) => (id === null ? m.current : m.id === id)) ?? at(roadmap, 0))),
     );
   epicList
     .mockReset()

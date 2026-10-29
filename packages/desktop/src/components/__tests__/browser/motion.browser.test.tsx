@@ -14,6 +14,7 @@ import { Play } from "lucide-react";
 import "../../../styles/globals.css";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger, Spinner } from "@highknow/design";
 import { Button } from "../../Button";
+import { at } from "../../../test/present";
 
 const reduced = import.meta.env.VITE_EXPECT_MOTION === "reduce";
 
@@ -31,7 +32,7 @@ function Disclosure() {
 function animationOf(element: Element): CSSAnimation {
   const animations = element.getAnimations() as CSSAnimation[];
   expect(animations).toHaveLength(1);
-  return animations[0];
+  return at(animations, 0);
 }
 
 /** Holds an animation at its midpoint, so a measurement reads the moving frame and not either end. */
@@ -112,7 +113,7 @@ describe(`motion foundation (${reduced ? "reduced motion" : "full motion"})`, ()
     () => {
       render(<span className="transition-transform rotate-90">›</span>);
       const style = getComputedStyle(screen.getByText("›"));
-      expect(style.transitionDuration.split(",")[0].trim()).toBe("0.16s");
+      expect(style.transitionDuration.split(",")[0]?.trim()).toBe("0.16s");
       if (reduced) {
         expect(style.transitionProperty).not.toMatch(/transform|rotate|translate|scale/);
         expect(style.transitionProperty).toContain("opacity");

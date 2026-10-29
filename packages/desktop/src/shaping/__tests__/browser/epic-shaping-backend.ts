@@ -32,6 +32,7 @@ import type {
   StoryDto,
 } from "../../../adapters/tauri";
 import { answer as m2 } from "../../../test/critique/m2-fixture";
+import { present } from "../../../test/present";
 
 export const PROJECT_ID = "p-fly";
 export const EPIC_ID = "e-12";
@@ -43,6 +44,11 @@ const SPEC_LABELS: Record<string, string> = {
   out_of_scope: "Out of scope",
   exit_test: "Exit test",
 };
+
+/** The label of a Spec field a Proposal names; a field this fixture does not know is a broken fixture. */
+function specLabel(field: string | undefined): string {
+  return present(field === undefined ? undefined : SPEC_LABELS[field], `a Spec label for ${field}`);
+}
 
 export interface QuestionDraft {
   title: string;
@@ -112,7 +118,7 @@ export function installEpicShapingBackend() {
         const payload = p.payload as Record<string, string>;
         const title =
           p.targetType === "epic"
-            ? `change the ${SPEC_LABELS[payload.field]}`
+            ? `change the ${specLabel(payload.field)}`
             : p.targetType === "story"
               ? `add the Story "${payload.title}"`
               : `add the criterion "${payload.statement}"`;
@@ -165,7 +171,7 @@ export function installEpicShapingBackend() {
             stageId: open.id,
             openItems: items,
             warnings,
-            next: NEXT[open.kind],
+            next: NEXT[open.kind] ?? null,
             makesReady: open.kind === "criteria",
             closable: items.length === 0,
           }
@@ -247,7 +253,7 @@ export function installEpicShapingBackend() {
       const field = (
         { problem: "problem", scope: "scope", out_of_scope: "outOfScope", exit_test: "exitTest" } as const
       )[payload.field as "problem"];
-      epic[field] = payload.text;
+      epic[field] = payload.text ?? null;
     } else if (p.targetType === "story") {
       const after =
         payload.runs_after_story_id ??
@@ -261,10 +267,10 @@ export function installEpicShapingBackend() {
         epicId: EPIC_ID,
         key: `FLY-${++storyNumber}`,
         title: payload.title as string,
-        description: payload.description,
+        description: payload.description ?? null,
         state: "shaping",
         runsAfterStoryId: after ?? null,
-        runsAfterReason: payload.runs_after_reason,
+        runsAfterReason: payload.runs_after_reason ?? null,
         rank: payload.rank as string,
       });
     } else if (p.targetType === "criterion") {

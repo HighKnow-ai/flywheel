@@ -118,11 +118,12 @@ export function installReviewMergeBackend() {
 
   function review(): StoryReviewDto {
     const base = m2("story_review", { storyId: STORY_ID }) as StoryReviewDto;
-    const decisions = base.decisions.map((c) =>
-      c.newAdr && adrDecisions[c.path]
-        ? { ...c, newAdr: { ...c.newAdr, decision: { kind: adrDecisions[c.path], whatIsWrong: null, shouldBe: null } } }
-        : c,
-    );
+    const decisions = base.decisions.map((c) => {
+      const kind = adrDecisions[c.path];
+      return c.newAdr && kind
+        ? { ...c, newAdr: { ...c.newAdr, decision: { kind, whatIsWrong: null, shouldBe: null } } }
+        : c;
+    });
     return {
       ...base,
       storyState: merged ? "merged" : base.storyState,

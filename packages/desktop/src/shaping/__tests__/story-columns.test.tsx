@@ -11,6 +11,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StoryColumns } from "../StoryColumns";
 import type { AcceptanceCriterionDto, ProposalDto, StoryDto } from "../../adapters/tauri";
 import { expectDecisionGroup } from "./decision-group";
+import { at } from "../../test/present";
 
 const proposalAccept = vi.fn();
 const proposalAmend = vi.fn();
@@ -305,9 +306,9 @@ describe("StoryColumns: criteria (issue #128)", () => {
       "A malformed line is skipped",
       "The error reads plainly",
     ]);
-    expect(within(rows[0]).getByText("Not run")).toBeInTheDocument();
-    expect(within(rows[0]).getByText("cargo test -p core --test parser")).toBeInTheDocument();
-    expect(within(rows[1]).getByText(/judged at review/i)).toBeInTheDocument();
+    expect(within(at(rows, 0)).getByText("Not run")).toBeInTheDocument();
+    expect(within(at(rows, 0)).getByText("cargo test -p core --test parser")).toBeInTheDocument();
+    expect(within(at(rows, 1)).getByText(/judged at review/i)).toBeInTheDocument();
     // A Story with no criterion yet says so where its criteria will go.
     expect(await within(column("2. FLY-12 Feed row")).findByText("No criterion yet")).toBeInTheDocument();
   });

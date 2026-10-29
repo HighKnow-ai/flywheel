@@ -10,6 +10,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MilestoneHeader } from "../MilestoneHeader";
 import { EpicProgress } from "../EpicProgress";
 import type { MilestoneProgressDto, StoryStateCountsDto } from "../../adapters/tauri";
+import { at } from "../../test/present";
 
 const milestoneProgress = vi.fn();
 
@@ -179,14 +180,18 @@ describe("MilestoneHeader", () => {
 
 describe("EpicProgress", () => {
   it("gives each Epic its own bar and n of m Stories merged", () => {
-    const [first, second] = progress().epics;
+    const { epics } = progress();
+    const first = at(epics, 0);
+    const second = at(epics, 1);
     const { container } = render(
       <>
         <EpicProgress epic={first} headingId="epic-e1" />
         <EpicProgress epic={second} />
       </>,
     );
-    const [a, b] = Array.from(container.querySelectorAll<HTMLElement>("[data-epic-id]"));
+    const cards = Array.from(container.querySelectorAll<HTMLElement>("[data-epic-id]"));
+    const a = at(cards, 0);
+    const b = at(cards, 1);
     expect(screen.getByRole("heading", { name: "Design system" })).toHaveAttribute("id", "epic-e1");
     expect(a.textContent).toContain("1 of 7 Stories merged");
     expect(within(a).getByRole("img", { name: "7 Stories: 1 merged, 2 running" })).toBeTruthy();

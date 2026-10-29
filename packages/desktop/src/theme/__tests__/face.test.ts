@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { brotliDecompressSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
+import { present } from "../../test/present";
 import { MOTION } from "../tokens";
 import { DESKTOP, FONTS, GLOBALS, SRC, declared, text } from "./stylesheets";
 
@@ -139,7 +140,7 @@ function woff2Directory(buf: Uint8Array): { tags: string[]; dataStart: number; c
   const base128 = () => {
     let value = 0;
     for (let i = 0; i < 5; i += 1) {
-      const byte = buf[at++];
+      const byte = view.getUint8(at++); // throws past the end, so a truncated font fails here
       value = value * 128 + (byte & 0x7f);
       if (!(byte & 0x80)) return value;
     }
@@ -147,9 +148,9 @@ function woff2Directory(buf: Uint8Array): { tags: string[]; dataStart: number; c
   };
   const tags: string[] = [];
   for (let i = 0; i < numTables; i += 1) {
-    const flags = buf[at++];
+    const flags = view.getUint8(at++);
     const index = flags & 0x3f;
-    const tag = index === 63 ? latin1(buf.subarray(at, (at += 4))) : KNOWN_TAGS[index];
+    const tag = index === 63 ? latin1(buf.subarray(at, (at += 4))) : present(KNOWN_TAGS[index], `known tag ${index}`);
     const transform = flags >> 6;
     base128();
     const transformed = tag === "glyf" || tag === "loca" ? transform !== 3 : transform !== 0;

@@ -219,10 +219,10 @@ function textOverlap(defects: LayoutDefect[]) {
     if (!ids.has(n)) ids.set(n, ids.size);
     return ids.get(n) as number;
   };
-  for (let i = 0; i < lines.length; i++) {
-    const a = lines[i];
-    for (let j = i + 1; j < lines.length && lines[j].top < a.bottom; j++) {
-      const b = lines[j];
+  lines.forEach((a, i) => {
+    // Sorted by top, so the lines that can overlap `a` are the run after it that starts above its bottom.
+    for (const b of lines.slice(i + 1)) {
+      if (b.top >= a.bottom) break;
       if (a.node === b.node || a.layer !== b.layer) continue;
       const o = intersect(a, b);
       if (empty(o)) continue;
@@ -239,7 +239,7 @@ function textOverlap(defects: LayoutDefect[]) {
         where: `${describeElement(a.owner)} ⟷ ${describeElement(b.owner)}`,
       });
     }
-  }
+  });
 }
 
 function fillsHeight(defects: LayoutDefect[], kind: "rail-height" | "main-height", el: Element | null, name: string) {

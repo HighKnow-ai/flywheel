@@ -225,8 +225,7 @@ describe("the mandatory 1px edge", () => {
     Sidebar: { file: "dist/components/ui/sidebar.js", pattern: /group-data-\[side=left\]:border-r/ },
   };
 
-  it.each(Object.keys(SURFACES))("%s draws its --border edge", (name) => {
-    const { file, pattern } = SURFACES[name];
+  it.each(Object.entries(SURFACES))("%s draws its --border edge", (_name, { file, pattern }) => {
     const source = text(DESIGN + file);
     expect(source, `${file} draws the edge`).toMatch(pattern);
     expect(source, `${file} never removes the edge in dark`).not.toMatch(/dark:border-(0|none|transparent)\b/);

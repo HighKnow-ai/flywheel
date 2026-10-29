@@ -22,6 +22,7 @@ import { queryClient } from "../../../adapters/queryClient";
 import { resetUiState } from "../../../state/uiStore";
 import App from "../../../App";
 import { installFixtureBackend } from "../../../test/critique/m2-fixture";
+import { at } from "../../../test/present";
 
 const SIZES = [
   [900, 600],
@@ -44,7 +45,7 @@ async function renderApp() {
 }
 
 async function showLongPane() {
-  await userEvent.click((await screen.findAllByRole("button", { name: /^Open Story FLY-3 / }))[0]);
+  await userEvent.click(at(await screen.findAllByRole("button", { name: /^Open Story FLY-3 / }), 0));
   await screen.findByRole("heading", { name: /Sessions/ });
 }
 
@@ -62,7 +63,10 @@ function mainScroller(): HTMLElement {
   const scrollers = Array.from(inset!.querySelectorAll<HTMLElement>("*")).filter((el) =>
     ["auto", "scroll"].includes(getComputedStyle(el).overflowY),
   );
-  return scrollers.sort((a, b) => b.scrollHeight - b.clientHeight - (a.scrollHeight - a.clientHeight))[0];
+  return at(
+    scrollers.sort((a, b) => b.scrollHeight - b.clientHeight - (a.scrollHeight - a.clientHeight)),
+    0,
+  );
 }
 
 function expectRailFillsWindow(where: string) {

@@ -16,6 +16,7 @@ import { queryClient } from "../../../adapters/queryClient";
 import { resetUiState } from "../../../state/uiStore";
 import App from "../../../App";
 import { answer, setReviewInFixture } from "../../../test/critique/m2-fixture";
+import { at } from "../../../test/present";
 
 const requests: Record<string, unknown>[] = [];
 
@@ -87,7 +88,7 @@ describe("Request changes in WebKit", () => {
     await userEvent.click(within(card).getByRole("button", { name: "Send FLY-3 back to Running" }));
 
     await waitFor(() => expect(requests).toHaveLength(1));
-    const comment = String(requests[0].comments);
+    const comment = String(at(requests, 0).comments);
     expect(comment).toContain("DESIGN.md");
     expect(comment).toContain("packages/desktop/src/theme/tokens.css");
   });

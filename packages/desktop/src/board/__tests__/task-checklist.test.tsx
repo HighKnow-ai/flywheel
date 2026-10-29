@@ -11,6 +11,7 @@ import { StoryBoard } from "../StoryBoard";
 import { StoryView } from "../StoryView";
 import { useUiStore } from "../../state/uiStore";
 import type { StoryDto, TaskDto } from "../../adapters/tauri";
+import { at } from "../../test/present";
 
 const storyListForProject = vi.fn();
 const taskList = vi.fn();
@@ -159,8 +160,8 @@ describe("A Story's Task checklist", () => {
       expect.stringContaining("Refactor"),
     ]);
     // A Task's state is its icon, with the word as its accessible name and tooltip.
-    expect(within(rows[0]).getByRole("img", { name: "Done" })).toBeInTheDocument();
-    expect(within(rows[1]).getByRole("img", { name: "Doing" })).toBeInTheDocument();
+    expect(within(at(rows, 0)).getByRole("img", { name: "Done" })).toBeInTheDocument();
+    expect(within(at(rows, 1)).getByRole("img", { name: "Doing" })).toBeInTheDocument();
     expect(await screen.findByLabelText("1 of 3 Tasks done")).toHaveTextContent("1/3");
   });
 

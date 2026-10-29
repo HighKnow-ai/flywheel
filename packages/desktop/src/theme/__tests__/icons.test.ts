@@ -3,6 +3,7 @@ import { inflateSync } from "node:zlib";
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import tauriConf from "../../../src-tauri/tauri.conf.json";
+import { present } from "../../test/present";
 
 /**
  * SC1 / SC2 / D-22 by assertion, not by eye. Like contrast.test.ts this reads the artifacts the
@@ -39,7 +40,39 @@ const EXPECTED_SIZE: Record<string, number> = {
   "icons/128x128@2x.png": 256,
 };
 
-const u32 = (b: Uint8Array, at: number) => ((b[at] << 24) | (b[at + 1] << 16) | (b[at + 2] << 8) | b[at + 3]) >>> 0;
+/** A big-endian u32 at `at`; a read past the end throws (DataView's RangeError) rather than reading 0. */
+const u32 = (b: Uint8Array, at: number) => new DataView(b.buffer, b.byteOffset, b.byteLength).getUint32(at);
+
+/** The byte at `at`; a read past the end throws, so a truncated file fails here rather than reading NaN on. */
+const byte = (b: Uint8Array, at: number): number => {
+  const value = b[at];
+  if (value === undefined) throw new Error(`no byte at ${at} (length ${b.length})`);
+  return value;
+};
+
+/** A PNG chunk's four-letter type, at `at + 4`. */
+const chunkType = (b: Uint8Array, at: number): string => String.fromCharCode(...b.subarray(at + 4, at + 8));
+
+/** PNG filter types 0 to 4 (None, Sub, Up, Average, Paeth) undone for one byte. */
+function unfilter(filter: number, x: number, a: number, up: number, c: number): number {
+  switch (filter) {
+    case 0:
+      return x;
+    case 1:
+      return x + a;
+    case 2:
+      return x + up;
+    case 3:
+      return x + ((a + up) >> 1);
+    case 4: {
+      const pp = a + up - c;
+      const [pa, pb, pc] = [Math.abs(pp - a), Math.abs(pp - up), Math.abs(pp - c)];
+      return x + (pa <= pb && pa <= pc ? a : pb <= pc ? up : c);
+    }
+    default:
+      throw new Error(`unknown PNG filter ${filter}`);
+  }
+}
 
 const icons = tauriConf.bundle.icon;
 
@@ -57,8 +90,9 @@ describe("bundle.icon artifacts", () => {
   it.each(icons.filter((r) => r.endsWith(".png")))("%s is an RGBA PNG of the dimensions its filename claims", (rel) => {
     const b = read(rel);
     expect(Array.from(b.slice(1, 4))).toEqual([0x50, 0x4e, 0x47]); // "PNG"
-    expect(u32(b, 16)).toBe(EXPECTED_SIZE[rel]);
-    expect(u32(b, 20)).toBe(EXPECTED_SIZE[rel]);
+    const size = present(EXPECTED_SIZE[rel], `an expected size for ${rel}`);
+    expect(u32(b, 16)).toBe(size);
+    expect(u32(b, 20)).toBe(size);
     expect(b[24]).toBe(8); // bit depth
     expect(b[25]).toBe(6); // colour type 6 = RGBA
   });
@@ -78,8 +112,7 @@ describe("bundle.icon artifacts", () => {
     const idat: Uint8Array[] = [];
     for (let at = 8; at < b.length;) {
       const len = u32(b, at);
-      const type = String.fromCharCode(b[at + 4], b[at + 5], b[at + 6], b[at + 7]);
-      if (type === "IDAT") idat.push(b.slice(at + 8, at + 8 + len));
+      if (chunkType(b, at) === "IDAT") idat.push(b.slice(at + 8, at + 8 + len));
       at += 12 + len;
     }
     const joined = new Uint8Array(idat.reduce((n, c) => n + c.length, 0));
@@ -100,7 +133,7 @@ describe("bundle.icon artifacts", () => {
     const idat: Uint8Array[] = [];
     for (let at = 8; at < b.length;) {
       const len = u32(b, at);
-      if (String.fromCharCode(b[at + 4], b[at + 5], b[at + 6], b[at + 7]) === "IDAT") {
+      if (chunkType(b, at) === "IDAT") {
         idat.push(b.slice(at + 8, at + 8 + len));
       }
       at += 12 + len;
@@ -114,19 +147,14 @@ describe("bundle.icon artifacts", () => {
     let [minX, maxX, minY, maxY] = [width, -1, height, -1];
     for (let y = 0; y < height; y++) {
       const at = y * (stride + 1);
-      const filter = raw[at];
+      const filter = byte(raw, at);
       for (let i = 0; i < stride; i++) {
-        const x = raw[at + 1 + i];
-        const a = i >= 4 ? row[i - 4] : 0;
-        const up = prev[i];
-        const c = i >= 4 ? prev[i - 4] : 0;
-        const pp = a + up - c;
-        const [pa, pb, pc] = [Math.abs(pp - a), Math.abs(pp - up), Math.abs(pp - c)];
-        const paeth = pa <= pb && pa <= pc ? a : pb <= pc ? up : c;
-        row[i] = [x, x + a, x + up, x + ((a + up) >> 1), x + paeth][filter] & 255;
+        const a = i >= 4 ? byte(row, i - 4) : 0;
+        const c = i >= 4 ? byte(prev, i - 4) : 0;
+        row[i] = unfilter(filter, byte(raw, at + 1 + i), a, byte(prev, i), c) & 255;
       }
       for (let px = 0; px < width; px++) {
-        if (row[px * 4 + 3] > 128) {
+        if (byte(row, px * 4 + 3) > 128) {
           minX = Math.min(minX, px);
           maxX = Math.max(maxX, px);
           minY = Math.min(minY, y);

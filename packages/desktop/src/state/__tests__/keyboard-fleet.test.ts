@@ -9,6 +9,7 @@ import {
   type ActionId,
   type UiLayer,
 } from "../keyboard";
+import { at } from "../../test/present";
 
 /**
  * Behavior under test (Phase 10 plan 10-01 Task 3, D-163):
@@ -25,7 +26,7 @@ describe("open-fleet", () => {
   it("is one global binding with a label", () => {
     const bindings = BINDINGS.filter((b) => b.id === "open-fleet");
     expect(bindings).toHaveLength(1);
-    expect(bindings[0].region).toBe("global");
+    expect(at(bindings, 0).region).toBe("global");
     expect(actionLabel("open-fleet")).toBe("Open Fleet");
     expect(allActionIds().filter((id) => id === "open-fleet")).toHaveLength(1);
   });
@@ -107,7 +108,7 @@ describe("the fleet row jumps (plan 10-06, FLEET-03)", () => {
     const subject = BINDINGS.filter((b) => b.id === "open-fleet-row-subject");
     expect(session.map((b) => [b.region, b.key])).toEqual([["fleet-surface", "Enter"]]);
     expect(subject.map((b) => [b.region, b.key])).toEqual([["fleet-surface", "b"]]);
-    expect(["a", "d"]).not.toContain(subject[0].key);
+    expect(["a", "d"]).not.toContain(at(subject, 0).key);
   });
 
   it("admits both on the fleet layer and on no other", () => {

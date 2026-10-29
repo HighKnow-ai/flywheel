@@ -11,10 +11,11 @@ import { describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { FeedRow, FEED_ROW_TRUNCATION_THRESHOLD, isRowExpandable, type FeedRowData } from "../FeedRow";
 
-function renderRow(row: FeedRowData, opts: { expanded?: boolean; live?: boolean; now?: number } = {}) {
-  return render(
-    <FeedRow row={row} expanded={opts.expanded ?? false} onToggleExpand={() => {}} live={opts.live} now={opts.now} />,
-  );
+function renderRow(
+  row: FeedRowData,
+  { expanded = false, ...rest }: { expanded?: boolean; live?: boolean; now?: number } = {},
+) {
+  return render(<FeedRow row={row} expanded={expanded} onToggleExpand={() => {}} {...rest} />);
 }
 
 /** No JSON object or array syntax leaks into what the developer reads. */

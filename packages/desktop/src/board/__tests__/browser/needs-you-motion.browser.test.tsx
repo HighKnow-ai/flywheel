@@ -17,6 +17,7 @@ import "../../../styles/globals.css";
 import { NeedsYouList } from "../../NeedsYou";
 import { needsYouQueryKey } from "../../../fleet/useFleet";
 import type { NeedsYouItemDto } from "../../../adapters/tauri";
+import { at } from "../../../test/present";
 
 const reduced = import.meta.env.VITE_EXPECT_MOTION === "reduce";
 
@@ -84,7 +85,7 @@ async function answerTwo(): Promise<{ leaving: HTMLElement; animation: CSSAnimat
   });
   const animations = leaving.getAnimations();
   expect(animations).toHaveLength(1);
-  return { leaving, animation: animations[0], height };
+  return { leaving, animation: at(animations, 0), height };
 }
 
 describe(`An answered Needs-you item (${reduced ? "reduced motion" : "full motion"})`, () => {

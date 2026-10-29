@@ -14,6 +14,7 @@ import { useTriageDrawer } from "../../proposals/triageStore";
 import { StoryBoard } from "../StoryBoard";
 import { PacketSize } from "../StoryControls";
 import { resetUiState, useUiStore } from "../../state/uiStore";
+import { at } from "../../test/present";
 import type { EpicDto, EpicProgressDto, MilestoneDto, RosterRowDto, StoryDto } from "../../adapters/tauri";
 
 const milestoneList = vi.fn();
@@ -112,11 +113,17 @@ function seedRoster(stories: StoryDto[], rows: RosterRowDto[]) {
 }
 
 /** The Story rows of Epic E1's card, once the core's rows have landed on them. */
-async function rosterRowsOnScreen(count: number) {
+/** `N` rows, typed as exactly that many so a test can destructure them. */
+type Rows<N extends number, R extends HTMLElement[] = []> = R["length"] extends N ? R : Rows<N, [...R, HTMLElement]>;
+
+async function rosterRowsOnScreen<N extends number>(count: N): Promise<Rows<N>> {
   const list = await screen.findByRole("list", { name: "E1 Stories" });
   await waitFor(() => expect(within(list).getAllByRole("listitem")).toHaveLength(count));
   await waitFor(() => expect(rosterRows).toHaveBeenCalled());
-  return within(list).getAllByRole("listitem");
+  const rows = within(list).getAllByRole("listitem");
+  if (rows.length !== count) throw new Error(`expected ${count} roster rows, found ${rows.length}`);
+  // The length was checked on the line above; TypeScript cannot narrow an array to a generic length.
+  return rows as Rows<N>;
 }
 
 function renderBoard() {
@@ -187,7 +194,9 @@ describe("StoryBoard: the Story list", () => {
 
     const list = await screen.findByRole("list", { name: "Stories" });
     await waitFor(() => expect(within(list).getAllByRole("listitem")).toHaveLength(2));
-    const [ready, review] = within(list).getAllByRole("listitem");
+    const items = within(list).getAllByRole("listitem");
+    const ready = at(items, 0);
+    const review = at(items, 1);
     expect(within(ready).getByText("FLY-2")).toBeInTheDocument();
     expect(within(ready).getByText("Ready")).toBeInTheDocument();
     expect(within(ready).getByRole("button", { name: "Start FLY-2" })).toBeInTheDocument();

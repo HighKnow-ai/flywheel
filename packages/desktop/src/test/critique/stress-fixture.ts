@@ -36,6 +36,7 @@ import type {
   WorktreeInventoryRowDto,
 } from "../../adapters/tauri";
 import type { Project } from "../../board/useBoardQuery";
+import { at, present } from "../present";
 import { answer as m2, SEED } from "./m2-fixture";
 import {
   SYNTHETIC_ENDED_AT,
@@ -235,18 +236,18 @@ bigEpics.forEach((epic, e) => {
           : "merged"
         : epic.state === "shaping"
           ? "shaping"
-          : STATES[(k + e) % STATES.length];
+          : at(STATES, (k + e) % STATES.length);
     bigStories.push({
       id: `sb-${k}`,
       projectId: BIG,
       epicId: epic.id,
       key: `PRESALES-${1001 + k}`,
       title:
-        STORY_TITLES[k % STORY_TITLES.length] +
+        at(STORY_TITLES, k % STORY_TITLES.length) +
         (k >= STORY_TITLES.length ? ` (part ${Math.floor(k / STORY_TITLES.length) + 1})` : ""),
       description:
         k % 4 === 0
-          ? `The ${STORY_TITLES[k % STORY_TITLES.length].toLowerCase()} Story, written from the RFP the Acme team sent on 14 October, which had every one of these problems in one file.`
+          ? `The ${at(STORY_TITLES, k % STORY_TITLES.length).toLowerCase()} Story, written from the RFP the Acme team sent on 14 October, which had every one of these problems in one file.`
           : null,
       state,
       runsAfterStoryId: null,
@@ -265,7 +266,7 @@ export const REVIEW_STORY = bigStories.find((s) => s.state === "in_review") as S
 const running = bigStories.filter((s) => s.state === "running");
 /** Waiting on you: a Gated action, a permission request with a long command, a question. */
 const WAITING = running.slice(1, 4);
-const STOPPED = running[4];
+const STOPPED = at(running, 4);
 
 const longTask = (i: number) =>
   [
@@ -633,56 +634,59 @@ function fleetRow(
     costUsd: null,
     tokensIn: null,
     tokensOut: null,
-    doingTaskTitle: story === LONG_STORY ? bigTasks[14].title : "Read the code this Story touches",
+    doingTaskTitle: story === LONG_STORY ? at(bigTasks, 14).title : "Read the code this Story touches",
     activity: { lines: [], truncated: false },
   };
 }
 
 function queueEntry(sessionId: string, story: StoryDto, i: number): BlockedQueueEntryDto {
   const p = project(story.projectId);
-  const kinds = [
-    {
-      toolName: "Bash",
-      inputPayload: JSON.stringify({
-        command:
-          "git push --force-with-lease origin story/presales-1013-preserve-template-formatting:story/presales-1013-preserve-template-formatting",
-      }),
-      destructiveCategory: "git-push",
-      suggestedRule: null,
-    },
-    {
-      toolName: "Bash",
-      inputPayload: JSON.stringify({
-        command:
-          "docker compose -f infra/docker-compose.local.yml --profile search --profile workers up -d --build opensearch embeddings-worker reranker-worker && ./scripts/wait-for-it.sh localhost:9200 --timeout=120",
-      }),
-      destructiveCategory: null,
-      suggestedRule: "Bash(docker compose -f infra/docker-compose.local.yml:*)",
-    },
-    {
-      toolName: "AskUserQuestion",
-      inputPayload: JSON.stringify({
-        questions: [
-          {
-            question:
-              "The customer's template has answers in column D but the comments for reviewers in column E are also editable. Should the export write the confidence score and the citations into column E, overwrite whatever the customer typed there, or leave column E alone and put them in a new sheet called Sources?",
-            header: "Column E",
-            multiSelect: false,
-            options: [
-              {
-                label: "A new Sources sheet",
-                description: "Nothing the customer typed is touched; the citations are one click away.",
-              },
-              { label: "Column E, only where it is empty" },
-              { label: "Leave citations out of the export" },
-            ],
-          },
-        ],
-      }),
-      destructiveCategory: null,
-      suggestedRule: null,
-    },
-  ][i];
+  const kinds = at(
+    [
+      {
+        toolName: "Bash",
+        inputPayload: JSON.stringify({
+          command:
+            "git push --force-with-lease origin story/presales-1013-preserve-template-formatting:story/presales-1013-preserve-template-formatting",
+        }),
+        destructiveCategory: "git-push",
+        suggestedRule: null,
+      },
+      {
+        toolName: "Bash",
+        inputPayload: JSON.stringify({
+          command:
+            "docker compose -f infra/docker-compose.local.yml --profile search --profile workers up -d --build opensearch embeddings-worker reranker-worker && ./scripts/wait-for-it.sh localhost:9200 --timeout=120",
+        }),
+        destructiveCategory: null,
+        suggestedRule: "Bash(docker compose -f infra/docker-compose.local.yml:*)",
+      },
+      {
+        toolName: "AskUserQuestion",
+        inputPayload: JSON.stringify({
+          questions: [
+            {
+              question:
+                "The customer's template has answers in column D but the comments for reviewers in column E are also editable. Should the export write the confidence score and the citations into column E, overwrite whatever the customer typed there, or leave column E alone and put them in a new sheet called Sources?",
+              header: "Column E",
+              multiSelect: false,
+              options: [
+                {
+                  label: "A new Sources sheet",
+                  description: "Nothing the customer typed is touched; the citations are one click away.",
+                },
+                { label: "Column E, only where it is empty" },
+                { label: "Leave citations out of the export" },
+              ],
+            },
+          ],
+        }),
+        destructiveCategory: null,
+        suggestedRule: null,
+      },
+    ],
+    i,
+  );
   return {
     requestId: `req-b${i}`,
     ...kinds,
@@ -714,11 +718,11 @@ function countsOf(stories: StoryDto[]) {
 
 const BIG_PROGRESS: MilestoneProgressDto = {
   milestoneId: "m-b2",
-  title: BIG_MILESTONES[1].title,
-  exitTest: BIG_MILESTONES[1].exitTest,
+  title: at(BIG_MILESTONES, 1).title,
+  exitTest: at(BIG_MILESTONES, 1).exitTest,
   state: "in_progress",
   current: true,
-  nextMilestoneTitle: BIG_MILESTONES[2].title,
+  nextMilestoneTitle: at(BIG_MILESTONES, 2).title,
   counts: countsOf(bigStories),
   epicsDone: 2,
   epicsTotal: bigEpics.length,
@@ -778,7 +782,7 @@ function bigNeedsYou(): NeedsYouItemDto[] {
       1,
       q.requestId,
       q.createdAt,
-      storyRecord(WAITING[BIG_QUEUE.indexOf(q)]),
+      storyRecord(at(WAITING, BIG_QUEUE.indexOf(q))),
       {
         sessionId: q.sessionId,
         request: {
@@ -812,11 +816,11 @@ function bigNeedsYou(): NeedsYouItemDto[] {
       4,
       "eb-1",
       ago(20000),
-      { kind: "epic", id: "eb-1", key: bigEpics[1].key, title: bigEpics[1].title, state: null },
+      { kind: "epic", id: "eb-1", key: at(bigEpics, 1).key, title: at(bigEpics, 1).title, state: null },
       {
         exitTest:
           "On the 400-question gold set, the right passage is in the top five for 92% of questions, and the median query takes under 300 ms.",
-        milestoneTitle: BIG_MILESTONES[1].title,
+        milestoneTitle: at(BIG_MILESTONES, 1).title,
       },
     ),
   );
@@ -834,8 +838,8 @@ function bigNeedsYou(): NeedsYouItemDto[] {
 }
 
 const bigTriage: TriageProposalDto[] = Array.from({ length: 18 }, (_, i) => {
-  const epic = i < 7 ? bigEpics[3] : i < 11 ? bigEpics[4] : i < 15 ? bigEpics[6] : null;
-  const filer = bigStories[(i * 3) % bigStories.length];
+  const epic = i < 7 ? at(bigEpics, 3) : i < 11 ? at(bigEpics, 4) : i < 15 ? at(bigEpics, 6) : null;
+  const filer = at(bigStories, (i * 3) % bigStories.length);
   const verb = ["create", "create", "amend", "reorder", "create", "drop"][i % 6];
   const titles = [
     "Remember the reviewer's last position in a 300-question RFP across app restarts",
@@ -851,7 +855,7 @@ const bigTriage: TriageProposalDto[] = Array.from({ length: 18 }, (_, i) => {
       epicId: epic?.id ?? null,
       verb,
       targetType: verb === "create" ? "story" : "story",
-      targetId: verb === "create" ? null : bigStories[i].id,
+      targetId: verb === "create" ? null : at(bigStories, i).id,
       payload:
         verb === "create"
           ? {
@@ -886,10 +890,11 @@ const bigTriage: TriageProposalDto[] = Array.from({ length: 18 }, (_, i) => {
     storyTitle: filer.title,
     epicKey: epic?.key ?? null,
     epicTitle: epic?.title ?? null,
-    milestoneTitle: epic ? BIG_MILESTONES[1].title : null,
-    targetKey: verb === "create" ? null : bigStories[i].key,
-    targetTitle: verb === "create" ? null : bigStories[i].title,
-    reorder: verb === "reorder" ? { nowAfter: bigStories[i + 1].key, proposedAfter: bigStories[i + 3].key } : null,
+    milestoneTitle: epic ? at(BIG_MILESTONES, 1).title : null,
+    targetKey: verb === "create" ? null : at(bigStories, i).key,
+    targetTitle: verb === "create" ? null : at(bigStories, i).title,
+    reorder:
+      verb === "reorder" ? { nowAfter: at(bigStories, i + 1).key, proposedAfter: at(bigStories, i + 3).key } : null,
   } as TriageProposalDto;
 });
 
@@ -927,7 +932,7 @@ function bigReview(storyId: string): StoryReviewDto {
   const failing = {
     checkId: "kr-1",
     criterionId: "cr-1",
-    command: bigCriteria[1].check?.command ?? "",
+    command: at(bigCriteria, 1).check?.command ?? "",
     result: "failed",
     stale: false,
     commitSha: "7c1e9fa",
@@ -977,7 +982,7 @@ const RULES: PermissionRuleDto[] = [
   ].map((pattern, i): PermissionRuleDto => ({
     id: `rule-${i}`,
     projectId: i < 5 ? BIG : "p-fly",
-    tool: pattern.split("(")[0],
+    tool: pattern.replace(/\(.*$/, ""), // the tool name before its first "("
     pattern,
     createdAt: ago(86400 * (i + 1)),
   })),
@@ -1043,22 +1048,25 @@ const ORPHANS: PendingOrphanDto[] = [
 const BIG_VISIT = {
   total: 64,
   events: Array.from({ length: 30 }, (_, i) => {
-    const s = bigStories[i % bigStories.length];
-    const kinds = [
-      ["story.state_changed", "Moved Story from running to in_review"],
-      ["story.handed_off", "Handed off for review: 6 Checks passed, 2 failed, 1 timed out"],
-      ["proposal.filed", "Proposed to create a story"],
-      ["task.state_changed", "Marked a Task done"],
-      ["session.ended", "Session ended: usage limit reached at 11:42, resets at 16:00"],
-    ][i % 5];
+    const s = at(bigStories, i % bigStories.length);
+    const [eventType, description] = at(
+      [
+        ["story.state_changed", "Moved Story from running to in_review"],
+        ["story.handed_off", "Handed off for review: 6 Checks passed, 2 failed, 1 timed out"],
+        ["proposal.filed", "Proposed to create a story"],
+        ["task.state_changed", "Marked a Task done"],
+        ["session.ended", "Session ended: usage limit reached at 11:42, resets at 16:00"],
+      ] as const,
+      i % 5,
+    );
     return {
       id: `evb-${i}`,
       projectId: BIG,
       origin: "local",
       sequence: 500 + i,
       actorId: "a-dev",
-      eventType: kinds[0],
-      description: kinds[1],
+      eventType,
+      description,
       occurredAt: ago(40000 - i * 1200),
       subjectKey: s.key,
       subjectTitle: s.title,
@@ -1114,7 +1122,7 @@ function seed() {
   SEED.LOGS["ses-b0"] = endedLog();
   // The 168-line log #190 was reproduced from (overlapping pages drew rows twice): reused as it is.
   SEED.LOGS["ses-bsyn"] = syntheticSessionLog();
-  SEED.RUNS[LONG_STORY.id].push({
+  present(SEED.RUNS[LONG_STORY.id], "the long Story's runs").push({
     ...runSummary("ses-bsyn", LONG_STORY.id, "completed", 0, 0, "handed_off", 0.42),
     startedAt: SYNTHETIC_STARTED_AT,
     endedAt: SYNTHETIC_ENDED_AT,

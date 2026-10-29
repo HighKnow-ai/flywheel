@@ -20,6 +20,7 @@ import {
   formatBytes,
   DISPOSITION_CHIPS,
 } from "../WorktreeInventory";
+import { at } from "../../test/present";
 
 const inventoryMock = vi.fn<() => Promise<WorktreeInventoryRowDto[]>>();
 const notifyMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), dismiss: vi.fn() }));
@@ -234,7 +235,7 @@ describe("WorktreeInventory", () => {
     const groups = Array.from(document.querySelectorAll<HTMLElement>("tbody[data-project]"));
     expect(groups.map((g) => g.querySelector("[data-field='project']")?.textContent)).toEqual(["Beta", "Alpha"]);
     expect(
-      Array.from(groups[0].querySelectorAll("[data-worktree-row]")).map((r) => r.getAttribute("data-worktree-row")),
+      Array.from(at(groups, 0).querySelectorAll("[data-worktree-row]")).map((r) => r.getAttribute("data-worktree-row")),
     ).toEqual(["a", "c"]);
     expect(screen.getAllByText("Beta")).toHaveLength(1);
   });

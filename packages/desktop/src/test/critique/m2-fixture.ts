@@ -39,6 +39,7 @@ import type {
   StoryReviewDto,
 } from "../../adapters/tauri";
 import type { Project } from "../../board/useBoardQuery";
+import { at, present } from "../present";
 
 const NOW = Date.now();
 const ago = (seconds: number) => new Date(NOW - seconds * 1000).toISOString();
@@ -676,7 +677,7 @@ const FLEET_ROWS: FleetRowDto[] = [
 ];
 
 function queueEntry(sessionId: string, storyId: string): BlockedQueueEntryDto {
-  const req = PENDING[sessionId][0];
+  const req = at(present(PENDING[sessionId], `pending requests for ${sessionId}`), 0);
   const s = storyById(storyId) as StoryDto;
   const p = projectOf(s.projectId);
   return {
@@ -876,10 +877,9 @@ function progressOf(projectId: string, milestoneId: string): MilestoneProgressDt
   const current = PROGRESS[projectId] ?? null;
   if (milestoneId === "" || milestoneId === current?.milestoneId) return current;
   const roadmap = MILESTONES[projectId] ?? [];
-  const at = roadmap.findIndex((m) => m.id === milestoneId);
-  if (at < 0) return null;
-  const m = roadmap[at];
-  const next = roadmap.slice(at + 1).find((n) => n.state !== "done" && n.state !== "dropped");
+  const m = roadmap.find((candidate) => candidate.id === milestoneId);
+  if (!m) return null;
+  const next = roadmap.slice(roadmap.indexOf(m) + 1).find((n) => n.state !== "done" && n.state !== "dropped");
   return {
     milestoneId: m.id,
     title: m.title,
@@ -1762,8 +1762,8 @@ const MADE_FROM_EXECUTION: StoryDto[] = [
 ];
 export function setMakeReadyInFixture(on: boolean): void {
   for (const s of MADE_FROM_EXECUTION) {
-    const at = STORIES.findIndex((x) => x.id === s.id);
-    if (at >= 0) STORIES.splice(at, 1);
+    const index = STORIES.findIndex((x) => x.id === s.id);
+    if (index >= 0) STORIES.splice(index, 1);
   }
   delete CRITERIA["s-12"];
   if (!on) return;
@@ -1808,7 +1808,7 @@ export function setJudgedOnInFixture(on: boolean): void {
   judgedOn = on;
 }
 
-const NEEDS_YOU_RANK: Record<string, number> = {
+const NEEDS_YOU_RANK: Record<NeedsYouItemDto["kind"], number> = {
   gated_action: 1,
   permission_request: 1,
   question: 1,
@@ -1953,10 +1953,10 @@ function needsYouOf(projectId: string): NeedsYouItemDto[] {
       );
     }
     const triage = triageList();
-    if (triage.length > 0) {
+    const oldest = triage.map((t) => t.proposal.createdAt).sort()[0];
+    if (oldest !== undefined) {
       const stories = new Set(triage.map((t) => t.storyId)).size;
       const epics = new Set(triage.map((t) => t.proposal.epicId).filter(Boolean)).size;
-      const oldest = triage.map((t) => t.proposal.createdAt).sort()[0];
       items.push(
         needsYouItem(
           "proposals",
@@ -2154,11 +2154,11 @@ const REVIEW_DECISIONS: DecisionChangeDto[] = [
 /** `adr_flags` (issue #164): the same changes, flagged and decided. */
 const FLAGGED_DECISIONS: DecisionChangeDto[] = [
   {
-    ...REVIEW_DECISIONS[0],
+    ...at(REVIEW_DECISIONS, 0),
     flags: [{ kind: "wording_or_supersede", number: null, takenBy: null, baseBranch: null, superseded: null }],
   },
   {
-    ...REVIEW_DECISIONS[1],
+    ...at(REVIEW_DECISIONS, 1),
     flags: [
       {
         kind: "renumber",
@@ -2177,9 +2177,9 @@ const FLAGGED_DECISIONS: DecisionChangeDto[] = [
     ],
   },
   {
-    ...REVIEW_DECISIONS[2],
-    newAdr: REVIEW_DECISIONS[2].newAdr && {
-      ...REVIEW_DECISIONS[2].newAdr,
+    ...at(REVIEW_DECISIONS, 2),
+    newAdr: {
+      ...present(at(REVIEW_DECISIONS, 2).newAdr, "the third decision's new ADR"),
       decision: {
         kind: "wrong_decision",
         whatIsWrong: "Barlow's figures are not tabular, so counts jitter as they change",
@@ -2188,13 +2188,13 @@ const FLAGGED_DECISIONS: DecisionChangeDto[] = [
     },
   },
   {
-    ...REVIEW_DECISIONS[3],
-    newAdr: REVIEW_DECISIONS[3].newAdr && {
-      ...REVIEW_DECISIONS[3].newAdr,
+    ...at(REVIEW_DECISIONS, 3),
+    newAdr: {
+      ...present(at(REVIEW_DECISIONS, 3).newAdr, "the fourth decision's new ADR"),
       decision: { kind: "not_an_adr", whatIsWrong: null, shouldBe: null },
     },
   },
-  REVIEW_DECISIONS[4],
+  at(REVIEW_DECISIONS, 4),
 ];
 
 /** The ADR review points the core writes for `adr_flags`, in its order: by ADR path. */
