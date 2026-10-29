@@ -22,8 +22,7 @@ jobs:
     # Bounded: observed 8.9 min (one run).
     timeout-minutes: 25
     steps:
-      # fetch-depth 0: the release-notes step reads history between tags, and the gate below
-      # reads main.
+      # fetch-depth 0: the gate below reads main.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
@@ -46,6 +45,22 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: node scripts/release/apply-tag-version.mjs "$TAG"
 
+      # The release body is CHANGELOG.md's section for the tag, written in the changes that made
+      # it, in a user's words; the commit subjects it replaced were written for developers. Here,
+      # before any toolchain: a tag whose version has no section with an entry fails and builds
+      # nothing. A release is prepared by moving the Unreleased entries under its version.
+      - name: Release notes from the changelog
+        id: notes
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          node scripts/release/changelog-notes.mjs "$TAG" > release-notes.md
+          {
+            echo 'body<<NOTES_EOF'
+            cat release-notes.md
+            echo 'NOTES_EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
@@ -66,27 +81,6 @@ jobs:
       # build when a bundle.externalBin file is missing, so a fresh clone cannot compile or test
       # until the three binaries/flywheel-* files exist.
       - run: npm --prefix packages/sidecar run build:dist
-
-      # These commit subjects are the release's "what changed" text: real history, never a placeholder.
-      - name: Release notes from history
-        id: notes
-        env:
-          TAG: ${{ github.ref_name }}
-        run: |
-          if PREV=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null); then
-            RANGE="$PREV..$TAG"
-          else
-            RANGE="$TAG"
-          fi
-          # Capped: with no previous tag the range is the whole history, which on the first throwaway
-          # tag was 116,932 characters against GitHub's 125,000-character release-body limit.
-          git log --max-count=200 --pretty=format:'- %s' "$RANGE" > release-notes.md
-          {
-            echo 'body<<NOTES_EOF'
-            cat release-notes.md
-            echo
-            echo 'NOTES_EOF'
-          } >> "$GITHUB_OUTPUT"
 
       # Not Apple-signed on purpose (D-185): nothing but criterion 1 waits on an Apple account.
       # Env group added later, NOT here:
