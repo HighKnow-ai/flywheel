@@ -40,6 +40,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -105,6 +107,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -131,6 +135,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -179,6 +185,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -195,6 +203,18 @@ jobs:
 
       - run: npm --prefix packages/desktop run build
 
+      # THE WORKFLOWS THEMSELVES, where they run: zizmor's security audits (template injection,
+      # permissions, persisted credentials, cache poisoning) and actionlint's schema checks, each
+      # at an exact version. The private source of truth runs both before every export; this copy
+      # covers a pull request opened here. A finding that is a deliberate design carries a
+      # `# zizmor: ignore[...]` at its line with the reason above it. actionlint's shellcheck pass
+      # is off here (`-shellcheck=`) because the runner's shellcheck is not pinned; the source of
+      # truth runs it with a pinned one.
+      - name: Lint the workflows (zizmor, actionlint)
+        run: |
+          pipx run zizmor==1.31.1 --offline --quiet .github/workflows
+          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -shellcheck= -oneline .github/workflows/*.yml
+
   browser:
     name: Desktop browser tests
     runs-on: macos-15
@@ -202,6 +222,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -255,6 +277,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -340,7 +364,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0 # zizmor: ignore[artipacked] the deploy key is for the promote push below
         with:
           fetch-depth: 0
           ssh-key: ${{ secrets.PROMOTE_DEPLOY_KEY }}

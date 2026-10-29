@@ -25,6 +25,7 @@ jobs:
       # fetch-depth 0: the gate below reads main.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       # A release is built only from a commit ci.yml passed. `main` holds nothing else (it moves
@@ -61,7 +62,13 @@ jobs:
             echo 'NOTES_EOF'
           } >> "$GITHUB_OUTPUT"
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      # CACHES ON A RELEASE, AND WHY zizmor's cache-poisoning FINDING IS IGNORED ON BOTH. A tag run
+      # restores only entries its own ref or the default branch wrote; a fork's pull request writes
+      # to its own merge ref, which no tag run can read. So every entry here was written by a run
+      # of code already pushed to this repository's branches by the export, which is the access a
+      # release needs anyway. Without the two caches this build is a cold Rust compile on macOS,
+      # several times the observed 8.9 min; npm still checks every package against the lockfile.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0 # zizmor: ignore[cache-poisoning] see "CACHES ON A RELEASE" above
         with:
           node-version: 22
           cache: npm
@@ -71,7 +78,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # 2026-10-16, the stable branch (it has no release tags)
 
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3 # zizmor: ignore[cache-poisoning] see "CACHES ON A RELEASE" above
 
       - run: npm --prefix packages/sidecar ci
 
