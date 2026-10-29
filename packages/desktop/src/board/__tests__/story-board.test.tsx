@@ -574,12 +574,17 @@ describe("StoryBoard: the roster reads at a glance (issue #202)", () => {
     milestoneList.mockResolvedValue([milestone("m1", "M1")]);
     let land: (stories: ReturnType<typeof story>[]) => void = () => {};
     storyListForProject.mockReturnValue(new Promise((resolve) => (land = resolve)));
+    // TIMED FROM THE RENDER, NOT FROM SEEING THE SKELETON. `findByLabelText` notices the skeleton
+    // some time after it was drawn, so a clock started there under-measures the hold by that lag
+    // (349 ms, under a loaded pre-push gate). From the render the skeleton cannot be gone before
+    // 150 ms of nothing plus 350 ms of skeleton, and any lag only adds. Less 2 ms: Node may fire
+    // each of the two timers up to 1 ms early by `Date.now()`'s whole milliseconds.
+    const renderedAt = Date.now();
     renderBoard();
     await screen.findByLabelText("Loading the roster");
-    const shownAt = Date.now();
     land([story("s1", "FLY-2", "One", "ready")]);
     await waitFor(() => expect(screen.queryByLabelText("Loading the roster")).toBeNull());
-    expect(Date.now() - shownAt).toBeGreaterThanOrEqual(350);
+    expect(Date.now() - renderedAt).toBeGreaterThanOrEqual(150 + 350 - 2);
   });
 
   it("shows ReadError with Try again when the Stories cannot be read, and Try again reads them again", async () => {
