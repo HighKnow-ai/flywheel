@@ -218,7 +218,7 @@ export function NeedsYouList({ projectId, className }: { projectId: string; clas
   const keys = items.map(keyOf).join("|");
   const { shown, done } = useLeavingItems(items, keyOf);
   const empty = query.isSuccess && shown.length === 0;
-  // The loading rule (DESIGN.md § Feedback): nothing for 150 ms of a first read, then the skeleton, held 400 ms.
+  // The loading rule (DESIGN.md § Feedback): nothing for 150 ms of a first read, then the skeleton, held 350 ms.
   const firstLoad = !query.isSuccess && !query.isError && shown.length === 0;
   const loadingPhase = useLoadingPhase(firstLoad);
 

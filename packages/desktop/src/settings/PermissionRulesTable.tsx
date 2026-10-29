@@ -132,7 +132,7 @@ export function PermissionRulesTable({ projects, loadingProjects = false }: Perm
   // for a non-empty roster. Never `rulesQuery.isPending` alone: it stays true for a zero-project roster, where
   // the query is disabled and never settles.
   const loading = loadingProjects || (rulesQuery.isPending && projects.length > 0);
-  // The loading rule (DESIGN.md § Feedback): nothing for 150 ms, then the skeleton, held at least 400 ms.
+  // The loading rule (DESIGN.md § Feedback): nothing for 150 ms, then the skeleton, held at least 350 ms.
   const loadingPhase = useLoadingPhase(loading);
   if (loadingPhase === "skeleton") return <RowsSkeleton />;
   if (loading) return null;

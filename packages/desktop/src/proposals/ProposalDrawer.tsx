@@ -403,7 +403,7 @@ function TriageList({
   const groups = groupsOf(shown.map((s) => s.item));
   const leavingIds = new Set(shown.filter((s) => s.leaving).map((s) => s.key));
   const empty = loaded && shown.length === 0;
-  // The loading rule (DESIGN.md § Feedback): nothing for 150 ms of a first read, then the skeleton, held 400 ms.
+  // The loading rule (DESIGN.md § Feedback): nothing for 150 ms of a first read, then the skeleton, held 350 ms.
   const firstLoad = !loaded && !query.isError && shown.length === 0;
   const loadingPhase = useLoadingPhase(firstLoad);
 

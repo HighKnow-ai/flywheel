@@ -138,7 +138,7 @@ function AppShell() {
   // Boot (critique F47, issue #210): the shell in its own shape, the rail and the board drawn as
   // Skeletons, until the first project list resolves. No copy and no spinner (DESIGN.md § Feedback). The
   // design system's loading rule: the floor alone for the first 150 ms, so a fast boot never flashes the
-  // skeleton, and once drawn the skeleton holds at least 400 ms.
+  // skeleton, and once drawn the skeleton holds at least 350 ms.
   const bootPhase = useLoadingPhase(projectsQuery.isPending);
   if (bootPhase !== "ready" || !projectsQuery.data) {
     return (

@@ -69,7 +69,7 @@ export function StoryView({ projectId, projectName, storyId, onBack }: StoryView
     queryFn: () => storyGet(storyId),
   });
   const story = storyQuery.data ?? null;
-  // The loading rule (DESIGN.md § Feedback): nothing for 150 ms, then the skeleton, held at least 400 ms.
+  // The loading rule (DESIGN.md § Feedback): nothing for 150 ms, then the skeleton, held at least 350 ms.
   const storyPhase = useLoadingPhase(storyQuery.isPending);
 
   return (

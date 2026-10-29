@@ -128,7 +128,7 @@ function beforeIdFor(milestones: MilestoneDto[], from: number, to: number): stri
 export function RoadmapStrip({ projectId }: { projectId: string }) {
   const roadmap = useRoadmap(projectId);
   const milestones = roadmap.data ?? [];
-  // The loading rule (DESIGN.md § Feedback): nothing for 150 ms, then the skeleton, held at least 400 ms.
+  // The loading rule (DESIGN.md § Feedback): nothing for 150 ms, then the skeleton, held at least 350 ms.
   const roadmapPhase = useLoadingPhase(roadmap.isPending);
   const roundView = useRoadmapRound(projectId).data;
   const openRound = roundView?.open ?? null;

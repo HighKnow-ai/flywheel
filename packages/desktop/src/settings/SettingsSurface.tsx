@@ -469,7 +469,7 @@ export function SettingsSurface({ onBack }: SettingsSurfaceProps) {
 
   const settings = settingsQuery.data;
   const loading = settingsQuery.isPending;
-  // The loading rule (DESIGN.md § Feedback): nothing for 150 ms, then the skeleton, held at least 400 ms.
+  // The loading rule (DESIGN.md § Feedback): nothing for 150 ms, then the skeleton, held at least 350 ms.
   const credentialsPhase = useLoadingPhase(loading);
   const projects = projectsQuery.data ?? [];
   const backendUnavailable = backendQuery.data ? !backendQuery.data.available : false;

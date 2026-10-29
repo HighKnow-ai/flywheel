@@ -558,7 +558,7 @@ export function SessionList({ projectId, story }: { projectId: string; story: St
     queryFn: () => sessionSummariesForStory(story.id),
   });
   const now = Date.now();
-  // The loading rule (DESIGN.md § Feedback): nothing for 150 ms, then the skeleton, held at least 400 ms.
+  // The loading rule (DESIGN.md § Feedback): nothing for 150 ms, then the skeleton, held at least 350 ms.
   const loadingPhase = useLoadingPhase(sessionsQuery.isPending);
 
   if (loadingPhase === "skeleton") return <ListSkeleton rows={2} label="Loading the sessions" />;

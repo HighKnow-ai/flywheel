@@ -236,7 +236,7 @@ function StoryRoster({
   // A failed read is the one error state (DESIGN.md § Feedback). Without the Stories there is no roster, so the
   // ReadError takes its place; without the roster's own read (`roster_rows`) the Stories still list, under a
   // ReadError saying their attention and actions could not be read.
-  // The loading rule (DESIGN.md § Feedback): nothing for 150 ms, then the skeleton, held at least 400 ms.
+  // The loading rule (DESIGN.md § Feedback): nothing for 150 ms, then the skeleton, held at least 350 ms.
   if (loadingPhase === "skeleton") return <RosterSkeleton />;
   if (storiesQuery.isError) return <ReadError title="Couldn't load the roster" query={storiesQuery} />;
   if (storiesQuery.isPending) return null;

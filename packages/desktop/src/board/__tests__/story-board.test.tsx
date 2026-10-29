@@ -570,7 +570,7 @@ describe("StoryBoard: the roster reads at a glance (issue #202)", () => {
     expect(screen.queryByLabelText("Loading the roster")).toBeNull();
   });
 
-  it("holds the roster's skeleton at least 400 ms once it has shown", async () => {
+  it("holds the roster's skeleton at least 350 ms once it has shown", async () => {
     milestoneList.mockResolvedValue([milestone("m1", "M1")]);
     let land: (stories: ReturnType<typeof story>[]) => void = () => {};
     storyListForProject.mockReturnValue(new Promise((resolve) => (land = resolve)));
