@@ -49,7 +49,7 @@ export function resolveClaudeBin(): string {
  * than surfacing as an error (02-RESEARCH.md's Environment Availability fallback note; the
  * adapter's own capability-probe pattern).
  */
-export function probeClaudeBinary(): Promise<{ available: boolean; version?: string }> {
+export function probeClaudeBinary(): Promise<{ available: boolean; version?: string | undefined }> {
   return new Promise((resolve) => {
     const bin = resolveClaudeBin();
     let child: ReturnType<typeof spawn>;
@@ -246,12 +246,12 @@ export function buildClaudeArgv(options: {
    * next one. Omitted or empty, the flag is left out. The Rust core's launch policy fills it per
    * session kind: a Story session's carries Bash and the Task board tools (issue #52), so a
    * checklist write never waits on a permission card. */
-  allowedTools?: string[];
+  allowedTools?: string[] | undefined;
   /** `--disallowedTools`, joined the same way. */
-  disallowedTools?: string[];
-  permissionPromptToolName?: string;
-  mcpConfig?: string;
-  settingsPath?: string;
+  disallowedTools?: string[] | undefined;
+  permissionPromptToolName?: string | undefined;
+  mcpConfig?: string | undefined;
+  settingsPath?: string | undefined;
 }): string[] {
   const argv = [
     "-p",
@@ -1008,9 +1008,9 @@ function lastParseableLifecycleEvent(runtimeDir: string, runId: string): string 
     return undefined;
   }
   const lines = contents.split("\n").filter((line) => line.trim().length > 0);
-  for (let i = lines.length - 1; i >= 0; i -= 1) {
+  for (const line of [...lines].reverse()) {
     try {
-      const parsed = JSON.parse(lines[i]) as { event?: unknown };
+      const parsed = JSON.parse(line) as { event?: unknown };
       return typeof parsed.event === "string" ? parsed.event : undefined;
     } catch {
       // This particular line did not parse — keep walking backward for the previous one.

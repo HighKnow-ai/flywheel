@@ -19,6 +19,8 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "verbatimModuleSyntax": true,
 
     /* shadcn/ui imports (ADR 0004) */
     "paths": { "@/*": ["./src/*"] }

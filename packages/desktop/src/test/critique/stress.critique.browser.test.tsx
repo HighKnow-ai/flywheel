@@ -28,11 +28,11 @@ const { LONG_STORY, REVIEW_STORY } = STRESS;
 
 /** Catches a render error, so a screen that crashes (as s33 did before #197) fails its own test, not the whole run. */
 class CrashBoundary extends Component<{ children: ReactNode }, { crashed: boolean }> {
-  state = { crashed: false };
+  override state = { crashed: false };
   static getDerivedStateFromError() {
     return { crashed: true };
   }
-  render() {
+  override render() {
     return this.state.crashed ? <p role="alert">The app crashed</p> : this.props.children;
   }
 }

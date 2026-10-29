@@ -25,7 +25,7 @@ interface AgentEventBase {
 export interface InitEvent extends AgentEventBase {
   type: "init";
   sessionId: string;
-  model?: string;
+  model?: string | undefined;
 }
 
 export interface AssistantTextEvent extends AgentEventBase {
@@ -189,8 +189,8 @@ export interface SystemNoticeEvent extends AgentEventBase {
 export interface ResultEvent extends AgentEventBase {
   type: "result";
   subtype: string;
-  totalCostUsd?: number;
-  sessionId?: string;
+  totalCostUsd?: number | undefined;
+  sessionId?: string | undefined;
   /** Session TOTALS reported once by the backend on its terminal result line — never accumulated
    * per message (G-02-4's "Token accounting decision"). `inputTokens` is the SUM of the backend's
    * plain, cache-creation and cache-read input token fields; a run whose backend produced no usage
@@ -198,8 +198,8 @@ export interface ResultEvent extends AgentEventBase {
    * `SessionSurface.tsx`'s `StatusStrip` scans top-level numeric fields on each loaded log entry
    * for a field named `inputTokens` — a nested placement would never be found, and this placement
    * needs no renderer change at all to make the header read the real figures. */
-  inputTokens?: number;
-  outputTokens?: number;
+  inputTokens?: number | undefined;
+  outputTokens?: number | undefined;
   /** G-05-6: the wire calls this `is_error` on the result line itself — the backend's own statement
    * that this run terminated in error. WARNING: this run's own `subtype` reads `"success"` on a
    * captured error termination (measured in `scripts/uat/fixtures/unauthenticated-cli-first-turn.json`)
@@ -237,17 +237,17 @@ export interface SessionClosedEvent extends AgentEventBase {
    * absent from the backend's own usage block. */
   result?: {
     subtype: string;
-    totalCostUsd?: number;
-    sessionId?: string;
-    inputTokens?: number;
-    outputTokens?: number;
+    totalCostUsd?: number | undefined;
+    sessionId?: string | undefined;
+    inputTokens?: number | undefined;
+    outputTokens?: number | undefined;
     /** Issue #54: the result line's own error flag, terminal reason and stop reason — what the core
      * reads the session's ending label from (docs/mvp-spec.md §4.5). Each absent when the line
      * carried none. */
     isError?: boolean;
     terminalReason?: string;
     stopReason?: string;
-  };
+  } | undefined;
   /** The backend's own explanation of why the session ended (G-02-2) — the child's retained
    * stderr tail, or a spawn error's message. Present only when there is one to show; a session
    * that closed cleanly having written nothing to stderr carries no `detail` at all (the field is
@@ -342,7 +342,7 @@ export interface RateLimitEvent extends AgentEventBase {
    * top-level status field and nothing else. Absent when the wire carried no status, or one this
    * adapter does not recognise — an unrecognised status is never concluded to mean either "go" or
    * "stop". */
-  tier?: RateLimitTier;
+  tier?: RateLimitTier | undefined;
 }
 
 /**
@@ -405,21 +405,21 @@ export interface StartSessionOptions {
   /** The session kind's permission mode, chosen by the Rust core (ADR 0001); never the developer's. */
   permissionMode: string;
   /** Tools that run without asking (`--allowedTools`), as the Rust core's launch policy names them. */
-  allowedTools?: string[];
+  allowedTools?: string[] | undefined;
   /** Tools refused without asking (`--disallowedTools`). */
-  disallowedTools?: string[];
+  disallowedTools?: string[] | undefined;
   /** `false` when the session must never raise a permission request (a shaping session): the
    * permission-prompt tool is not wired, so whatever the mode does not allow is refused. Omitted
    * means `true`. */
-  permissionPrompt?: boolean;
+  permissionPrompt?: boolean | undefined;
   /** The session kind the Rust core launched (issue #123): the board's MCP server lists each kind
    * only its own tools (`round_post` to a shaping session, the Task tools and the hand-off to a
    * Story session). Omitted means `story`. */
-  sessionKind?: "story" | "shaping";
+  sessionKind?: "story" | "shaping" | undefined;
   /** Additional environment variables to merge over `process.env` for the spawned child —
    * resolved credentials arrive here from the Rust core and are never read from disk by the
    * sidecar itself. */
-  env?: Record<string, string>;
+  env?: Record<string, string> | undefined;
   onEvent: (event: AgentEvent) => void;
 }
 
