@@ -16,9 +16,9 @@ import { notify as designNotify } from "@highknow/design";
 
 export interface NotifyOptions {
   /** One line under the title. */
-  description?: string;
+  description?: string | undefined;
   /** Offers Undo; called once if the Developer takes it. */
-  undo?: () => void;
+  undo?: (() => void) | undefined;
   /** A next step that is not Undo ("Open board"); ignored when `undo` is given. */
   action?: { label: string; onClick: () => void };
   /** Replaces a toast already up (by the id an earlier call returned) instead of stacking another. */

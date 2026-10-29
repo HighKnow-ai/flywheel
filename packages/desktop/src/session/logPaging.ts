@@ -85,7 +85,7 @@ export function nextLogPage(last: LogPage, count: number): LogPageParam | undefi
  * so the window stays bounded. */
 export function useFollowLogTail(
   query: {
-    data?: { pages: unknown[] };
+    data: { pages: unknown[] } | undefined;
     hasNextPage: boolean;
     isFetchingNextPage: boolean;
     isFetching: boolean;

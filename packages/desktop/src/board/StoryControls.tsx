@@ -146,7 +146,7 @@ export function OpenSessionControl({
   /** The live session, when the caller already knows it (the roster); left out, it is read. */
   sessionId?: string | null;
   variant?: "outline" | "default";
-  className?: string;
+  className?: string | undefined;
 }) {
   const liveSessionId = useLiveSessionId(projectId, story, sessionId);
   const setActiveSessionId = useUiStore((state) => state.setActiveSessionId);
@@ -398,7 +398,7 @@ export function StoryStateWord({
   waitingOnYou: boolean;
   /** Print the ending reason in the pill ("Stopped: crash"), where nothing beside it says it. */
   withReason?: boolean;
-  className?: string;
+  className?: string | undefined;
 }) {
   // A Stopped Story has no live session, so it is never Waiting on you (the core agrees).
   if (stopped) {
@@ -655,7 +655,7 @@ export function ListSkeleton({ rows, label }: { rows: number; label: string }) {
  * about 20K tokens: an icon and the words, and a Tooltip saying what to do. Keyed under the project so
  * `board:changed` keeps it current.
  */
-export function PacketSize({ story, className }: { story: StoryDto; className?: string }) {
+export function PacketSize({ story, className }: { story: StoryDto; className?: string | undefined }) {
   const sizeQuery = useQuery({
     queryKey: ["board", story.projectId, "packet-size", story.id],
     queryFn: () => storyContextPacketSize(story.id),

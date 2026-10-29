@@ -119,7 +119,7 @@ function Panel({
   icon: ReactNode;
   count?: ReactNode;
   children: ReactNode;
-  className?: string;
+  className?: string | undefined;
 }) {
   return (
     <section aria-labelledby={id} className={cn("rounded-lg border border-border bg-card shadow-card", className)}>
@@ -161,8 +161,8 @@ export function stationTail(rows: FeedRowData[], length = STATION_TAIL_LENGTH): 
   let sawTurn = false;
   for (let i = rows.length - 1; i >= 0 && tail.length < length; i -= 1) {
     const row = rows[i];
-    if (row.kind === "tool_call") tail.unshift(row);
-    else if (row.kind === "assistant_text" && !sawTurn && row.text.trim() !== "") {
+    if (row?.kind === "tool_call") tail.unshift(row);
+    else if (row?.kind === "assistant_text" && !sawTurn && row.text.trim() !== "") {
       sawTurn = true;
       tail.unshift(row);
     }

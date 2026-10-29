@@ -288,7 +288,7 @@ function CountBox({
   icon: IconName;
   /** The bar segment's swatch, drawn along the top edge: this box is that segment's legend. */
   swatch?: string;
-  swatchStyle?: CSSProperties;
+  swatchStyle?: CSSProperties | undefined;
   /** Waiting on you with a Story waiting: the box takes the yellow fill. */
   lit?: boolean;
   /** A count that is not progress (Dropped): secondary ink. */

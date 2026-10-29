@@ -75,7 +75,7 @@ function RowsSkeleton() {
 
 /** A cell's text on one line, cut with an ellipsis inside its column, the whole text in a Tooltip: a cell that
  * names granted authority never hides any of it. */
-function TruncatedText({ text, className }: { text: string; className?: string }) {
+function TruncatedText({ text, className }: { text: string; className?: string | undefined }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>

@@ -173,7 +173,7 @@ export function isIconName(name: string): name is IconName {
  * A Lucide glyph by name, at the direction's 2px stroke: 16px by default, 15px inside pills, 18px in
  * navigation. Decorative (`aria-hidden`): every icon sits next to its word. An unknown name draws nothing.
  */
-export function Icon({ name, size = 16, className }: { name: string; size?: number; className?: string }) {
+export function Icon({ name, size = 16, className }: { name: string; size?: number; className?: string | undefined }) {
   if (!isIconName(name)) return null;
   const Glyph = ICONS[name];
   return <Glyph size={size} strokeWidth={2} aria-hidden="true" className={className} />;

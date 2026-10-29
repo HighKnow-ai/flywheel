@@ -112,7 +112,7 @@ export function StoryFormDialog({
 }: {
   projectId: string;
   mode: "story" | "epic" | null;
-  preset?: StoryFormPreset;
+  preset?: StoryFormPreset | undefined;
   onClose: () => void;
 }) {
   return (
@@ -144,7 +144,7 @@ function StoryForm({
 }: {
   projectId: string;
   withStory: boolean;
-  preset?: StoryFormPreset;
+  preset?: StoryFormPreset | undefined;
   onDone: () => void;
 }) {
   const queryClient = useQueryClient();

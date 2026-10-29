@@ -101,11 +101,10 @@ function withoutGitGlobalOptions(tokens: string[]): string[] {
   if (tokens[0] !== "git") return tokens;
   const rest: string[] = [];
   let i = 1;
-  while (i < tokens.length && tokens[i].startsWith("-")) {
-    const option = tokens[i];
+  for (let option = tokens[i]; option?.startsWith("-"); option = tokens[i]) {
     i += option === "-C" || option === "-c" || option === "--git-dir" || option === "--work-tree" ? 2 : 1;
   }
-  for (; i < tokens.length; i += 1) rest.push(tokens[i]);
+  rest.push(...tokens.slice(i));
   return ["git", ...rest];
 }
 
@@ -120,8 +119,9 @@ function refspecTargetBranch(refspec: string): string {
  * `git push <remote> <refspec>`; a lone positional is the remote, which names no branch. */
 function pushDestinationBranch(tokens: string[]): string | undefined {
   const positionals = tokens.slice(2).filter((t) => !t.startsWith("-"));
-  if (positionals.length < 2) return undefined;
-  return refspecTargetBranch(positionals[positionals.length - 1]);
+  const last = positionals[positionals.length - 1];
+  if (positionals.length < 2 || last === undefined) return undefined;
+  return refspecTargetBranch(last);
 }
 
 /** `["git", "branch", ...args]` — the first non-flag positional is the target of
@@ -540,7 +540,7 @@ function QuestionRequestRow({
   onAnswerQuestion,
 }: {
   request: PendingPermissionRequest;
-  onAnswerQuestion?: (requestId: string, picks: QuestionPicks) => Promise<void>;
+  onAnswerQuestion?: ((requestId: string, picks: QuestionPicks) => Promise<void>) | undefined;
 }) {
   const questions = questionsFromPayload(request.inputPayload);
   return (

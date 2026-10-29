@@ -193,7 +193,7 @@ function OutputTail({ text }: { text: string }) {
  * The handing-off agent's objections to one Check, beside it: what the developer weighs before overriding
  * or editing the Check. When the agent objected to an earlier command, that command is named.
  */
-function CheckObjections({ check, className }: { check: ReviewCheckDto; className?: string }) {
+function CheckObjections({ check, className }: { check: ReviewCheckDto; className?: string | undefined }) {
   if (check.objections.length === 0) return null;
   return (
     <ul
@@ -514,7 +514,7 @@ function MergeControl({
   review: StoryReviewDto;
   blockers: string[];
   onPending: (pending: boolean) => void;
-  onMerged?: (outcome: MergeDto) => void;
+  onMerged?: ((outcome: MergeDto) => void) | undefined;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -737,7 +737,7 @@ export interface ReviewCardProps {
   projectId: string;
   story: StoryDto;
   /** Called once the merge commit is on the base branch. */
-  onMerged?: (outcome: MergeDto) => void;
+  onMerged?: ((outcome: MergeDto) => void) | undefined;
 }
 
 export function ReviewCard({ projectId, story, onMerged }: ReviewCardProps) {

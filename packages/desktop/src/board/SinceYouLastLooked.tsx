@@ -62,6 +62,8 @@ export function eventSentence(description: string): string {
   const move = STATE_MOVE.exec(description);
   if (!move) return description;
   const [, record, from, to] = move;
+  // All three groups are outside any optional part, so a match always sets them.
+  if (record === undefined || from === undefined || to === undefined) return description;
   return `Moved ${record} from ${stateWordOf(from)} to ${stateWordOf(to)}`;
 }
 
@@ -126,7 +128,7 @@ function Timeline({ visit }: { visit: UseQueryResult<SinceLastLookedDto> }) {
               <span className="font-semibold tabular-nums">{total === 1 ? "1 event" : `${total} events`}</span>
               {" since you last looked"}
             </span>
-            {events.length > 0 && (
+            {events[0] && (
               <span className="ml-auto shrink-0 text-meta text-subtle-foreground tabular-nums">
                 {`over the last ${formatAge(events[0].occurredAt, now)}`}
               </span>

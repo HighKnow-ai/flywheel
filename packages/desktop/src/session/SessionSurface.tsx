@@ -90,7 +90,7 @@ export function openQuestionRows(rows: FeedRowData[], pending: PendingPermission
     for (let i = rows.length - 1; i >= 0; i -= 1) {
       const row = rows[i];
       if (
-        row.kind === "question" &&
+        row?.kind === "question" &&
         row.answer === undefined &&
         !byRow.has(row.key) &&
         sameQuestions(row.questions, questions)
@@ -127,7 +127,7 @@ function latestNumericField(entries: Record<string, unknown>[], fields: string[]
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const event = entries[i];
     for (const field of fields) {
-      const value = event[field];
+      const value = event?.[field];
       if (typeof value === "number") return value;
     }
   }
@@ -280,10 +280,13 @@ interface TerminalInfo {
 export function findTerminalInfo(entries: Record<string, unknown>[]): TerminalInfo | undefined {
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const event = entries[i];
-    if (event.type === "session_closed" && isRunStatus(event.reason)) {
+    if (event?.type === "session_closed" && isRunStatus(event.reason)) {
       const result = event.result as { subtype?: string } | undefined;
-      const detail = typeof event.detail === "string" ? event.detail : undefined;
-      return { reason: event.reason, subtype: result?.subtype, detail };
+      return {
+        reason: event.reason,
+        ...(result?.subtype !== undefined && { subtype: result.subtype }),
+        ...(typeof event.detail === "string" && { detail: event.detail }),
+      };
     }
   }
   return undefined;
@@ -720,8 +723,12 @@ export function SessionSurface({
   const rowVirtualizer = useVirtualizer({
     count: feedRows.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: (index) => feedRowEstimateSize(feedRows[index], expanded.has(feedRows[index].key)),
-    getItemKey: (index) => feedRows[index].key,
+    // The virtualizer asks only for indexes below `count`, which is `feedRows.length`.
+    estimateSize: (index) => {
+      const row = feedRows[index];
+      return row ? feedRowEstimateSize(row, expanded.has(row.key)) : 0;
+    },
+    getItemKey: (index) => feedRows[index]?.key ?? index,
     measureElement: (element) => {
       const measured = element.getBoundingClientRect().height;
       if (measured > 0) return measured;
@@ -962,6 +969,8 @@ export function SessionSurface({
                     >
                       {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                         const row = feedRows[virtualRow.index];
+                        if (!row) return null; // the virtualizer's items are all below `count`
+                        const questionRequestId = questionRows.get(row.key);
                         return (
                           <div
                             key={row.key}
@@ -985,12 +994,11 @@ export function SessionSurface({
                               expanded={expanded.has(row.key)}
                               onToggleExpand={() => toggle(row.key)}
                               live={row.key === liveRowKey}
-                              onAnswerQuestion={
-                                questionRows.has(row.key)
-                                  ? (picks) => handleAnswerQuestion(questionRows.get(row.key) as string, picks)
-                                  : undefined
-                              }
-                              questionDraftKey={questionRows.get(row.key)}
+                              {...(questionRequestId !== undefined && {
+                                onAnswerQuestion: (picks: QuestionPicks) =>
+                                  handleAnswerQuestion(questionRequestId, picks),
+                                questionDraftKey: questionRequestId,
+                              })}
                               root={root}
                             />
                           </div>

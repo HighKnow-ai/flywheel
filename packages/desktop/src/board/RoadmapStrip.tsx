@@ -122,7 +122,7 @@ function isClosed(milestone: MilestoneDto): boolean {
 
 /** Where `milestones[from]` lands when it moves to `to`'s place: before the Milestone that will follow it. */
 function beforeIdFor(milestones: MilestoneDto[], from: number, to: number): string | null {
-  return from > to ? milestones[to].id : (milestones[to + 1]?.id ?? null);
+  return (from > to ? milestones[to]?.id : milestones[to + 1]?.id) ?? null;
 }
 
 export function RoadmapStrip({ projectId }: { projectId: string }) {

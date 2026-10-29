@@ -38,7 +38,7 @@ export function matchWords(value: string, search: string, keywords?: string[]): 
 
 function startsAWord(haystack: string, word: string): boolean {
   for (let at = haystack.indexOf(word); at !== -1; at = haystack.indexOf(word, at + 1)) {
-    if (at === 0 || !/[\p{L}\p{N}]/u.test(haystack[at - 1])) return true;
+    if (at === 0 || !/[\p{L}\p{N}]/u.test(haystack.charAt(at - 1))) return true;
   }
   return false;
 }

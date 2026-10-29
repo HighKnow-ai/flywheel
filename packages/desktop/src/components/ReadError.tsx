@@ -25,7 +25,7 @@ export function ReadError({
   title: string;
   description?: string;
   query: ReadErrorQuery;
-  className?: string;
+  className?: string | undefined;
 }) {
   return (
     <DesignReadError

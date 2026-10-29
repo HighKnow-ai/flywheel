@@ -46,7 +46,7 @@ export interface QuestionFormProps {
   /** Resolves once the answer is stored and relayed; a rejection shows its reason and re-enables the form. */
   onSubmit: (picks: QuestionPicks) => Promise<void>;
   /** The request id the draft is kept under. Without one, the draft lives and dies with the form. */
-  draftKey?: string;
+  draftKey?: string | undefined;
 }
 
 type Choice = QuestionDraft;
@@ -75,7 +75,7 @@ function ChoiceCard({
 }: {
   id: string;
   title: string;
-  description?: string;
+  description?: string | undefined;
   extra?: ReactNode;
   children: ReactNode;
 }) {
@@ -254,9 +254,12 @@ export function QuestionForm({ questions, onSubmit, draftKey }: QuestionFormProp
                 <RadioGroup
                   aria-labelledby={`${ids}-text`}
                   value={choice.other ? OTHER : (optionValue(q.options, choice.labels[0]) ?? "")}
-                  onValueChange={(value) =>
-                    value === OTHER ? pickOther(i, false) : pickOption(i, q.options[Number(value)].label, false)
-                  }
+                  onValueChange={(value) => {
+                    if (value === OTHER) return pickOther(i, false);
+                    // Every other value is `String(j)` of an option this group rendered.
+                    const option = q.options[Number(value)];
+                    if (option) pickOption(i, option.label, false);
+                  }}
                   disabled={sending}
                   className="gap-2"
                 >

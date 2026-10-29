@@ -89,7 +89,7 @@ export function toolCallTarget(input: unknown): string {
 export function toolCallLabel(
   toolName: string,
   input: unknown,
-  options: { live?: boolean; output?: unknown; root?: string | null } = {},
+  options: { live?: boolean; output?: unknown; root?: string | null | undefined } = {},
 ): string {
   const described = describeToolCall({ toolName, input, output: options.output }, { root: options.root });
   const verb = options.live ? described.liveVerb : described.verb;
@@ -286,8 +286,8 @@ const GIT_OPTIONS_WITH_VALUE = new Set(["-C", "-c", "--git-dir", "--work-tree", 
 function isReadOnlyGitInvocation(words: string[]): boolean {
   if (words[0] !== "git") return false;
   let i = 1;
-  while (i < words.length && words[i].startsWith("-")) {
-    i += GIT_OPTIONS_WITH_VALUE.has(words[i]) ? 2 : 1;
+  for (let word = words[i]; word?.startsWith("-"); word = words[i]) {
+    i += GIT_OPTIONS_WITH_VALUE.has(word) ? 2 : 1;
   }
   const sub = words[i];
   const args = words.slice(i + 1);
@@ -330,10 +330,11 @@ export function isReadOnlyGitCommand(command: string): boolean {
   for (const segment of segments) {
     if (!segment) return false;
     const [head, ...pipes] = segment.split("|").map((s) => s.trim());
+    if (head === undefined) return false; // `split` always yields at least one piece
     const words = head.split(/\s+/).map((w) => w.replace(/^["']|["']$/g, ""));
     if (words[0] === "cd" && words.length <= 2 && pipes.length === 0) continue;
     if (!isReadOnlyGitInvocation(words)) return false;
-    if (pipes.some((p) => !PIPE_FILTERS.has(p.split(/\s+/)[0]))) return false;
+    if (pipes.some((p) => !PIPE_FILTERS.has(p.split(/\s+/)[0] ?? ""))) return false;
     sawGit = true;
   }
   return sawGit;
@@ -379,7 +380,7 @@ export function questionsFromPayload(inputPayload: string | null): QuestionPromp
 /** Whether two question lists ask the same questions, in the same order: how the feed's question
  * card finds the pending request it answers. */
 export function sameQuestions(a: QuestionPrompt[], b: QuestionPrompt[]): boolean {
-  return a.length > 0 && a.length === b.length && a.every((q, i) => q.question === b[i].question);
+  return a.length > 0 && a.length === b.length && a.every((q, i) => q.question === b[i]?.question);
 }
 
 function questionsFrom(event: Record<string, unknown>): QuestionPrompt[] {
@@ -452,9 +453,10 @@ export function buildFeedRows(entries: Record<string, unknown>[]): FeedRowData[]
     if (type === "tool_progress") {
       const id = typeof event.toolUseId === "string" ? event.toolUseId : undefined;
       const slot = id ? pendingById.get(id) : undefined;
-      const target = typeof slot === "number" ? rows[slot] : undefined;
-      if (target && target.kind === "tool_call" && typeof event.elapsedSeconds === "number") {
-        rows[slot as number] = { ...target, elapsedSeconds: event.elapsedSeconds };
+      if (typeof slot !== "number") return;
+      const target = rows[slot];
+      if (target?.kind === "tool_call" && typeof event.elapsedSeconds === "number") {
+        rows[slot] = { ...target, elapsedSeconds: event.elapsedSeconds };
       }
       return;
     }
@@ -465,10 +467,10 @@ export function buildFeedRows(entries: Record<string, unknown>[]): FeedRowData[]
       if (slot === null) return; // the call was filtered out; so is its result
       if (typeof slot === "number") {
         const target = rows[slot];
-        if (target.kind === "tool_call" || target.kind === "proposal") {
+        if (target?.kind === "tool_call" || target?.kind === "proposal") {
           const endedAt = target.kind === "tool_call" && typeof event.at === "string" ? { endedAt: event.at } : {};
           rows[slot] = { ...target, output: event.output, ...isError, ...endedAt };
-        } else if (target.kind === "question") {
+        } else if (target?.kind === "question") {
           rows[slot] = { ...target, answer: event.output };
         }
         return;
@@ -541,7 +543,7 @@ export function buildFeedRows(entries: Record<string, unknown>[]): FeedRowData[]
 export function findLiveCallKey(rows: FeedRowData[]): string | null {
   for (let i = rows.length - 1; i >= 0; i -= 1) {
     const row = rows[i];
-    if (row.kind === "tool_call" && row.output === undefined) return row.key;
+    if (row?.kind === "tool_call" && row.output === undefined) return row.key;
   }
   return null;
 }

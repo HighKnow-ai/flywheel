@@ -82,8 +82,8 @@ const TOKEN_UNITS = [
 export function formatTokens(count: number | null | undefined): string {
   if (count === null || count === undefined || !Number.isFinite(count) || count < 0) return MISSING;
   if (count < 1000) return String(Math.round(count));
-  for (let index = TOKEN_UNITS.length - 1; index >= 0; index -= 1) {
-    const unit = TOKEN_UNITS[index];
+  // Smallest unit first, each read against the unit above it (none above the largest).
+  for (const [index, unit] of [...TOKEN_UNITS.entries()].reverse()) {
     const scaled = Number((count / unit.at).toPrecision(3));
     const next = TOKEN_UNITS[index - 1];
     // 999_999 rounds to 1000K: it belongs to the next unit up.

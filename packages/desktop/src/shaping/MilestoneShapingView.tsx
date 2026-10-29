@@ -357,7 +357,7 @@ function EditButton({
   edit: HandEdit;
   value: string;
   label: string;
-  className?: string;
+  className?: string | undefined;
 }) {
   return (
     <Button

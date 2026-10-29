@@ -97,12 +97,12 @@ export interface StateBadgeProps {
    */
   variant?: "pill" | "inline";
   /** The caller's own word, when the state's word would mislead or needs its reason ("Stopped: crash"). */
-  label?: string;
+  label?: string | undefined;
   /** Do not draw the word; the icon carries it as an accessible name. The word is never dropped silently. */
   hideLabel?: boolean;
   /** Pulse the icon: a process alive right now. The caller omits it under reduced motion. */
   pulse?: boolean;
-  className?: string;
+  className?: string | undefined;
 }
 
 const INLINE_INK: Record<StateTone, string> = {

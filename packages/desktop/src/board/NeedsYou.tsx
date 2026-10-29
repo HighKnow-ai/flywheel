@@ -145,9 +145,10 @@ export function detailOf(item: NeedsYouItemDto): string | null {
     }
     case "question": {
       const questions = questionsFromPayload(item.request?.inputPayload ?? null);
-      if (questions.length === 0) return null;
+      const [first] = questions;
+      if (first === undefined) return null;
       const lead = questions.length > 1 ? `${questions.length} questions: ` : "";
-      return `${lead}${questions[0].question}`;
+      return `${lead}${first.question}`;
     }
     default:
       return null;
@@ -203,7 +204,7 @@ function useNow(): number {
  * done here takes its card off the list, the keyboard moves to the card now in its place (or to the empty
  * state), and a polite live region says what went and how many are left.
  */
-export function NeedsYouList({ projectId, className }: { projectId: string; className?: string }) {
+export function NeedsYouList({ projectId, className }: { projectId: string; className?: string | undefined }) {
   const query = useNeedsYou(projectId);
   const items = query.data ?? NO_ITEMS;
   const now = useNow();
@@ -289,8 +290,8 @@ export function NeedsYouList({ projectId, className }: { projectId: string; clas
       </Empty>
     );
   }
-  const filled = items.findIndex((item) => !isWaitingOnYou(item) && takesPrimary(item));
-  const filledKey = filled >= 0 ? keyOf(items[filled]) : null;
+  const filled = items.find((item) => !isWaitingOnYou(item) && takesPrimary(item));
+  const filledKey = filled ? keyOf(filled) : null;
   return (
     <>
       {live}
@@ -321,7 +322,7 @@ export function NeedsYouList({ projectId, className }: { projectId: string; clas
 const NO_ITEMS: NeedsYouItemDto[] = [];
 
 /** The column's first read: three cards in the shape of the real ones (lead line, record, detail, action). */
-function NeedsYouSkeleton({ className }: { className?: string }) {
+function NeedsYouSkeleton({ className }: { className?: string | undefined }) {
   return (
     <div
       data-slot="needs-you-skeleton"

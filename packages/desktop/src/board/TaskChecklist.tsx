@@ -95,20 +95,23 @@ export function TaskChecklist({ storyKey, storyId, tasks }: { storyKey: string; 
         </Empty>
       )}
       <ol aria-label={`${storyKey} Tasks`} className="m-0 list-none p-0 empty:hidden">
-        {tasks.map((task, index) => (
-          <TaskRow
-            key={task.id}
-            task={task}
-            // Up: just before the previous Task. Down: just before the one after the next, or the end.
-            onMoveUp={index > 0 ? () => run(taskMove(task.id, tasks[index - 1].id)) : undefined}
-            onMoveDown={
-              index < tasks.length - 1 ? () => run(taskMove(task.id, tasks[index + 2]?.id ?? null)) : undefined
-            }
-            onRename={(title) => run(taskRename(task.id, title))}
-            onSetNote={(note) => run(taskSetNote(task.id, note))}
-            onDrop={(reason) => run(taskSetState(task.id, "dropped", reason))}
-          />
-        ))}
+        {tasks.map((task, index) => {
+          const previous = tasks[index - 1];
+          return (
+            <TaskRow
+              key={task.id}
+              task={task}
+              // Up: just before the previous Task. Down: just before the one after the next, or the end.
+              onMoveUp={previous ? () => run(taskMove(task.id, previous.id)) : undefined}
+              onMoveDown={
+                index < tasks.length - 1 ? () => run(taskMove(task.id, tasks[index + 2]?.id ?? null)) : undefined
+              }
+              onRename={(title) => run(taskRename(task.id, title))}
+              onSetNote={(note) => run(taskSetNote(task.id, note))}
+              onDrop={(reason) => run(taskSetState(task.id, "dropped", reason))}
+            />
+          );
+        })}
       </ol>
       <AddTask storyKey={storyKey} onAdd={(title) => run(taskAdd(storyId, title))} />
       {error && (
@@ -129,8 +132,8 @@ function TaskRow({
   onDrop,
 }: {
   task: TaskDto;
-  onMoveUp?: () => void;
-  onMoveDown?: () => void;
+  onMoveUp?: (() => void) | undefined;
+  onMoveDown?: (() => void) | undefined;
   onRename: (title: string) => void;
   onSetNote: (note: string) => void;
   onDrop: (reason: string) => void;

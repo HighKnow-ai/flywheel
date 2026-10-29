@@ -48,7 +48,7 @@ export interface PageHeaderProps {
   onBack?: () => void;
   /** The surface's own controls: add, run, view switches. */
   actions?: ReactNode;
-  className?: string;
+  className?: string | undefined;
 }
 
 function CrumbText({ crumb }: { crumb: Crumb }) {
@@ -85,7 +85,7 @@ function CrumbTip({ crumb, children }: { crumb: Crumb; children: ReactNode }) {
   );
 }
 
-function Separator({ className }: { className?: string }) {
+function Separator({ className }: { className?: string | undefined }) {
   return (
     <BreadcrumbSeparator className={cn("shrink-0 text-subtle-foreground", className)}>
       <span aria-hidden="true">/</span>
@@ -93,7 +93,7 @@ function Separator({ className }: { className?: string }) {
   );
 }
 
-function CrumbItem({ crumb, last, className }: { crumb: Crumb; last: boolean; className?: string }) {
+function CrumbItem({ crumb, last, className }: { crumb: Crumb; last: boolean; className?: string | undefined }) {
   return (
     // A place before the page gives way first and never takes more than 14rem; the page itself keeps at least 6rem.
     <BreadcrumbItem className={cn(last ? "min-w-24 shrink" : "max-w-56 min-w-0 shrink-[4]", className)}>

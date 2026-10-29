@@ -17,7 +17,7 @@ import { Button } from "@/components/Button";
 
 export const LAUNCH_ENVIRONMENT_QUERY_KEY = ["launch_environment"] as const;
 
-export function LaunchEnvironmentNotice({ className }: { className?: string }) {
+export function LaunchEnvironmentNotice({ className }: { className?: string | undefined }) {
   const setSettingsOpen = useUiStore((state) => state.setSettingsOpen);
   // Through `invokeCommand` itself, so a test that stubs only `invokeCommand` still renders.
   const query = useQuery({

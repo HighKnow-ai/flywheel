@@ -13,7 +13,7 @@ export function RelativeTime({
 }: {
   at: string | number | Date | null | undefined;
   now?: number;
-  className?: string;
+  className?: string | undefined;
 }) {
   const relative = formatRelativeTime(at, now);
   if (relative === MISSING) return <span className={className}>{MISSING}</span>;

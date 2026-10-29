@@ -89,7 +89,7 @@ export function ContinueShapingButton({
 }: {
   projectId: string;
   epic: Pick<EpicDto, "id" | "key" | "title">;
-  className?: string;
+  className?: string | undefined;
 }) {
   const { run, starting, error } = useStartShaping(
     projectId,

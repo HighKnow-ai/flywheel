@@ -310,7 +310,8 @@ function PendingGhost({
               hideLabel: true,
             },
           ],
-          payload: (values) => amendedPayload(proposal, field, values.text),
+          // The form reports a value for every field it was given; `text` is the one above.
+          payload: (values) => amendedPayload(proposal, field, values.text ?? text),
         }}
         afterDecide={afterDecide}
       >

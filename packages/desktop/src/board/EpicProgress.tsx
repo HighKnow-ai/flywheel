@@ -92,7 +92,7 @@ export function EpicProgress({
   headingId?: string;
   /** The card's own controls (n Proposals, + Story, Shape), in the grid's right-aligned last column. */
   actions?: ReactNode;
-  className?: string;
+  className?: string | undefined;
 }) {
   const Title = headingId ? "h2" : "span";
   return (

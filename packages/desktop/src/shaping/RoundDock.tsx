@@ -73,7 +73,7 @@ export interface RoundDockProps {
   show?: "current" | "earlier" | "all";
   /** Every Stage of the record is closed (issue #128): shaping is done, and the dock waits for no Round. */
   done?: boolean;
-  className?: string;
+  className?: string | undefined;
 }
 
 function reason(err: unknown): string {

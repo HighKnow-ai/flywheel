@@ -371,21 +371,30 @@ const HEADING_ESTIMATE = 65; // the header grid's min-h-11 and its padding, and 
 const ROW_ESTIMATE = 53; // min-h-13 and the top border between rows
 const OVERSCAN = 8;
 
-type RosterItem =
-  | { kind: "epic"; group: number; key: string; empty: boolean }
-  | { kind: "story"; group: number; key: string; story: StoryDto; position: number; first: boolean; last: boolean };
+/** One Epic's run of roster items: its heading at `start`, its last Story (or the heading again) at `end`. */
+interface EpicRun {
+  index: number;
+  group: EpicGroup;
+  start: number;
+  end: number;
+}
 
-/** The roster's virtual items, and where each Epic's run of them starts. The key carries whatever changes
- * an item's frame, so a Story that becomes an Epic's last row is measured afresh, not read from the cache. */
-function rosterItems(groups: EpicGroup[]): { items: RosterItem[]; starts: number[] } {
+type RosterItem =
+  | { kind: "epic"; run: EpicRun; key: string; empty: boolean }
+  | { kind: "story"; run: EpicRun; key: string; story: StoryDto; position: number; first: boolean; last: boolean };
+
+type StoryItem = Extract<RosterItem, { kind: "story" }>;
+
+/** The roster's virtual items, each pointing at its Epic's run. The key carries whatever changes an item's
+ * frame, so a Story that becomes an Epic's last row is measured afresh, not read from the cache. */
+function rosterItems(groups: EpicGroup[]): RosterItem[] {
   const items: RosterItem[] = [];
-  const starts: number[] = [];
   groups.forEach((group, index) => {
-    starts.push(items.length);
+    const run: EpicRun = { index, group, start: items.length, end: items.length };
     const empty = group.stories.length === 0;
     items.push({
       kind: "epic",
-      group: index,
+      run,
       key: `epic:${group.epic?.id ?? "none"}:${index === 0 ? "first" : ""}:${empty ? "empty" : ""}`,
       empty,
     });
@@ -394,7 +403,7 @@ function rosterItems(groups: EpicGroup[]): { items: RosterItem[]; starts: number
       const last = position === group.stories.length - 1;
       items.push({
         kind: "story",
-        group: index,
+        run,
         key: `${story.id}:${first ? "first" : ""}:${last ? "last" : ""}`,
         story,
         position,
@@ -402,8 +411,9 @@ function rosterItems(groups: EpicGroup[]): { items: RosterItem[]; starts: number
         last,
       });
     });
+    run.end = items.length - 1;
   });
-  return { items, starts };
+  return items;
 }
 
 function itemEstimate(item: RosterItem): number {
@@ -414,7 +424,7 @@ function itemEstimate(item: RosterItem): number {
 /** The part of an item's size its element does not contain: the gap and card borders around it. */
 function itemFrame(item: RosterItem): number {
   // An Epic with no Story yet (one in Shaping) ends at its heading, which then carries the bottom border too.
-  if (item.kind === "epic") return CARD_BORDER + (item.group > 0 ? EPIC_GAP : 0) + (item.empty ? CARD_BORDER : 0);
+  if (item.kind === "epic") return CARD_BORDER + (item.run.index > 0 ? EPIC_GAP : 0) + (item.empty ? CARD_BORDER : 0);
   return item.last ? CARD_BORDER : 0;
 }
 
@@ -452,7 +462,7 @@ interface RosterProps {
 }
 
 function VirtualRoster({ projectId, groups, epicProgress, figures, scrollElement, keyWidth }: RosterProps) {
-  const { items, starts } = rosterItems(groups);
+  const items = rosterItems(groups);
   const [roster, setRoster] = useState<HTMLDivElement | null>(null);
   const scrollMargin = useScrollMargin(roster, scrollElement);
   // The row holding keyboard focus stays mounted when it scrolls out of view, so focus is never dropped
@@ -464,8 +474,12 @@ function VirtualRoster({ projectId, groups, epicProgress, figures, scrollElement
   const virtualizer = useVirtualizer({
     count: items.length,
     getScrollElement: () => scrollElement,
-    estimateSize: (index) => itemEstimate(items[index]) + itemFrame(items[index]),
-    getItemKey: (index) => items[index].key,
+    // The virtualizer asks only for indexes below `count`, which is `items.length`.
+    estimateSize: (index) => {
+      const item = items[index];
+      return item ? itemEstimate(item) + itemFrame(item) : 0;
+    },
+    getItemKey: (index) => items[index]?.key ?? index,
     measureElement: (element) => {
       const item = items[Number((element as HTMLElement).dataset.index)];
       if (!item) return 0;
@@ -482,13 +496,14 @@ function VirtualRoster({ projectId, groups, epicProgress, figures, scrollElement
   });
 
   // The mounted items, gathered by Epic in Roadmap order, so the DOM reads (and Tab walks) in board order.
-  const cards: { group: number; rows: VirtualItem[] }[] = [];
+  const cards: { run: EpicRun; rows: { virtualItem: VirtualItem; item: StoryItem }[] }[] = [];
   for (const virtualItem of virtualizer.getVirtualItems()) {
     const item = items[virtualItem.index];
+    if (!item) continue; // the virtualizer's items are all below `count`
     const card = cards[cards.length - 1];
-    const row = item.kind === "story" ? [virtualItem] : [];
-    if (card?.group === item.group) card.rows.push(...row);
-    else cards.push({ group: item.group, rows: row });
+    const row = item.kind === "story" ? [{ virtualItem, item }] : [];
+    if (card?.run === item.run) card.rows.push(...row);
+    else cards.push({ run: item.run, rows: row });
   }
   const measurements = virtualizer.measurementsCache;
 
@@ -502,11 +517,13 @@ function VirtualRoster({ projectId, groups, epicProgress, figures, scrollElement
         setFocusedStoryId(row?.getAttribute("data-story-id") ?? null);
       }}
     >
-      {cards.map(({ group: index, rows }) => {
-        const group = groups[index];
-        const heading = measurements[starts[index]];
-        const end = measurements[(starts[index + 1] ?? items.length) - 1];
-        const top = heading.start - scrollMargin + (index > 0 ? EPIC_GAP : 0);
+      {cards.map(({ run, rows }) => {
+        const { group } = run;
+        // Measured for every index below `count`, and a run's indexes are all below it.
+        const heading = measurements[run.start];
+        const end = measurements[run.end];
+        if (!heading || !end) return null;
+        const top = heading.start - scrollMargin + (run.index > 0 ? EPIC_GAP : 0);
         return (
           <EpicCard
             key={group.epic?.id ?? "no-epic"}
@@ -515,11 +532,10 @@ function VirtualRoster({ projectId, groups, epicProgress, figures, scrollElement
             progress={group.epic ? epicProgress.get(group.epic.id) : undefined}
             top={top}
             height={end.end - scrollMargin - top}
-            headingIndex={starts[index]}
+            headingIndex={run.start}
             measure={virtualizer.measureElement}
           >
-            {rows.map((virtualItem) => {
-              const item = items[virtualItem.index] as Extract<RosterItem, { kind: "story" }>;
+            {rows.map(({ virtualItem, item }) => {
               return (
                 <StoryRow
                   key={item.story.id}
@@ -582,7 +598,7 @@ function EpicCard({
 }: {
   group: EpicGroup;
   /** The Epic's counts when it is in the Current Milestone; its card then heads with its bar. */
-  progress?: EpicProgressDto;
+  progress?: EpicProgressDto | undefined;
   /** Where the card sits in the roster and how tall it is, every row counted, mounted or not. */
   top: number;
   height: number;

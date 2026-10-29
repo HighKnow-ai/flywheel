@@ -194,10 +194,10 @@ function RunningFor({
   now,
   className = "text-running",
 }: {
-  startedAt?: string;
-  heartbeatSeconds?: number;
-  now?: number;
-  className?: string;
+  startedAt?: string | undefined;
+  heartbeatSeconds?: number | undefined;
+  now?: number | undefined;
+  className?: string | undefined;
 }) {
   const ticked = useSecondTick(now === undefined);
   const nowMs = now ?? ticked;
@@ -289,7 +289,15 @@ type LineSurface = "card" | "strip";
 /** The right-hand metrics column: what the call returned (lines, exit status, Check results) and how
  * long it took. A failed call wears the destructive StateBadge, worded by what failed ("exit 1"), so it
  * reads as the same failure every other screen draws (issue #205); a failed Check is red ink. */
-function CallMetrics({ metrics, seconds, surface }: { metrics: ToolMetric[]; seconds?: number; surface: LineSurface }) {
+function CallMetrics({
+  metrics,
+  seconds,
+  surface,
+}: {
+  metrics: ToolMetric[];
+  seconds?: number | undefined;
+  surface: LineSurface;
+}) {
   const onStrip = surface === "strip";
   if (metrics.length === 0 && seconds === undefined) return null;
   return (
@@ -372,10 +380,10 @@ export function ToolCallLine({
 }: {
   row: Extract<FeedRowData, { kind: "tool_call" }>;
   live: boolean;
-  now?: number;
+  now?: number | undefined;
   surface?: LineSurface;
   /** The session's worktree: paths and commands inside it read relative to it (issue #205). */
-  root?: string | null;
+  root?: string | null | undefined;
 }) {
   const described = describeToolCall(row, { root });
   const KindIcon = KIND_ICONS[described.kind];
@@ -466,8 +474,8 @@ function ToolCallRow({
   expanded: boolean;
   onToggleExpand: () => void;
   live: boolean;
-  now?: number;
-  root?: string | null;
+  now?: number | undefined;
+  root?: string | null | undefined;
 }) {
   return (
     // Every disclosure is a Collapsible (DESIGN.md § Motion): the payload grows from its line and shrinks back.
@@ -576,8 +584,8 @@ function QuestionCard({
 }: {
   questions: QuestionPrompt[];
   answer?: unknown;
-  onAnswer?: (picks: QuestionPicks) => Promise<void>;
-  draftKey?: string;
+  onAnswer?: ((picks: QuestionPicks) => Promise<void>) | undefined;
+  draftKey?: string | undefined;
 }) {
   const heading =
     questions.length > 1 ? `The agent asks you ${questions.length} questions` : "The agent asks you a question";

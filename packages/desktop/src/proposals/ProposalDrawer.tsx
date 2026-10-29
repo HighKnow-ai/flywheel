@@ -246,7 +246,8 @@ function ProposedCriteria({ criteria }: { criteria: ProposedCriterion[] }) {
 interface Group {
   key: string;
   epicId: string | null;
-  cards: TriageProposalDto[];
+  /** Never empty: a group is opened by its first card. */
+  cards: [TriageProposalDto, ...TriageProposalDto[]];
 }
 
 function groupsOf(rows: TriageProposalDto[]): Group[] {

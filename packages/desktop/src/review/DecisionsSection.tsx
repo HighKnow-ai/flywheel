@@ -136,7 +136,7 @@ function FlagLine({ path, flag }: { path: string; flag: DecisionFlagDto }) {
   );
 }
 
-function Flags({ change, className }: { change: DecisionChangeDto; className?: string }) {
+function Flags({ change, className }: { change: DecisionChangeDto; className?: string | undefined }) {
   if (change.flags.length === 0) return null;
   return (
     <ul aria-label="Flags" className={cn("m-0 flex min-w-0 list-none flex-col gap-1 p-0", className)}>
@@ -161,7 +161,7 @@ function useAdrDecision({
   storyId: string;
   change: DecisionChangeDto;
   adr: NewAdrDto;
-  onDecided?: () => void;
+  onDecided?: (() => void) | undefined;
 }): { group: ReactNode; detail: ReactNode } {
   const stored = adr.decision;
   const [choice, setChoice] = useState<AdrDecisionKind>(stored.kind);
@@ -325,7 +325,7 @@ function NewAdrCard({
   storyId: string;
   change: DecisionChangeDto;
   adr: NewAdrDto;
-  onDecided?: () => void;
+  onDecided?: (() => void) | undefined;
 }) {
   const titleId = useId();
   const decision = useAdrDecision({ storyId, change, adr, onDecided });
@@ -430,7 +430,7 @@ export function DecisionsSection({
   storyId: string;
   decisions: DecisionChangeDto[];
   /** Called once a decision is stored, so the card re-reads. */
-  onDecided?: () => void;
+  onDecided?: (() => void) | undefined;
 }) {
   if (decisions.length === 0) return null;
   const label = `Decisions, ${decisions.length} ${decisions.length === 1 ? "change" : "changes"}`;

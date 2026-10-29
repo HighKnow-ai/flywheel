@@ -800,8 +800,7 @@ export function nextSelectionId<T extends { id: string }>(
 
 /** `Home`/`End` — jumps to the first/last item, or `null` for an empty list. */
 export function boundarySelectionId<T extends { id: string }>(items: T[], edge: "first" | "last"): string | null {
-  if (items.length === 0) return null;
-  return edge === "first" ? items[0].id : items[items.length - 1].id;
+  return (edge === "first" ? items[0] : items[items.length - 1])?.id ?? null;
 }
 
 // -------------------------------------------------------------------------------------------

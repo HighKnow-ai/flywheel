@@ -64,7 +64,7 @@ export interface StageBarProps {
   order?: readonly string[];
   /** The record being shaped. Closing a Milestone's last Stage makes it Ready (issue #132). */
   record?: "Epic" | "Milestone";
-  className?: string;
+  className?: string | undefined;
 }
 
 function stageLabel(kind: string) {
@@ -234,7 +234,7 @@ export function StageBar({
                   {openSentence(StageRef ?? "", questions.length, proposals.length, bare.length, noStory)}
                 </p>
                 <ul aria-label="Still open" className="m-0 flex min-w-0 flex-col gap-1.5 p-0 empty:hidden">
-                  {questions.length > 0 && (
+                  {questions[0] && (
                     <li className="flex min-w-0 list-none items-start gap-2 text-small [&_svg]:mt-0.5 [&_svg]:size-4 [&_svg]:shrink-0">
                       <MessageCircleQuestionMark aria-hidden="true" className="text-muted-foreground" />
                       <span className="min-w-0 break-words">

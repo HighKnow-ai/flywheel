@@ -27,11 +27,14 @@ import { hexToRgb, linearize } from "./contrast";
 export type Deficiency = "protanopia" | "deuteranopia" | "tritanopia";
 export const DEFICIENCIES: readonly Deficiency[] = ["protanopia", "deuteranopia", "tritanopia"];
 
-type Matrix = readonly [
-  readonly [number, number, number],
-  readonly [number, number, number],
-  readonly [number, number, number],
-];
+type Triple = readonly [number, number, number];
+type Matrix = readonly [Triple, Triple, Triple];
+
+/** `fn` on each of three channels, keeping the three-ness `Array#map` would widen to `number[]`. */
+const each = ([x, y, z]: Triple, fn: (channel: number) => number): [number, number, number] => [fn(x), fn(y), fn(z)];
+
+/** The dot product of two triples: one matrix row against a colour. */
+const dot = (row: Triple, [x, y, z]: Triple): number => row[0] * x + row[1] * y + row[2] * z;
 
 /** Machado 2009, severity 1.0, applied to linear RGB. */
 const MATRICES: Record<Deficiency, Matrix> = {
@@ -63,8 +66,8 @@ const toHex = (channels: number[]): string =>
 
 /** `hex` as a person with `deficiency` sees it, as a lowercase `#rrggbb`. */
 export function simulate(hex: string, deficiency: Deficiency): string {
-  const lin = hexToRgb(hex).map(linearize);
-  return toHex(MATRICES[deficiency].map((row) => encode(row[0] * lin[0] + row[1] * lin[1] + row[2] * lin[2])));
+  const lin = each(hexToRgb(hex), linearize);
+  return toHex(MATRICES[deficiency].map((row) => encode(dot(row, lin))));
 }
 
 export const simulateProtanopia = (hex: string): string => simulate(hex, "protanopia");
@@ -73,14 +76,14 @@ export const simulateTritanopia = (hex: string): string => simulate(hex, "tritan
 
 /** sRGB hex to CIELAB under D65. */
 function lab(hex: string): [number, number, number] {
-  const [r, g, b] = hexToRgb(hex).map(linearize);
-  const xyz = [
+  const [r, g, b] = each(hexToRgb(hex), linearize);
+  const xyz: Triple = [
     (0.4124564 * r + 0.3575761 * g + 0.1804375 * b) / 0.95047,
     0.2126729 * r + 0.7151522 * g + 0.072175 * b,
     (0.0193339 * r + 0.119192 * g + 0.9503041 * b) / 1.08883,
   ];
   const f = (t: number): number => (t > 216 / 24389 ? Math.cbrt(t) : ((24389 / 27) * t + 16) / 116);
-  const [fx, fy, fz] = xyz.map(f);
+  const [fx, fy, fz] = each(xyz, f);
   return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
 }
 

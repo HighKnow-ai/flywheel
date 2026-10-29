@@ -165,7 +165,7 @@ export interface StoryColumnsProps {
    * criterion or a criterion Proposal exists. Slicing leaves them out.
    */
   criteria?: boolean;
-  className?: string;
+  className?: string | undefined;
 }
 
 export function StoryColumns({
@@ -204,8 +204,9 @@ export function StoryColumns({
         : (column.draft.runs_after_story_id ?? column.draft.runs_after_proposal_id);
     const why = column.kind === "story" ? column.story.runsAfterReason : column.draft.runs_after_reason;
     const from = position(after);
-    if (!from || from === index + 1) return [];
+    // `from` is 0 for no constraint, and `columns[-1]` is undefined.
     const target = columns[from - 1];
+    if (!target || from === index + 1) return [];
     const provisional = column.kind === "ghost" || target.kind === "ghost";
     const earlier = from > index + 1 ? ", though it comes first in the order" : "";
     return [

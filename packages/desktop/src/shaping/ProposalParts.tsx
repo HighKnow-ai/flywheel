@@ -33,7 +33,7 @@ export interface DecisionGroupProps {
   pending: Decision | null;
   onAccept: () => void;
   /** Left out when the Proposal carries no text to edit (a move, a retirement, a dropped Epic). */
-  onAmend?: () => void;
+  onAmend?: (() => void) | undefined;
   onReject: () => void;
   /** Amend's word: "Edit" on a judged-on change (issue #163). */
   amendWord?: string;
@@ -41,7 +41,7 @@ export interface DecisionGroupProps {
   rejectRef?: Ref<HTMLButtonElement>;
   /** `xs` inside a 17.5rem Story column, where the small size runs past the card (#212); `sm` everywhere else. */
   size?: "sm" | "xs";
-  className?: string;
+  className?: string | undefined;
 }
 
 /** Accept, Amend and Reject: one Button Group, the same order and size on every Proposal. */
@@ -150,7 +150,7 @@ export function RejectReasonForm({
   onCancel: () => void;
   /** The field over its buttons, for a narrow column; beside them otherwise. */
   stacked?: boolean;
-  className?: string;
+  className?: string | undefined;
   inputClassName?: string;
 }) {
   const reasonId = useId();
@@ -230,7 +230,7 @@ export function RejectedLine({
   struck: string;
   reason: string | null;
   as?: "div" | "li";
-  className?: string;
+  className?: string | undefined;
 } & Record<`data-${string}`, string | undefined>) {
   const body = (
     <div role="group" aria-label={label} data-state="rejected" className="flex min-w-0 flex-col gap-1">

@@ -371,8 +371,8 @@ export function FleetRowView({
   /** This run is the newest of a Running Story with no live session: its Story is Stopped, so the row
    * says so in red, as the board, the sidebar and the strip do. */
   stopped?: boolean;
-  onOpenSession?: (row: FleetRowDto) => void;
-  onOpenSubject?: (row: FleetRowDto) => void;
+  onOpenSession?: ((row: FleetRowDto) => void) | undefined;
+  onOpenSubject?: ((row: FleetRowDto) => void) | undefined;
 }) {
   const state: FleetState = isFleetState(row.fleetState) ? row.fleetState : "running";
   const pulsing = state === "running" && !prefersReducedMotion();
@@ -482,7 +482,7 @@ export function ShapingRowView({
   now: number;
   columns?: FleetColumns;
   selected?: boolean;
-  onOpen?: (row: ShapingFleetRowDto) => void;
+  onOpen?: ((row: ShapingFleetRowDto) => void) | undefined;
 }) {
   const state: FleetState = row.fleetState === "blocked" ? "blocked" : "running";
   const words = shapingSessionWords(row);
@@ -608,8 +608,8 @@ export function FleetBand({
   stoppedRunIds?: Set<string>;
   /** The band's live shaping sessions (issue #239), laid in among its Story rows. */
   shapingRows?: ShapingFleetRowDto[];
-  onOpenSession?: (row: FleetRowDto) => void;
-  onOpenSubject?: (row: FleetRowDto) => void;
+  onOpenSession?: ((row: FleetRowDto) => void) | undefined;
+  onOpenSubject?: ((row: FleetRowDto) => void) | undefined;
   onOpenShaping?: (row: ShapingFleetRowDto) => void;
 }) {
   const [dismissNotice, setDismissNotice] = useState<string | null>(null);

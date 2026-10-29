@@ -53,7 +53,7 @@ export function barDescription(counts: StoryStateCountsDto): string {
   return `${head}${body}${dropped}`;
 }
 
-export function StoryStateBar({ counts, className }: { counts: StoryStateCountsDto; className?: string }) {
+export function StoryStateBar({ counts, className }: { counts: StoryStateCountsDto; className?: string | undefined }) {
   const description = barDescription(counts);
   return (
     <div

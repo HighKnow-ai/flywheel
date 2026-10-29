@@ -149,7 +149,9 @@ function AppShell() {
     );
   }
 
-  if (projectsQuery.data.length === 0) {
+  const projects = projectsQuery.data;
+  const [firstProject] = projects;
+  if (firstProject === undefined) {
     return (
       <>
         <div id="app-root" className="h-full bg-background text-foreground">
@@ -161,7 +163,7 @@ function AppShell() {
     );
   }
 
-  const project = projectsQuery.data.find((candidate) => candidate.id === currentProjectId) ?? projectsQuery.data[0];
+  const project = projects.find((candidate) => candidate.id === currentProjectId) ?? firstProject;
   // Which surface fills the content area is one modelled value (`state/keyboard.ts`'s
   // `activeSurface`, Phase 13 plan 13-08, FNC-06) — the precedence order and its reasoning live
   // there, beside `topLayer`. This is the one place that knows what "open" means for each store
@@ -207,7 +209,7 @@ function AppShell() {
           </Suspense>
         );
       case "project-unreachable":
-        return <ProjectUnreachable project={project} projects={projectsQuery.data} />;
+        return <ProjectUnreachable project={project} projects={projects} />;
       case "story":
         if (!currentStoryId) return null;
         return <StoryView projectId={project.id} projectName={project.name} storyId={currentStoryId} onBack={goBack} />;
@@ -247,7 +249,7 @@ function AppShell() {
           scroll and carry the rail away with it; only the main pane's own scroller moves (issue #191). */}
       <SidebarProvider id="app-root" className="relative h-full min-h-0 overflow-clip bg-background text-foreground">
         <ProjectRail
-          projects={projectsQuery.data}
+          projects={projects}
           currentProjectId={project.id}
           onSelect={(selected) => setCurrentProjectId(selected.id)}
         />
@@ -260,7 +262,7 @@ function AppShell() {
           <div className="flex min-h-0 flex-1 flex-col">{renderSurface()}</div>
         </SidebarInset>
       </SidebarProvider>
-      <CommandPalette projects={projectsQuery.data} currentProjectId={project.id} />
+      <CommandPalette projects={projects} currentProjectId={project.id} />
       <OrphanRecoveryModal />
       <LaunchSheet
         storyId={launchSheetStoryId}

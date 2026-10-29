@@ -51,7 +51,7 @@ export interface ToolCallInput {
 
 /** How to word a call: `root` is the session's worktree, against which paths and commands read relative. */
 export interface DescribeOptions {
-  root?: string | null;
+  root?: string | null | undefined;
 }
 
 function trimRoot(root: string | null | undefined): string | null {
@@ -464,7 +464,8 @@ function describeCall(call: ToolCallInput): Described {
     case "Grep":
     case "Glob": {
       const lines = text.split("\n").filter((line) => line.trim() !== "");
-      const none = lines.length === 0 || /^No (files|matches) found/i.test(lines[0]);
+      const first = lines[0];
+      const none = first === undefined || /^No (files|matches) found/i.test(first);
       return code("Searched", "Searching", "search", searchTarget(input), [
         { text: none ? "no results" : plural(lines.length, "result"), tone: "neutral" },
       ]);

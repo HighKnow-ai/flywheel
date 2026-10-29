@@ -154,7 +154,7 @@ export function ConfirmExitTest({
   subject: ExitTestSubject;
   /** The Epic card's heading or the Milestone header (full size), or a Roadmap strip row's slot (compact). */
   place: "card" | "header" | "row";
-  className?: string;
+  className?: string | undefined;
 }) {
   const queryClient = useQueryClient();
   const openRound = useRoadmapRound(projectId).data?.open ?? null;

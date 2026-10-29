@@ -52,11 +52,25 @@ function startsBlock(line: string, next: string | undefined): boolean {
   );
 }
 
+/**
+ * A matched group of one of the block patterns above. Every group in those patterns sits outside
+ * any optional or alternated part, so it participates in every match and is never `undefined`;
+ * the empty-string fallback states that once instead of at each read.
+ */
+function group(match: RegExpExecArray, index: number): string {
+  return match[index] ?? "";
+}
+
 function parseBlocks(lines: string[]): Block[] {
   const blocks: Block[] = [];
+  /** `re` against the line at `at`, or null past the end of the text. */
+  const execAt = (re: RegExp, at: number): RegExpExecArray | null => {
+    const candidate = lines[at];
+    return candidate === undefined ? null : re.exec(candidate);
+  };
   let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
+  // Every branch advances `i` before it continues, so the update re-reads the next line.
+  for (let line = lines[i]; line !== undefined; line = lines[i]) {
     if (!line.trim()) {
       i += 1;
       continue;
@@ -64,20 +78,22 @@ function parseBlocks(lines: string[]): Block[] {
 
     const fence = FENCE.exec(line);
     if (fence) {
+      const closer = group(fence, 1).charAt(0).repeat(3);
       const body: string[] = [];
       i += 1;
-      while (i < lines.length && !(lines[i].trim().startsWith(fence[1][0].repeat(3)) && FENCE.test(lines[i]))) {
-        body.push(lines[i]);
+      for (let inner = lines[i]; inner !== undefined; inner = lines[i]) {
+        if (inner.trim().startsWith(closer) && FENCE.test(inner)) break;
+        body.push(inner);
         i += 1;
       }
       i += 1; // the closing fence (or the end of the text)
-      blocks.push({ type: "code", lang: fence[2], text: body.join("\n") });
+      blocks.push({ type: "code", lang: group(fence, 2), text: body.join("\n") });
       continue;
     }
 
     const heading = HEADING.exec(line);
     if (heading) {
-      blocks.push({ type: "heading", level: heading[1].length, text: heading[2] });
+      blocks.push({ type: "heading", level: group(heading, 1).length, text: group(heading, 2) });
       i += 1;
       continue;
     }
@@ -90,8 +106,8 @@ function parseBlocks(lines: string[]): Block[] {
 
     if (QUOTE.test(line)) {
       const body: string[] = [];
-      while (i < lines.length && QUOTE.test(lines[i])) {
-        body.push(QUOTE.exec(lines[i])![1]);
+      for (let quoted = execAt(QUOTE, i); quoted; quoted = execAt(QUOTE, i)) {
+        body.push(group(quoted, 1));
         i += 1;
       }
       blocks.push({ type: "quote", blocks: parseBlocks(body) });
@@ -103,8 +119,8 @@ function parseBlocks(lines: string[]): Block[] {
       const header = splitRow(line);
       const rows: string[][] = [];
       i += 2;
-      while (i < lines.length && lines[i].includes("|") && lines[i].trim()) {
-        rows.push(splitRow(lines[i]));
+      for (let row = lines[i]; row !== undefined && row.includes("|") && row.trim(); row = lines[i]) {
+        rows.push(splitRow(row));
         i += 1;
       }
       blocks.push({ type: "table", header, rows });
@@ -114,13 +130,16 @@ function parseBlocks(lines: string[]): Block[] {
     const item = LIST_ITEM.exec(line);
     if (item) {
       const baseIndent = indentOf(line);
-      const ordered = /\d/.test(item[2]);
-      const items: string[][] = [];
-      while (i < lines.length) {
-        const current = lines[i];
+      const ordered = /\d/.test(group(item, 2));
+      // The line that opened the list is its first item; every later line joins `currentItem`.
+      let currentItem = [group(item, 3)];
+      const items: string[][] = [currentItem];
+      i += 1;
+      for (let current = lines[i]; current !== undefined; current = lines[i]) {
         const match = LIST_ITEM.exec(current);
-        if (match && indentOf(current) === baseIndent && /\d/.test(match[2]) === ordered) {
-          items.push([match[3]]);
+        if (match && indentOf(current) === baseIndent && /\d/.test(group(match, 2)) === ordered) {
+          currentItem = [group(match, 3)];
+          items.push(currentItem);
           i += 1;
           continue;
         }
@@ -132,7 +151,7 @@ function parseBlocks(lines: string[]): Block[] {
             after.trim() &&
             (indentOf(after) > baseIndent || (LIST_ITEM.test(after) && indentOf(after) === baseIndent))
           ) {
-            items[items.length - 1].push("");
+            currentItem.push("");
             i += 1;
             continue;
           }
@@ -140,13 +159,13 @@ function parseBlocks(lines: string[]): Block[] {
         }
         if (indentOf(current) > baseIndent) {
           // A nested list or a continuation line belongs to the current item, dedented.
-          items[items.length - 1].push(current.slice(Math.min(indentOf(current), baseIndent + 2)));
+          currentItem.push(current.slice(Math.min(indentOf(current), baseIndent + 2)));
           i += 1;
           continue;
         }
         if (!startsBlock(current, lines[i + 1])) {
           // A lazy continuation of the item's paragraph.
-          items[items.length - 1].push(current.trim());
+          currentItem.push(current.trim());
           i += 1;
           continue;
         }
@@ -155,7 +174,7 @@ function parseBlocks(lines: string[]): Block[] {
       blocks.push({
         type: "list",
         ordered,
-        start: ordered ? Number.parseInt(item[2], 10) : 1,
+        start: ordered ? Number.parseInt(group(item, 2), 10) : 1,
         items: items.map((itemLines) => parseBlocks(itemLines)),
       });
       continue;
@@ -163,8 +182,8 @@ function parseBlocks(lines: string[]): Block[] {
 
     const paragraph: string[] = [line.trim()];
     i += 1;
-    while (i < lines.length && lines[i].trim() && !startsBlock(lines[i], lines[i + 1])) {
-      paragraph.push(lines[i].trim());
+    for (let more = lines[i]; more !== undefined && more.trim() && !startsBlock(more, lines[i + 1]); more = lines[i]) {
+      paragraph.push(more.trim());
       i += 1;
     }
     blocks.push({ type: "paragraph", text: paragraph.join(" ") });
@@ -208,11 +227,13 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
         );
         break;
       case "link": {
-        const target = match[2];
+        // The link pattern's two groups are both outside any optional part, so both are set.
+        const label = match[1] ?? "";
+        const target = match[2] ?? "";
         out.push(
           <span key={key} className="feed-md-link" title={target}>
-            {renderInline(match[1], key)}
-            {match[1] !== target && <span className="feed-md-link-target"> ({target})</span>}
+            {renderInline(label, key)}
+            {label !== target && <span className="feed-md-link-target"> ({target})</span>}
           </span>,
         );
         break;
@@ -264,14 +285,11 @@ function renderBlocks(blocks: Block[], keyPrefix: string): ReactNode[] {
         const items = block.items.map((itemBlocks, itemIndex) => {
           const itemKey = `${key}-${itemIndex}`;
           // A one-paragraph item renders its text directly, not wrapped in <p>, so it sits tight.
-          const tight = itemBlocks.length >= 1 && itemBlocks[0].type === "paragraph";
+          const [first, ...rest] = itemBlocks;
           return (
             <li key={itemKey}>
-              {tight
-                ? [
-                    ...renderInline((itemBlocks[0] as { text: string }).text, `${itemKey}-t`),
-                    ...renderBlocks(itemBlocks.slice(1), itemKey),
-                  ]
+              {first?.type === "paragraph"
+                ? [...renderInline(first.text, `${itemKey}-t`), ...renderBlocks(rest, itemKey)]
                 : renderBlocks(itemBlocks, itemKey)}
             </li>
           );
@@ -317,7 +335,7 @@ function renderBlocks(blocks: Block[], keyPrefix: string): ReactNode[] {
   });
 }
 
-export function Markdown({ text, className }: { text: string; className?: string }) {
+export function Markdown({ text, className }: { text: string; className?: string | undefined }) {
   const blocks = parseBlocks(text.replace(/\r\n?/g, "\n").split("\n"));
   return <div className={className ? `feed-md ${className}` : "feed-md"}>{renderBlocks(blocks, "md")}</div>;
 }
