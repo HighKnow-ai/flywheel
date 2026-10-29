@@ -1,0 +1,57 @@
+# cargo-deny for the Flywheel workspace: RustSec advisories, licences, duplicate crates and
+# sources, run by `cargo deny check` in ci.yml's `rust` job.
+
+[graph]
+# What ships: release.yml builds the macOS app (aarch64-apple-darwin), and nothing else is
+# distributed. Cargo.lock is target-independent, so without this the Linux-only half of the tree
+# (the D-Bus keyring and notification stack) would be held to a standard for a binary that does
+# not contain it. A Linux or Windows release adds its target here, and answers its advisories.
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]
+
+[advisories]
+version = 2
+yanked = "deny"
+# Every unmaintained or unsound crate in what ships fails, not only the direct dependencies.
+unmaintained = "all"
+unsound = "all"
+# An ignore names the advisory, the crate, and why it is not a defect in what ships.
+ignore = []
+
+[licenses]
+version = 2
+# Permissive licences only, all compatible with the workspace's Apache-2.0. Anything else is an
+# exception below, per crate, with its reason.
+allow = [
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "MIT",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "Zlib",
+  "Unicode-3.0",
+]
+confidence-threshold = 0.93
+exceptions = [
+  # MPL-2.0 is copyleft per FILE: these come in unmodified through Tauri (HTML parsing via
+  # dom_query, and config directories), and their source stays available on crates.io. A
+  # change to one of these files would have to be published under the MPL.
+  { crate = "cssparser", allow = ["MPL-2.0"] },
+  { crate = "cssparser-macros", allow = ["MPL-2.0"] },
+  { crate = "dtoa-short", allow = ["MPL-2.0"] },
+  { crate = "option-ext", allow = ["MPL-2.0"] },
+  { crate = "selectors", allow = ["MPL-2.0"] },
+]
+
+[bans]
+# Two majors of one crate is weight, but it is how the ecosystem moves (windows-sys, syn): a
+# warning to read when the tree changes, not a gate.
+multiple-versions = "warn"
+wildcards = "deny"
+# The workspace's own path dependencies (core, shim) are not published, so not wildcards.
+allow-wildcard-paths = true
+
+[sources]
+# crates.io only.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

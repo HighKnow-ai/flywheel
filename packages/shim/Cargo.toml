@@ -2,6 +2,9 @@
 name = "flywheel-shim"
 version = "0.1.0"
 edition = "2021"
+# The workspace's licence (LICENSE). Never published as a crate: it ships inside the app.
+license = "Apache-2.0"
+publish = false
 description = "D-51's PATH shim binary: dispatches on argv[0], resolves the real binary by an absolute path supplied once by the supervisor, and retries git lock failures through the same policy git_at uses. Deliberately NOT named `git` at the cargo level — the entry that shadows git on PATH is created at install time (flywheel_core::shim::install_for_run), not by cargo."
 
 [[bin]]

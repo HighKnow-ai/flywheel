@@ -4,6 +4,9 @@ version = "0.1.0"
 description = "Flywheel — the desktop shell (Tauri v2 + React)"
 authors = ["HighKnow"]
 edition = "2021"
+# The workspace's licence (LICENSE). Never published as a crate: it ships inside the app.
+license = "Apache-2.0"
+publish = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

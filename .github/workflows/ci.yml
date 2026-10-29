@@ -58,7 +58,12 @@ jobs:
 
       - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
         with:
-          tool: cargo-nextest
+          tool: cargo-nextest,cargo-deny@0.20.2
+
+      # RustSec advisories, licences, duplicate crates and sources, by deny.toml: what the macOS
+      # app ships is held to it. Seconds, and it needs nothing built.
+      - name: Dependencies (cargo-deny)
+        run: cargo deny --locked check --hide-inclusion-graph
 
       # tauri_build::build() fails the whole workspace build when a bundle.externalBin file is
       # missing, and no Rust test runs those three files: they are only copied into the bundle.

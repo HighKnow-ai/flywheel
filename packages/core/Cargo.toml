@@ -2,6 +2,9 @@
 name = "flywheel-core"
 version = "0.1.0"
 edition = "2021"
+# The workspace's licence (LICENSE). Never published as a crate: it ships inside the app.
+license = "Apache-2.0"
+publish = false
 description = "Flywheel domain crate: schema, persistence, and the store-of-record write path"
 
 [lib]
