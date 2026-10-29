@@ -422,7 +422,7 @@ mod tests {
             assert_eq!((open.number, open.trigger_type.as_str(), open.trigger_label.as_str()), (1, "revisit", "Revisit roadmap"));
             assert!(open.session_live);
             assert!(!open.waiting_on_you, "the agent is working, not waiting");
-            assert_eq!(view.last.is_none(), true);
+            assert!(view.last.is_none());
         });
     }
 

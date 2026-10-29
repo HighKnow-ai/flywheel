@@ -25,8 +25,9 @@ afterEach(() => {
 });
 
 /**
- * `@tanstack/react-virtual` measures its scroll container via `element.offsetWidth`/
- * `offsetHeight` (see `getRect` in `@tanstack/virtual-core`). jsdom does not implement layout, so
+ * `@tanstack/react-virtual` measures its scroll container via `element.clientWidth`/
+ * `clientHeight` (see `getRect` in `@tanstack/virtual-core`; up to 3.19.5 it read `offsetWidth`/
+ * `offsetHeight`, so both pairs are stubbed below). jsdom does not implement layout, so
  * these default to `0` for every element — without a fixed viewport size here, every virtualized
  * list (BoardView, and any future virtualized surface) would compute an empty visible range and
  * render zero rows in tests, regardless of how many items were supplied.
@@ -38,7 +39,7 @@ if (typeof globalThis.ResizeObserver === "undefined") {
     disconnect() {}
   }
   // jsdom has no ResizeObserver. `@tanstack/react-virtual` checks for its presence and no-ops
-  // gracefully when absent (it still measures once via offsetWidth/offsetHeight below), but a
+  // gracefully when absent (it still measures once via clientWidth/clientHeight below), but a
   // defined stub avoids every future consumer needing to guard against a missing global.
   globalThis.ResizeObserver = ResizeObserverStub as unknown as typeof ResizeObserver;
 }
@@ -54,6 +55,16 @@ Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
   value: 800,
 });
 Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
+  configurable: true,
+  value: 1200,
+});
+// The same viewport through the content box, which `@tanstack/virtual-core` 3.19.7 measures. No
+// element here has padding or a border in jsdom, so the two pairs agree, as they would in a browser.
+Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+  configurable: true,
+  value: 800,
+});
+Object.defineProperty(HTMLElement.prototype, "clientWidth", {
   configurable: true,
   value: 1200,
 });
@@ -73,8 +84,8 @@ Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
  * IN-01 (01-REVIEW.md, closed in 01-21-PLAN.md Task 3): the floor clamp above is also joined by a
  * CEILING clamp, but not as the review's fix sketch suggested (`scrollHeight - offsetHeight`,
  * applied unconditionally). Verified directly against this repo's jsdom: every element reports
- * `scrollHeight === 0` and `clientHeight === 0`, because jsdom implements no layout at all — which
- * is exactly why this file already has to stub `offsetHeight` at 800 above. Applying the review's
+ * `scrollHeight === 0` (and `clientHeight === 0` before it was stubbed at 800 above, as
+ * `offsetHeight` is), because jsdom implements no layout at all. Applying the review's
  * clamp unguarded would compute `max(0, 0 - 800) = 0` for every element and silently clamp EVERY
  * programmatic scroll to zero, disabling the volume suite's `DEEP_SCROLL_OFFSET` and making the
  * G-01-4 regression tests pass for the wrong reason — the precise failure mode this stub exists to
