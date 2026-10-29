@@ -6,6 +6,8 @@ user would recognise. Releases up to v0.1.2 are described on their release pages
 
 ## Unreleased
 
+## 0.1.3 — 2026-10-29
+
 - If you installed 0.1.1, download this release by hand. 0.1.1 looks for updates in a file that
   releases no longer publish, so it will not offer this one.
 - A panel whose data arrives just as its loading placeholder is due no longer flashes: it used to
