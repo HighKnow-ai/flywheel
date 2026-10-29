@@ -47,7 +47,10 @@ jobs:
           cache: npm
           cache-dependency-path: packages/sidecar/package-lock.json
 
+      # The action installs the minimal profile, which has no clippy.
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # 2026-10-16, the stable branch (it has no release tags)
+        with:
+          components: clippy
 
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
@@ -66,6 +69,12 @@ jobs:
           for bin in flywheel-sidecar flywheel-node flywheel-shim; do
             touch "packages/desktop/src-tauri/binaries/$bin-$triple"
           done
+
+      # Every crate and target, tests included, warnings refused. Before the tests: a lint fails in
+      # a minute, and it needs the stand-ins above (the desktop crate's build script) but not the
+      # sidecar build.
+      - name: Clippy
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
       # packages/sidecar/dist: the session tests spawn the real sidecar under node.
       - run: npm --prefix packages/sidecar ci
@@ -285,7 +294,7 @@ jobs:
             | select((.key == "dmg" and .value.result == "skipped" and env.DMG_EXPECTED != "true") | not)
             | .key')
           if [ -n "$failed" ]; then
-            echo "::error::not passed: $(echo $failed)"
+            echo "::error::not passed: ${failed//$'\n'/ }"
             exit 1
           fi
 
