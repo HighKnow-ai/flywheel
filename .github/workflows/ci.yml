@@ -50,7 +50,7 @@ jobs:
       # The action installs the minimal profile, which has no clippy.
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # 2026-10-16, the stable branch (it has no release tags)
         with:
-          components: clippy
+          components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
@@ -73,6 +73,11 @@ jobs:
       # Every crate and target, tests included, warnings refused. Before the tests: a lint fails in
       # a minute, and it needs the stand-ins above (the desktop crate's build script) but not the
       # sidecar build.
+      # Formatting: the workspace is rustfmt's default style since one mechanical reformat;
+      # this keeps it there. Seconds, and it needs nothing built.
+      - name: Format
+        run: cargo fmt --all --check
+
       - name: Clippy
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
