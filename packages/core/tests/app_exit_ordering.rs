@@ -23,7 +23,10 @@ fn is_whole_line_comment(line: &str) -> bool {
 }
 
 fn non_comment_lines(contents: &str) -> Vec<&str> {
-    contents.lines().filter(|line| !is_whole_line_comment(line)).collect()
+    contents
+        .lines()
+        .filter(|line| !is_whole_line_comment(line))
+        .collect()
 }
 
 #[test]
@@ -105,7 +108,10 @@ fn main() {
 }
 ";
     let lines: Vec<&str> = reordered.lines().collect();
-    let exit_line_idx = lines.iter().position(|line| line.contains("RunEvent::Exit")).unwrap();
+    let exit_line_idx = lines
+        .iter()
+        .position(|line| line.contains("RunEvent::Exit"))
+        .unwrap();
     let window_end = (exit_line_idx + 20).min(lines.len());
     let window: Vec<&str> = lines[exit_line_idx..window_end].to_vec();
 
@@ -137,13 +143,19 @@ fn main() {
 }
 ";
     let lines: Vec<&str> = missing.lines().collect();
-    let exit_line_idx = lines.iter().position(|line| line.contains("RunEvent::Exit")).unwrap();
+    let exit_line_idx = lines
+        .iter()
+        .position(|line| line.contains("RunEvent::Exit"))
+        .unwrap();
     let window_end = (exit_line_idx + 20).min(lines.len());
     let window: Vec<&str> = lines[exit_line_idx..window_end].to_vec();
     let shutdown_missing = !window
         .iter()
         .any(|line| !is_whole_line_comment(line) && line.contains("shutdown_all_sessions"));
-    assert!(shutdown_missing, "the fixture deliberately omits shutdown_all_sessions");
+    assert!(
+        shutdown_missing,
+        "the fixture deliberately omits shutdown_all_sessions"
+    );
 
     let comment_only = "\
 fn main() {
@@ -156,7 +168,10 @@ fn main() {
 }
 ";
     let lines: Vec<&str> = comment_only.lines().collect();
-    let exit_line_idx = lines.iter().position(|line| line.contains("RunEvent::Exit")).unwrap();
+    let exit_line_idx = lines
+        .iter()
+        .position(|line| line.contains("RunEvent::Exit"))
+        .unwrap();
     let window_end = (exit_line_idx + 20).min(lines.len());
     let window: Vec<&str> = lines[exit_line_idx..window_end].to_vec();
     let shutdown_commented_only = !window

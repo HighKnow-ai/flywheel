@@ -41,7 +41,10 @@ fn init_repo(root: &Path, name: &str) -> PathBuf {
     let repo = root.join(name);
     std::fs::create_dir_all(&repo).expect("failed to create repo dir");
     run_git_ok(&repo, &["init", "--initial-branch", "main"]);
-    run_git_ok(&repo, &["config", "user.email", "git-facts-test@flywheel.invalid"]);
+    run_git_ok(
+        &repo,
+        &["config", "user.email", "git-facts-test@flywheel.invalid"],
+    );
     run_git_ok(&repo, &["config", "user.name", "Flywheel Git Facts Test"]);
     std::fs::write(repo.join("README.md"), "git_facts.rs scratch repo\n")
         .expect("failed to write README");
@@ -54,7 +57,16 @@ fn init_repo(root: &Path, name: &str) -> PathBuf {
 /// network remote, never a named upstream outside this test's own scratch directory).
 fn init_bare(root: &Path, name: &str) -> PathBuf {
     let repo = root.join(name);
-    run_git_ok(root, &["init", "--bare", "--initial-branch", "main", repo.to_str().unwrap()]);
+    run_git_ok(
+        root,
+        &[
+            "init",
+            "--bare",
+            "--initial-branch",
+            "main",
+            repo.to_str().unwrap(),
+        ],
+    );
     repo
 }
 
@@ -80,14 +92,24 @@ fn setup() -> Fixture {
 
     let origin = init_bare(root.path(), "origin.git");
     let main_repo = init_repo(root.path(), "main_repo");
-    run_git_ok(&main_repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    run_git_ok(
+        &main_repo,
+        &["remote", "add", "origin", origin.to_str().unwrap()],
+    );
     run_git_ok(&main_repo, &["push", "-u", "origin", "main"]);
 
     let worktree_path = root.path().join("story_worktree");
     let branch = "flywheel/fly-1-a-story".to_string();
     run_git_ok(
         &main_repo,
-        &["worktree", "add", worktree_path.to_str().unwrap(), "-b", &branch, "main"],
+        &[
+            "worktree",
+            "add",
+            worktree_path.to_str().unwrap(),
+            "-b",
+            &branch,
+            "main",
+        ],
     );
 
     let db_dir = tempfile::tempdir().expect("failed to create scratch db dir");
@@ -95,8 +117,8 @@ fn setup() -> Fixture {
     let backups_dir = db_dir.path().join("backups");
     std::mem::forget(db_dir);
 
-    let mut conn =
-        flywheel_core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate should succeed");
+    let mut conn = flywheel_core::db::open_and_migrate(&db_path, &backups_dir)
+        .expect("open_and_migrate should succeed");
     let actor_id = local_human_actor_id(&conn).expect("seeded human actor should exist");
     let project = create_project(
         &mut conn,
@@ -126,7 +148,13 @@ fn setup() -> Fixture {
     )
     .expect("failed to insert worktree row");
 
-    Fixture { _root: root, conn, story_id: story.id, worktree_path, branch }
+    Fixture {
+        _root: root,
+        conn,
+        story_id: story.id,
+        worktree_path,
+        branch,
+    }
 }
 
 #[test]
@@ -146,7 +174,10 @@ fn ahead_behind_against_unresolvable_target_withholds_the_figure() {
 
     let result = ahead_behind(&repo, "origin/does-not-exist", "main")
         .expect("ahead_behind should succeed even when the target cannot be measured");
-    assert_eq!(result, None, "a target that does not resolve locally must withhold, not fabricate");
+    assert_eq!(
+        result, None,
+        "a target that does not resolve locally must withhold, not fabricate"
+    );
 }
 
 #[test]
@@ -154,11 +185,14 @@ fn git_facts_for_story_with_no_worktree_row_returns_none() {
     let fixture = setup();
     fixture
         .conn
-        .execute("DELETE FROM worktrees WHERE story_id = ?1", params![fixture.story_id])
+        .execute(
+            "DELETE FROM worktrees WHERE story_id = ?1",
+            params![fixture.story_id],
+        )
         .expect("failed to delete worktree row");
 
-    let facts =
-        git_facts_for_story(&fixture.conn, &fixture.story_id).expect("git_facts_for_story should succeed");
+    let facts = git_facts_for_story(&fixture.conn, &fixture.story_id)
+        .expect("git_facts_for_story should succeed");
     assert!(facts.is_none());
 }
 
@@ -192,7 +226,10 @@ fn git_facts_for_story_commits_are_newest_first_and_stable_across_two_reads() {
         .expect("facts should be Some");
 
     assert_eq!(first.commits.len(), 2);
-    assert_eq!(first.commits[0].subject, "add b", "newest commit must come first");
+    assert_eq!(
+        first.commits[0].subject, "add b",
+        "newest commit must come first"
+    );
     assert_eq!(first.commits[1].subject, "add a");
     assert_eq!(
         first.commits, second.commits,
@@ -205,15 +242,24 @@ fn last_fetch_at_is_none_until_a_fetch_runs_then_some() {
     let root = tempfile::tempdir().expect("failed to create scratch root");
     let origin = init_bare(root.path(), "origin.git");
     let repo = init_repo(root.path(), "repo");
-    run_git_ok(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    run_git_ok(
+        &repo,
+        &["remote", "add", "origin", origin.to_str().unwrap()],
+    );
 
-    assert_eq!(last_fetch_at(&repo).expect("last_fetch_at should succeed"), None);
+    assert_eq!(
+        last_fetch_at(&repo).expect("last_fetch_at should succeed"),
+        None
+    );
 
     let fetched = fetch_origin(&repo).expect("fetch_origin should succeed");
     assert!(fetched, "fetch_origin should report it actually fetched");
 
     let after = last_fetch_at(&repo).expect("last_fetch_at should succeed");
-    assert!(after.is_some(), "last_fetch_at should flip to Some once FETCH_HEAD exists");
+    assert!(
+        after.is_some(),
+        "last_fetch_at should flip to Some once FETCH_HEAD exists"
+    );
 }
 
 #[test]
@@ -222,7 +268,10 @@ fn fetch_origin_skips_without_fetching_when_no_remote_is_configured() {
     let repo = init_repo(root.path(), "repo");
 
     let fetched = fetch_origin(&repo).expect("fetch_origin should succeed");
-    assert!(!fetched, "fetch_origin should skip, not fail, when there is no remote");
+    assert!(
+        !fetched,
+        "fetch_origin should skip, not fail, when there is no remote"
+    );
 }
 
 #[test]

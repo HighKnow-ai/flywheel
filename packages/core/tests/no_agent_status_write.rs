@@ -38,15 +38,23 @@ fn is_whole_line_comment(line: &str) -> bool {
 
 fn sources_under(dir: &Path) -> Vec<(PathBuf, String)> {
     fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
-        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
-                if path.file_name().is_some_and(|n| n == "node_modules" || n == "dist") {
+                if path
+                    .file_name()
+                    .is_some_and(|n| n == "node_modules" || n == "dist")
+                {
                     continue;
                 }
                 walk(&path, out);
-            } else if path.extension().is_some_and(|e| e == "rs" || e == "ts" || e == "tsx") {
+            } else if path
+                .extension()
+                .is_some_and(|e| e == "rs" || e == "ts" || e == "tsx")
+            {
                 out.push(path);
             }
         }
@@ -56,7 +64,8 @@ fn sources_under(dir: &Path) -> Vec<(PathBuf, String)> {
     paths
         .into_iter()
         .map(|p| {
-            let body = std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("failed to read {p:?}: {e}"));
+            let body =
+                std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("failed to read {p:?}: {e}"));
             (p, body)
         })
         .collect()
@@ -64,7 +73,11 @@ fn sources_under(dir: &Path) -> Vec<(PathBuf, String)> {
 
 // --- The gate ---
 
-const SCAN_ROOTS: [&str; 3] = ["packages/core/src", "packages/desktop/src-tauri/src", "packages/sidecar/src"];
+const SCAN_ROOTS: [&str; 3] = [
+    "packages/core/src",
+    "packages/desktop/src-tauri/src",
+    "packages/sidecar/src",
+];
 
 /// Each record table with a state column, and the one file allowed to write it.
 const STATE_WRITERS: [(&str, &str); 3] = [
@@ -82,15 +95,33 @@ fn scan_body_for_raw_state_writes(path: &Path, body: &str, table: &str, hits: &m
     if path.to_string_lossy().contains("src/db/migrations/") {
         return;
     }
-    let code = body.lines().filter(|l| !is_whole_line_comment(l)).collect::<Vec<_>>().join(" ");
-    let normal = code.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+    let code = body
+        .lines()
+        .filter(|l| !is_whole_line_comment(l))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let normal = code
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase();
     let stmt = format!("update {table} set");
     for (i, _) in normal.match_indices(&stmt) {
         let rest = &normal[i + stmt.len()..];
-        let set_list = rest.split(" where ").next().unwrap_or(rest).split('"').next().unwrap_or(rest);
+        let set_list = rest
+            .split(" where ")
+            .next()
+            .unwrap_or(rest)
+            .split('"')
+            .next()
+            .unwrap_or(rest);
         let compact: String = set_list.chars().filter(|c| !c.is_whitespace()).collect();
         if compact.starts_with("state=") || compact.contains(",state=") {
-            hits.push(format!("{}: raw {table}.state write:{}", path.display(), set_list));
+            hits.push(format!(
+                "{}: raw {table}.state write:{}",
+                path.display(),
+                set_list
+            ));
         }
     }
 }
@@ -102,7 +133,10 @@ fn each_state_column_has_exactly_one_writer() {
         let mut hits = Vec::new();
         for rel in SCAN_ROOTS {
             let files = sources_under(&root.join(rel));
-            assert!(!files.is_empty(), "{rel} yielded no source files: the gate would be scanning nothing");
+            assert!(
+                !files.is_empty(),
+                "{rel} yielded no source files: the gate would be scanning nothing"
+            );
             for (path, body) in files {
                 scan_body_for_raw_state_writes(&path, &body, table, &mut hits);
             }
@@ -115,7 +149,11 @@ fn each_state_column_has_exactly_one_writer() {
              Offenders:\n{}",
             outside.iter().map(|h| h.as_str()).collect::<Vec<_>>().join("\n")
         );
-        assert_eq!(hits.len(), 1, "the {table} writer itself must still exist, exactly once: {hits:?}");
+        assert_eq!(
+            hits.len(),
+            1,
+            "the {table} writer itself must still exist, exactly once: {hits:?}"
+        );
     }
 }
 
@@ -129,33 +167,85 @@ fn state_hits(path: &str, body: &str) -> Vec<String> {
 fn the_state_write_gate_fires_on_a_planted_raw_update() {
     let planted = "fn sneaky(tx: &Transaction) {\n    // UPDATE stories SET state = 'merged' (a comment is not a write)\n    tx.execute(\"UPDATE stories SET state = 'running' WHERE id = ?1\", [id]).unwrap();\n}\n";
     let hits = state_hits("packages/core/src/domain/planted.rs", planted);
-    assert_eq!(hits.len(), 1, "exactly the one real statement, not the comment: {hits:?}");
+    assert_eq!(
+        hits.len(),
+        1,
+        "exactly the one real statement, not the comment: {hits:?}"
+    );
     assert!(hits[0].contains("planted.rs"));
 
-    assert!(state_hits("packages/core/src/db/migrations/0099_x.rs", planted).is_empty(), "migrations are skipped");
+    assert!(
+        state_hits("packages/core/src/db/migrations/0099_x.rs", planted).is_empty(),
+        "migrations are skipped"
+    );
 
-    let reordered = "tx.execute(\"UPDATE stories SET updated_at = ?1, state = ?2 WHERE id = ?3\", p);";
-    assert_eq!(state_hits("src/x.rs", reordered).len(), 1, "state after another column");
+    let reordered =
+        "tx.execute(\"UPDATE stories SET updated_at = ?1, state = ?2 WHERE id = ?3\", p);";
+    assert_eq!(
+        state_hits("src/x.rs", reordered).len(),
+        1,
+        "state after another column"
+    );
 
     let split = "tx.execute(\n    \"UPDATE stories\n     SET updated_at = ?1,\n         state = ?2\n     WHERE id = ?3\",\n    p);";
-    assert_eq!(state_hits("src/x.rs", split).len(), 1, "statement split across lines");
+    assert_eq!(
+        state_hits("src/x.rs", split).len(),
+        1,
+        "statement split across lines"
+    );
 
-    assert_eq!(state_hits("src/x.rs", "update stories\n  set state = 'merged'\n  where id = ?1").len(), 1, "lowercase and split");
-    assert_eq!(state_hits("src/x.rs", "\"UPDATE stories SET title = ?1 WHERE id = ?2\"").len(), 0, "no state column");
-    assert_eq!(state_hits("src/x.rs", "// UPDATE stories SET state = ?2 WHERE id = ?3").len(), 0, "whole-line comment");
+    assert_eq!(
+        state_hits(
+            "src/x.rs",
+            "update stories\n  set state = 'merged'\n  where id = ?1"
+        )
+        .len(),
+        1,
+        "lowercase and split"
+    );
+    assert_eq!(
+        state_hits(
+            "src/x.rs",
+            "\"UPDATE stories SET title = ?1 WHERE id = ?2\""
+        )
+        .len(),
+        0,
+        "no state column"
+    );
+    assert_eq!(
+        state_hits("src/x.rs", "// UPDATE stories SET state = ?2 WHERE id = ?3").len(),
+        0,
+        "whole-line comment"
+    );
 
     let mut epic_hits = Vec::new();
-    scan_body_for_raw_state_writes(Path::new("src/x.rs"), "\"UPDATE epics SET state = ?1 WHERE id = ?2\"", "epics", &mut epic_hits);
-    assert_eq!(epic_hits.len(), 1, "the matcher works for every guarded table");
+    scan_body_for_raw_state_writes(
+        Path::new("src/x.rs"),
+        "\"UPDATE epics SET state = ?1 WHERE id = ?2\"",
+        "epics",
+        &mut epic_hits,
+    );
+    assert_eq!(
+        epic_hits.len(),
+        1,
+        "the matcher works for every guarded table"
+    );
 }
 
 // --- The worktree and session edges write no Story state ---
 
 fn state_of(conn: &Connection, story_id: &str) -> String {
-    conn.query_row("SELECT state FROM stories WHERE id = ?1", [story_id], |r| r.get(0)).unwrap()
+    conn.query_row("SELECT state FROM stories WHERE id = ?1", [story_id], |r| {
+        r.get(0)
+    })
+    .unwrap()
 }
 
-fn events_of(conn: &Connection, story_id: &str, event_type: &str) -> Vec<flywheel_core::query::events::EventRow> {
+fn events_of(
+    conn: &Connection,
+    story_id: &str,
+    event_type: &str,
+) -> Vec<flywheel_core::query::events::EventRow> {
     activity_trail(conn, "story", story_id, 500, 0)
         .unwrap()
         .into_iter()
@@ -182,11 +272,16 @@ fn starting_a_session_appends_its_started_event_and_no_state_event() {
         let (mut conn, human, project, _repo) = common::seeded_git_project();
         let story = common::new_story(&mut conn, &project.id, &human, "Session edge");
 
-        let run = start_session(&mut conn, &story.id, "acceptEdits", &human).expect("start_session");
+        let run =
+            start_session(&mut conn, &story.id, "acceptEdits", &human).expect("start_session");
 
         assert_eq!(events_of(&conn, &story.id, "session.started").len(), 1);
         assert!(events_of(&conn, &story.id, "story.state_changed").is_empty());
-        assert_eq!(state_of(&conn, &story.id), "shaping", "a session starting is not a state signal");
+        assert_eq!(
+            state_of(&conn, &story.id),
+            "shaping",
+            "a session starting is not a state signal"
+        );
         assert!(!run.id.is_empty());
     });
 }
@@ -202,7 +297,10 @@ fn no_status_picker_component_exists_in_the_desktop_tree() {
     let mut found_files = Vec::new();
     let mut importers = Vec::new();
     for (path, body) in sources_under(&workspace_root().join("packages/desktop/src")) {
-        let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        let stem = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
         if stem == deleted {
             found_files.push(path.display().to_string());
         }
@@ -216,6 +314,13 @@ fn no_status_picker_component_exists_in_the_desktop_tree() {
             }
         }
     }
-    assert!(found_files.is_empty(), "the status picker file is back: {found_files:?}");
-    assert!(importers.is_empty(), "something outside a comment still names the status picker:\n{}", importers.join("\n"));
+    assert!(
+        found_files.is_empty(),
+        "the status picker file is back: {found_files:?}"
+    );
+    assert!(
+        importers.is_empty(),
+        "something outside a comment still names the status picker:\n{}",
+        importers.join("\n")
+    );
 }

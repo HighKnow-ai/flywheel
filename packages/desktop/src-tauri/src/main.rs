@@ -279,7 +279,9 @@ fn main() {
                 if let Some(state) = app_handle.try_state::<AppState>() {
                     if let Some(sidecar) = state.sidecar.as_ref() {
                         if let Err(err) = sidecar.shutdown_all_sessions() {
-                            eprintln!("failed to signal live agent sessions during app exit: {err:#}");
+                            eprintln!(
+                                "failed to signal live agent sessions during app exit: {err:#}"
+                            );
                         }
                         sidecar.kill();
                     }

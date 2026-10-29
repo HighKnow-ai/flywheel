@@ -70,9 +70,16 @@ pub struct Transition {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Banner {
-    Single { title: String, body: String },
+    Single {
+        title: String,
+        body: String,
+    },
     /// `kind` is `None` when the burst mixed kinds.
-    Summary { count: usize, projects: Vec<String>, kind: Option<TransitionKind> },
+    Summary {
+        count: usize,
+        projects: Vec<String>,
+        kind: Option<TransitionKind>,
+    },
 }
 
 impl Banner {
@@ -80,10 +87,19 @@ impl Banner {
     pub fn text(&self) -> (String, String) {
         match self {
             Banner::Single { title, body } => (title.clone(), body.clone()),
-            Banner::Summary { count, projects, kind: Some(TransitionKind::Waiting) } => {
-                (format!("{count} requests are waiting on you"), projects.join(" · "))
-            }
-            Banner::Summary { count, projects, kind } => {
+            Banner::Summary {
+                count,
+                projects,
+                kind: Some(TransitionKind::Waiting),
+            } => (
+                format!("{count} requests are waiting on you"),
+                projects.join(" · "),
+            ),
+            Banner::Summary {
+                count,
+                projects,
+                kind,
+            } => {
                 let what = match kind {
                     Some(TransitionKind::Waiting) => "are waiting on you",
                     Some(TransitionKind::Completed) => "finished",
@@ -108,7 +124,10 @@ fn single(t: &Transition) -> Banner {
         TransitionKind::Completed => ("has finished", "Ready for you to look at.".to_string()),
         TransitionKind::Failed => ("has failed", "The run ended with an error.".to_string()),
     };
-    Banner::Single { title: format!("{} · {} {state}", t.project_name, t.subject_label), body }
+    Banner::Single {
+        title: format!("{} · {} {state}", t.project_name, t.subject_label),
+        body,
+    }
 }
 
 fn cap(raw: &str, max: usize) -> String {
@@ -131,13 +150,22 @@ pub fn banner_body(tool_name: &str) -> String {
         return "The agent has a question for you.".to_string();
     }
     let tool = cap(tool_name, TOOL_CAP);
-    if tool.is_empty() { "a tool".to_string() } else { tool }
+    if tool.is_empty() {
+        "a tool".to_string()
+    } else {
+        tool
+    }
 }
 
 /// A banner is withheld for exactly two reasons: the user's switch is off, or the user is already
 /// looking at that run's session on a focused window. The fleet surface is not a watched run, so a
 /// banner still fires while it is open (D-174).
-pub fn should_suppress(enabled: bool, window_focused: bool, watched_run: Option<&str>, run_id: &str) -> bool {
+pub fn should_suppress(
+    enabled: bool,
+    window_focused: bool,
+    watched_run: Option<&str>,
+    run_id: &str,
+) -> bool {
     !enabled || (window_focused && watched_run == Some(run_id))
 }
 
@@ -149,12 +177,20 @@ pub struct Coalescer {
 
 impl Coalescer {
     pub fn new(window: Duration) -> Self {
-        Self { window, pending: Vec::new(), shown: VecDeque::new() }
+        Self {
+            window,
+            pending: Vec::new(),
+            shown: VecDeque::new(),
+        }
     }
 
     /// An identical run-and-kind pair inside the window collapses to one (Pitfall 3).
     pub fn push(&mut self, t: Transition, now: Instant) {
-        if self.pending.iter().any(|(_, p)| p.run_id == t.run_id && p.kind == t.kind) {
+        if self
+            .pending
+            .iter()
+            .any(|(_, p)| p.run_id == t.run_id && p.kind == t.kind)
+        {
             return;
         }
         self.pending.push((now, t));
@@ -162,7 +198,9 @@ impl Coalescer {
 
     /// True once the oldest pending transition has waited out the window.
     pub fn is_due(&self, now: Instant) -> bool {
-        self.pending.first().is_some_and(|(at, _)| now.duration_since(*at) >= self.window)
+        self.pending
+            .first()
+            .is_some_and(|(at, _)| now.duration_since(*at) >= self.window)
     }
 
     /// Drain the burst if its window has closed, drop the transitions `keep` refuses, and fold the
@@ -171,8 +209,12 @@ impl Coalescer {
         if !self.is_due(now) {
             return None;
         }
-        let kept: Vec<Transition> =
-            self.pending.drain(..).map(|(_, t)| t).filter(|t| keep(t)).collect();
+        let kept: Vec<Transition> = self
+            .pending
+            .drain(..)
+            .map(|(_, t)| t)
+            .filter(|t| keep(t))
+            .collect();
         match kept.as_slice() {
             [] => None,
             [only] => Some(single(only)),
@@ -183,8 +225,15 @@ impl Coalescer {
                         projects.push(t.project_name.clone());
                     }
                 }
-                let kind = all.iter().all(|t| t.kind == all[0].kind).then_some(all[0].kind);
-                Some(Banner::Summary { count: all.len(), projects, kind })
+                let kind = all
+                    .iter()
+                    .all(|t| t.kind == all[0].kind)
+                    .then_some(all[0].kind);
+                Some(Banner::Summary {
+                    count: all.len(),
+                    projects,
+                    kind,
+                })
             }
         }
     }
@@ -192,7 +241,11 @@ impl Coalescer {
     /// Records one banner shown; returns how many were shown inside [`BURST_SPAN`].
     fn record_shown(&mut self, now: Instant) -> usize {
         self.shown.push_back(now);
-        while self.shown.front().is_some_and(|at| now.duration_since(*at) > BURST_SPAN) {
+        while self
+            .shown
+            .front()
+            .is_some_and(|at| now.duration_since(*at) > BURST_SPAN)
+        {
             self.shown.pop_front();
         }
         self.shown.len()
@@ -235,13 +288,17 @@ impl WaitingWatch {
         window_focused: bool,
         enabled: bool,
     ) -> Option<Banner> {
-        self.announced.retain(|id| waiting.iter().any(|w| &w.request_id == id));
+        self.announced
+            .retain(|id| waiting.iter().any(|w| &w.request_id == id));
         if window_focused || !enabled {
             return None;
         }
         let due: Vec<&WaitingRequest> = waiting
             .iter()
-            .filter(|w| !self.announced.contains(&w.request_id) && has_waited_long_enough(&w.created_at, now))
+            .filter(|w| {
+                !self.announced.contains(&w.request_id)
+                    && has_waited_long_enough(&w.created_at, now)
+            })
             .collect();
         for w in &due {
             self.announced.insert(w.request_id.clone());
@@ -249,7 +306,10 @@ impl WaitingWatch {
         match due.as_slice() {
             [] => None,
             [only] => Some(Banner::Single {
-                title: format!("{} · {} is waiting on you", only.project_name, only.story_key),
+                title: format!(
+                    "{} · {} is waiting on you",
+                    only.project_name, only.story_key
+                ),
                 body: banner_body(&only.tool_name),
             }),
             all => {
@@ -259,7 +319,11 @@ impl WaitingWatch {
                         projects.push(w.project_name.clone());
                     }
                 }
-                Some(Banner::Summary { count: all.len(), projects, kind: Some(TransitionKind::Waiting) })
+                Some(Banner::Summary {
+                    count: all.len(),
+                    projects,
+                    kind: Some(TransitionKind::Waiting),
+                })
             }
         }
     }
@@ -270,7 +334,9 @@ impl WaitingWatch {
 fn has_waited_long_enough(created_at: &str, now: chrono::DateTime<chrono::Utc>) -> bool {
     match chrono::DateTime::parse_from_rfc3339(created_at) {
         Ok(at) => {
-            now.signed_duration_since(at.with_timezone(&chrono::Utc)).to_std().unwrap_or(Duration::ZERO)
+            now.signed_duration_since(at.with_timezone(&chrono::Utc))
+                .to_std()
+                .unwrap_or(Duration::ZERO)
                 >= WAITING_NOTIFY_AFTER
         }
         Err(_) => true,
@@ -291,22 +357,27 @@ pub fn waiting_tick(
     }
     let (waiting, enabled) = {
         let conn = db.lock().ok()?;
-        let waiting: Vec<WaitingRequest> =
-            flywheel_core::query::fleet::blocked_queue(&conn, flywheel_core::query::fleet::BLOCKED_QUEUE_MAX_LIMIT)
-                .ok()?
-                .into_iter()
-                .map(|e| WaitingRequest {
-                    request_id: e.request_id,
-                    project_name: e.project_name,
-                    story_key: e.story_key,
-                    tool_name: e.tool_name,
-                    created_at: e.created_at,
-                })
-                .collect();
+        let waiting: Vec<WaitingRequest> = flywheel_core::query::fleet::blocked_queue(
+            &conn,
+            flywheel_core::query::fleet::BLOCKED_QUEUE_MAX_LIMIT,
+        )
+        .ok()?
+        .into_iter()
+        .map(|e| WaitingRequest {
+            request_id: e.request_id,
+            project_name: e.project_name,
+            story_key: e.story_key,
+            tool_name: e.tool_name,
+            created_at: e.created_at,
+        })
+        .collect();
         let enabled = flywheel_core::domain::settings::notifications_enabled(&conn).unwrap_or(true);
         (waiting, enabled)
     };
-    watch.lock().ok()?.take_due(&waiting, now, window_focused, enabled)
+    watch
+        .lock()
+        .ok()?
+        .take_due(&waiting, now, window_focused, enabled)
 }
 
 /// One tick of the shell, with every input explicit so a test can drive it. The switch is read
@@ -328,9 +399,14 @@ pub fn tick(
         .and_then(|conn| flywheel_core::domain::settings::notifications_enabled(&conn).ok())
         .unwrap_or(true);
     let mut co = co.lock().ok()?;
-    let banner = co.take_due(now, |t| !should_suppress(enabled, window_focused, watched_run, &t.run_id))?;
+    let banner = co.take_due(now, |t| {
+        !should_suppress(enabled, window_focused, watched_run, &t.run_id)
+    })?;
     if co.record_shown(now) > BURST_BOUND {
-        eprintln!("notify: more than {BURST_BOUND} banners in {}s", BURST_SPAN.as_secs());
+        eprintln!(
+            "notify: more than {BURST_BOUND} banners in {}s",
+            BURST_SPAN.as_secs()
+        );
     }
     Some(banner)
 }
@@ -353,11 +429,22 @@ pub fn push(t: Transition) {
 /// database (which a scheduler tick can hold for a long time) and `.show()` is a synchronous call
 /// into the OS that can park a thread (Pitfall 5), so this runs only on the blocking pool.
 fn show_due_banner(app: &AppHandle) {
-    let Some(state) = app.try_state::<AppState>() else { return };
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
     // Focus is read in Rust at fire time: one source of truth, no race with a renderer report.
-    let focused = app.get_webview_window("main").and_then(|w| w.is_focused().ok()).unwrap_or(false);
+    let focused = app
+        .get_webview_window("main")
+        .and_then(|w| w.is_focused().ok())
+        .unwrap_or(false);
     let watched = state.watched_run.lock().ok().and_then(|w| w.clone());
-    let Some(banner) = tick(coalescer(), &state.db, Instant::now(), focused, watched.as_deref()) else {
+    let Some(banner) = tick(
+        coalescer(),
+        &state.db,
+        Instant::now(),
+        focused,
+        watched.as_deref(),
+    ) else {
         return;
     };
     let (title, body) = banner.text();
@@ -374,8 +461,13 @@ fn waiting_watch() -> &'static Mutex<WaitingWatch> {
 /// Polls the waiting requests and shows their banner, if one is due. Blocking for the same reasons
 /// as [`show_due_banner`], so it too runs only on the blocking pool.
 fn show_waiting_banner(app: &AppHandle) {
-    let Some(state) = app.try_state::<AppState>() else { return };
-    let focused = app.get_webview_window("main").and_then(|w| w.is_focused().ok()).unwrap_or(false);
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
+    let focused = app
+        .get_webview_window("main")
+        .and_then(|w| w.is_focused().ok())
+        .unwrap_or(false);
     let Some(banner) = waiting_tick(waiting_watch(), &state.db, chrono::Utc::now(), focused) else {
         return;
     };
@@ -398,16 +490,23 @@ pub fn spawn_notify_task(app: AppHandle) {
             if last_waiting_poll.elapsed() >= WAITING_POLL {
                 last_waiting_poll = Instant::now();
                 let app = app.clone();
-                if let Err(e) = tauri::async_runtime::spawn_blocking(move || show_waiting_banner(&app)).await {
+                if let Err(e) =
+                    tauri::async_runtime::spawn_blocking(move || show_waiting_banner(&app)).await
+                {
                     eprintln!("notify: the waiting poll failed: {e}");
                 }
             }
-            let due = coalescer().lock().map(|co| co.is_due(Instant::now())).unwrap_or(false);
+            let due = coalescer()
+                .lock()
+                .map(|co| co.is_due(Instant::now()))
+                .unwrap_or(false);
             if !due {
                 continue;
             }
             let app = app.clone();
-            if let Err(e) = tauri::async_runtime::spawn_blocking(move || show_due_banner(&app)).await {
+            if let Err(e) =
+                tauri::async_runtime::spawn_blocking(move || show_due_banner(&app)).await
+            {
                 eprintln!("notify: the banner task failed: {e}");
             }
         }
@@ -453,7 +552,9 @@ mod tests {
     fn one_transition_is_one_single_banner_naming_project_subject_and_state() {
         let (mut co, t0) = (Coalescer::new(COALESCE_WINDOW), Instant::now());
         co.push(t("a", "api", TransitionKind::Completed), t0);
-        let Some(Banner::Single { title, .. }) = drain(&mut co, after(t0)) else { panic!("not single") };
+        let Some(Banner::Single { title, .. }) = drain(&mut co, after(t0)) else {
+            panic!("not single")
+        };
         assert_eq!(title, "api · TASK-02 has finished");
         assert_eq!(drain(&mut co, after(t0)), None, "the burst is drained");
     }
@@ -466,7 +567,9 @@ mod tests {
         ] {
             let (mut co, t0) = (Coalescer::new(COALESCE_WINDOW), Instant::now());
             co.push(t("a", "api", kind), t0);
-            let Some(Banner::Single { title, .. }) = drain(&mut co, after(t0)) else { panic!() };
+            let Some(Banner::Single { title, .. }) = drain(&mut co, after(t0)) else {
+                panic!()
+            };
             assert!(title.ends_with(word), "{title}");
         }
     }
@@ -486,7 +589,10 @@ mod tests {
                 kind: Some(TransitionKind::Completed)
             }
         );
-        assert_eq!(banner.text(), ("3 agents finished".to_string(), "web · api".to_string()));
+        assert_eq!(
+            banner.text(),
+            ("3 agents finished".to_string(), "web · api".to_string())
+        );
     }
 
     #[test]
@@ -494,15 +600,28 @@ mod tests {
         let (mut co, t0) = (Coalescer::new(COALESCE_WINDOW), Instant::now());
         co.push(t("a", "web", TransitionKind::Completed), t0);
         co.push(t("b", "api", TransitionKind::Failed), t0);
-        assert!(matches!(drain(&mut co, after(t0)), Some(Banner::Summary { kind: None, count: 2, .. })));
+        assert!(matches!(
+            drain(&mut co, after(t0)),
+            Some(Banner::Summary {
+                kind: None,
+                count: 2,
+                ..
+            })
+        ));
     }
 
     #[test]
     fn the_same_run_and_kind_twice_collapses_to_one() {
         let (mut co, t0) = (Coalescer::new(COALESCE_WINDOW), Instant::now());
         co.push(t("a", "api", TransitionKind::Completed), t0);
-        co.push(t("a", "api", TransitionKind::Completed), t0 + Duration::from_secs(1));
-        assert!(matches!(drain(&mut co, after(t0)), Some(Banner::Single { .. })));
+        co.push(
+            t("a", "api", TransitionKind::Completed),
+            t0 + Duration::from_secs(1),
+        );
+        assert!(matches!(
+            drain(&mut co, after(t0)),
+            Some(Banner::Single { .. })
+        ));
     }
 
     #[test]
@@ -519,9 +638,18 @@ mod tests {
     #[test]
     fn suppression_needs_the_switch_off_or_a_focused_window_on_that_very_run() {
         assert!(should_suppress(true, true, Some("r"), "r"));
-        assert!(!should_suppress(true, false, Some("r"), "r"), "unfocused window");
-        assert!(!should_suppress(true, true, Some("other"), "r"), "a different run is watched");
-        assert!(!should_suppress(true, true, None, "r"), "the fleet surface is not a watched run");
+        assert!(
+            !should_suppress(true, false, Some("r"), "r"),
+            "unfocused window"
+        );
+        assert!(
+            !should_suppress(true, true, Some("other"), "r"),
+            "a different run is watched"
+        );
+        assert!(
+            !should_suppress(true, true, None, "r"),
+            "the fleet surface is not a watched run"
+        );
         for focused in [true, false] {
             for watched in [None, Some("r"), Some("x")] {
                 assert!(should_suppress(false, focused, watched, "r"), "switch off");
@@ -550,7 +678,9 @@ mod tests {
     }
 
     fn at(rfc3339: &str) -> chrono::DateTime<chrono::Utc> {
-        chrono::DateTime::parse_from_rfc3339(rfc3339).unwrap().with_timezone(&chrono::Utc)
+        chrono::DateTime::parse_from_rfc3339(rfc3339)
+            .unwrap()
+            .with_timezone(&chrono::Utc)
     }
 
     const RAISED: &str = "2026-10-19T10:00:00+00:00";
@@ -564,10 +694,26 @@ mod tests {
     fn a_request_is_announced_after_thirty_seconds_unanswered_while_unfocused() {
         let mut watch = WaitingWatch::new();
         let w = [waiting("r1", "api", RAISED)];
-        assert_eq!(watch.take_due(&w, at("2026-10-19T10:00:29+00:00"), false, true), None, "29 s is too soon");
-        let banner = watch.take_due(&w, at("2026-10-19T10:00:30+00:00"), false, true).expect("a banner at 30 s");
-        assert_eq!(banner.text(), ("api · STO-1 is waiting on you".to_string(), "Bash".to_string()));
-        assert_eq!(watch.take_due(&w, at("2026-10-19T10:05:00+00:00"), false, true), None, "announced once");
+        assert_eq!(
+            watch.take_due(&w, at("2026-10-19T10:00:29+00:00"), false, true),
+            None,
+            "29 s is too soon"
+        );
+        let banner = watch
+            .take_due(&w, at("2026-10-19T10:00:30+00:00"), false, true)
+            .expect("a banner at 30 s");
+        assert_eq!(
+            banner.text(),
+            (
+                "api · STO-1 is waiting on you".to_string(),
+                "Bash".to_string()
+            )
+        );
+        assert_eq!(
+            watch.take_due(&w, at("2026-10-19T10:05:00+00:00"), false, true),
+            None,
+            "announced once"
+        );
     }
 
     #[test]
@@ -575,30 +721,57 @@ mod tests {
         let mut watch = WaitingWatch::new();
         let w = [waiting("r1", "api", RAISED)];
         for later in ["2026-10-19T10:00:30+00:00", "2026-10-19T10:10:00+00:00"] {
-            assert_eq!(watch.take_due(&w, at(later), true, true), None, "focused: never");
+            assert_eq!(
+                watch.take_due(&w, at(later), true, true),
+                None,
+                "focused: never"
+            );
         }
-        assert!(watch.take_due(&w, at("2026-10-19T10:10:02+00:00"), false, true).is_some(), "left: announced");
+        assert!(
+            watch
+                .take_due(&w, at("2026-10-19T10:10:02+00:00"), false, true)
+                .is_some(),
+            "left: announced"
+        );
     }
 
     #[test]
     fn an_answered_request_is_not_announced() {
         let mut watch = WaitingWatch::new();
-        assert_eq!(watch.take_due(&[], at("2026-10-19T10:01:00+00:00"), false, true), None);
+        assert_eq!(
+            watch.take_due(&[], at("2026-10-19T10:01:00+00:00"), false, true),
+            None
+        );
     }
 
     #[test]
     fn the_switch_off_announces_nothing() {
         let mut watch = WaitingWatch::new();
         let w = [waiting("r1", "api", RAISED)];
-        assert_eq!(watch.take_due(&w, at("2026-10-19T10:01:00+00:00"), false, false), None);
+        assert_eq!(
+            watch.take_due(&w, at("2026-10-19T10:01:00+00:00"), false, false),
+            None
+        );
     }
 
     #[test]
     fn several_due_requests_are_one_summary() {
         let mut watch = WaitingWatch::new();
-        let w = [waiting("r1", "web", RAISED), waiting("r2", "api", RAISED), waiting("r3", "web", RAISED)];
-        let banner = watch.take_due(&w, at("2026-10-19T10:01:00+00:00"), false, true).expect("a banner");
-        assert_eq!(banner.text(), ("3 requests are waiting on you".to_string(), "web · api".to_string()));
+        let w = [
+            waiting("r1", "web", RAISED),
+            waiting("r2", "api", RAISED),
+            waiting("r3", "web", RAISED),
+        ];
+        let banner = watch
+            .take_due(&w, at("2026-10-19T10:01:00+00:00"), false, true)
+            .expect("a banner");
+        assert_eq!(
+            banner.text(),
+            (
+                "3 requests are waiting on you".to_string(),
+                "web · api".to_string()
+            )
+        );
     }
 
     #[test]
@@ -606,7 +779,9 @@ mod tests {
         let mut watch = WaitingWatch::new();
         let mut w = waiting("r1", "api", RAISED);
         w.tool_name = "Bash".into();
-        let banner = watch.take_due(&[w], at("2026-10-19T10:01:00+00:00"), false, true).unwrap();
+        let banner = watch
+            .take_due(&[w], at("2026-10-19T10:01:00+00:00"), false, true)
+            .unwrap();
         assert_eq!(banner.text().1, "Bash");
     }
 
@@ -616,25 +791,37 @@ mod tests {
         let db = seeded_db();
         let watch = Mutex::new(WaitingWatch::new());
         let _held = db.lock().unwrap();
-        assert_eq!(waiting_tick(&watch, &db, at("2026-10-19T10:05:00+00:00"), true), None);
+        assert_eq!(
+            waiting_tick(&watch, &db, at("2026-10-19T10:05:00+00:00"), true),
+            None
+        );
     }
 
     #[test]
     fn a_burst_past_the_bound_is_counted() {
         let (mut co, t0) = (Coalescer::new(COALESCE_WINDOW), Instant::now());
-        let counts: Vec<usize> = (0..3).map(|i| co.record_shown(t0 + Duration::from_secs(i))).collect();
+        let counts: Vec<usize> = (0..3)
+            .map(|i| co.record_shown(t0 + Duration::from_secs(i)))
+            .collect();
         assert_eq!(counts, vec![1, 2, 3]);
-        assert_eq!(co.record_shown(t0 + Duration::from_secs(200)), 1, "old entries age out");
+        assert_eq!(
+            co.record_shown(t0 + Duration::from_secs(200)),
+            1,
+            "old entries age out"
+        );
     }
 
     fn seeded_db() -> Mutex<Connection> {
         let dir = tempfile::tempdir().expect("tempdir");
-        let mut conn =
-            flywheel_core::db::open_and_migrate(&dir.path().join("t.db"), &dir.path().join("backups"))
-                .expect("migrate");
+        let mut conn = flywheel_core::db::open_and_migrate(
+            &dir.path().join("t.db"),
+            &dir.path().join("backups"),
+        )
+        .expect("migrate");
         std::mem::forget(dir);
         let actor = flywheel_core::domain::actor::local_human_actor_id(&conn).expect("actor");
-        flywheel_core::domain::settings::set_notifications_enabled(&mut conn, &actor, true).expect("set");
+        flywheel_core::domain::settings::set_notifications_enabled(&mut conn, &actor, true)
+            .expect("set");
         Mutex::new(conn)
     }
 
@@ -644,16 +831,27 @@ mod tests {
         let co = Mutex::new(Coalescer::new(COALESCE_WINDOW));
         let t0 = Instant::now();
 
-        co.lock().unwrap().push(t("a", "api", TransitionKind::Completed), t0);
-        assert!(tick(&co, &db, after(t0), false, None).is_some(), "on: the banner fires");
+        co.lock()
+            .unwrap()
+            .push(t("a", "api", TransitionKind::Completed), t0);
+        assert!(
+            tick(&co, &db, after(t0), false, None).is_some(),
+            "on: the banner fires"
+        );
 
         {
             let mut conn = db.lock().unwrap();
             let actor = flywheel_core::domain::actor::local_human_actor_id(&conn).unwrap();
-            flywheel_core::domain::settings::set_notifications_enabled(&mut conn, &actor, false).unwrap();
+            flywheel_core::domain::settings::set_notifications_enabled(&mut conn, &actor, false)
+                .unwrap();
         }
-        co.lock().unwrap().push(t("b", "api", TransitionKind::Completed), t0);
-        assert!(tick(&co, &db, after(t0), false, None).is_none(), "off: the second one is honoured");
+        co.lock()
+            .unwrap()
+            .push(t("b", "api", TransitionKind::Completed), t0);
+        assert!(
+            tick(&co, &db, after(t0), false, None).is_none(),
+            "off: the second one is honoured"
+        );
     }
 
     #[test]
@@ -661,9 +859,13 @@ mod tests {
         let db = seeded_db();
         let co = Mutex::new(Coalescer::new(COALESCE_WINDOW));
         let t0 = Instant::now();
-        co.lock().unwrap().push(t("a", "api", TransitionKind::Completed), t0);
+        co.lock()
+            .unwrap()
+            .push(t("a", "api", TransitionKind::Completed), t0);
         assert!(tick(&co, &db, after(t0), true, Some("a")).is_none());
-        co.lock().unwrap().push(t("a", "api", TransitionKind::Completed), t0);
+        co.lock()
+            .unwrap()
+            .push(t("a", "api", TransitionKind::Completed), t0);
         assert!(tick(&co, &db, after(t0), true, None).is_some());
     }
 
@@ -678,11 +880,18 @@ mod tests {
             .as_array()
             .expect("permissions array")
             .iter()
-            .map(|p| p.as_str().or_else(|| p["identifier"].as_str()).unwrap_or_default().to_string())
+            .map(|p| {
+                p.as_str()
+                    .or_else(|| p["identifier"].as_str())
+                    .unwrap_or_default()
+                    .to_string()
+            })
             .collect();
         assert!(!granted.is_empty());
         assert!(
-            granted.iter().all(|g| !g.to_lowercase().contains("notification")),
+            granted
+                .iter()
+                .all(|g| !g.to_lowercase().contains("notification")),
             "a notification grant reached the window: {granted:?}"
         );
     }

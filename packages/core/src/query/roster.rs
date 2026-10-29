@@ -98,7 +98,11 @@ pub fn roster_rows(conn: &Connection, milestone_id: &str) -> anyhow::Result<Vec<
         .query_map(params![milestone_id], |row| {
             let files: Option<i64> = row.get(9)?;
             let review = match files {
-                Some(files) => Some(ReviewDiffSize { files, added: row.get(10)?, removed: row.get(11)? }),
+                Some(files) => Some(ReviewDiffSize {
+                    files,
+                    added: row.get(10)?,
+                    removed: row.get(11)?,
+                }),
                 None => None,
             };
             Ok(RosterRow {

@@ -10,12 +10,20 @@ use std::process::Command;
 
 use common::with_scratch_worktree_root;
 use flywheel_core::context_packet::build_context_packet;
-use flywheel_core::domain::permission_request::{answer_request, create_pending_request, pending_for_run};
-use flywheel_core::domain::session::{apply_session_closed, interrupt_session, mark_abandoned, start_session, Session};
-use flywheel_core::domain::session_ending::{classify_session_closed, EndingReason, LastAssistantMessage};
+use flywheel_core::domain::permission_request::{
+    answer_request, create_pending_request, pending_for_run,
+};
+use flywheel_core::domain::session::{
+    apply_session_closed, interrupt_session, mark_abandoned, start_session, Session,
+};
+use flywheel_core::domain::session_ending::{
+    classify_session_closed, EndingReason, LastAssistantMessage,
+};
 use flywheel_core::domain::session_summary::{create_summary, latest_summary_for_run};
 use flywheel_core::domain::story::{set_story_state, Story, StoryState};
-use flywheel_core::domain::task::{add_task, set_task_note, set_task_state, tasks_for_story, TaskState};
+use flywheel_core::domain::task::{
+    add_task, set_task_note, set_task_state, tasks_for_story, TaskState,
+};
 use flywheel_core::query::permissions::pending_requests_for_run;
 use flywheel_core::query::sessions::{run_by_id, runs_for_story, stopped_session_for_story};
 use flywheel_core::session_log::{last_assistant_message, session_log_path};
@@ -24,8 +32,17 @@ use serde_json::json;
 use tempfile::TempDir;
 
 fn git(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git").arg("-C").arg(dir).args(args).output().expect("git should spawn");
-    assert!(out.status.success(), "git {args:?} failed: {}", String::from_utf8_lossy(&out.stderr));
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .expect("git should spawn");
+    assert!(
+        out.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     String::from_utf8_lossy(&out.stdout).trim().to_string()
 }
 
@@ -48,11 +65,22 @@ fn running_story() -> Fixture {
     let task = add_task(&mut conn, &run.actor_id, &story.id, "Wire the parser").unwrap();
     set_task_state(&mut conn, &run.actor_id, &task.id, TaskState::Doing, None).unwrap();
     let worktree: String = conn
-        .query_row("SELECT path FROM worktrees WHERE id = ?1", params![run.worktree_id], |r| r.get(0))
+        .query_row(
+            "SELECT path FROM worktrees WHERE id = ?1",
+            params![run.worktree_id],
+            |r| r.get(0),
+        )
         .unwrap();
     let worktree = PathBuf::from(worktree);
     std::fs::write(worktree.join("half-done.txt"), "work in progress\n").unwrap();
-    Fixture { conn, actor_id, _repo: repo, story, run, worktree }
+    Fixture {
+        conn,
+        actor_id,
+        _repo: repo,
+        story,
+        run,
+        worktree,
+    }
 }
 
 /// Write `lines` as the session's durable log, the way the reader loop does.
@@ -66,7 +94,12 @@ fn remove_log(run_id: &str) {
     let _ = std::fs::remove_file(session_log_path(run_id).unwrap());
 }
 
-fn closed(run_id: &str, reason: &str, result: Option<serde_json::Value>, exit_code: Option<i64>) -> serde_json::Value {
+fn closed(
+    run_id: &str,
+    reason: &str,
+    result: Option<serde_json::Value>,
+    exit_code: Option<i64>,
+) -> serde_json::Value {
     let mut event = json!({
         "type": "session_closed",
         "runId": run_id,
@@ -82,7 +115,12 @@ fn closed(run_id: &str, reason: &str, result: Option<serde_json::Value>, exit_co
 }
 
 fn ending_reason(conn: &Connection, run_id: &str) -> Option<String> {
-    conn.query_row("SELECT ending_reason FROM sessions WHERE id = ?1", params![run_id], |r| r.get(0)).unwrap()
+    conn.query_row(
+        "SELECT ending_reason FROM sessions WHERE id = ?1",
+        params![run_id],
+        |r| r.get(0),
+    )
+    .unwrap()
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -98,28 +136,63 @@ const RUN: &str = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 #[test]
 fn the_ending_label_is_read_from_the_result_line_and_the_exit_code() {
     let clean = json!({"subtype": "success", "isError": false, "terminalReason": "completed", "stopReason": "end_turn"});
-    assert_eq!(label(closed(RUN, "completed", Some(clean.clone()), Some(0)), None), EndingReason::EndedWithoutHandOff);
+    assert_eq!(
+        label(closed(RUN, "completed", Some(clean.clone()), Some(0)), None),
+        EndingReason::EndedWithoutHandOff
+    );
 
     let killed = closed(RUN, "failed", None, None);
-    assert_eq!(label(killed, None), EndingReason::Crash, "no result line and a signal exit is a crash");
-    assert_eq!(label(closed(RUN, "failed", None, Some(143)), None), EndingReason::Crash);
-    assert_eq!(label(closed(RUN, "failed", None, Some(137)), None), EndingReason::Crash);
+    assert_eq!(
+        label(killed, None),
+        EndingReason::Crash,
+        "no result line and a signal exit is a crash"
+    );
+    assert_eq!(
+        label(closed(RUN, "failed", None, Some(143)), None),
+        EndingReason::Crash
+    );
+    assert_eq!(
+        label(closed(RUN, "failed", None, Some(137)), None),
+        EndingReason::Crash
+    );
 
     let crash = json!({"subtype": "error_during_execution", "stopReason": null});
-    assert_eq!(label(closed(RUN, "failed", Some(crash), Some(1)), None), EndingReason::Crash);
+    assert_eq!(
+        label(closed(RUN, "failed", Some(crash), Some(1)), None),
+        EndingReason::Crash
+    );
 
     let api = json!({"subtype": "success", "isError": true, "terminalReason": "api_error"});
-    assert_eq!(label(closed(RUN, "failed", Some(api), Some(1)), None), EndingReason::ApiError);
+    assert_eq!(
+        label(closed(RUN, "failed", Some(api), Some(1)), None),
+        EndingReason::ApiError
+    );
 
     let refusal = json!({"subtype": "success", "isError": false, "stopReason": "refusal"});
-    assert_eq!(label(closed(RUN, "completed", Some(refusal), Some(0)), None), EndingReason::Refusal);
+    assert_eq!(
+        label(closed(RUN, "completed", Some(refusal), Some(0)), None),
+        EndingReason::Refusal
+    );
 
     let mut origin = closed(RUN, "failed", None, Some(137));
     origin["closeOrigin"] = json!("watchdog-heartbeat-stale");
-    assert_eq!(label(origin, None), EndingReason::AppQuit, "the watchdog kills a session whose app went away");
+    assert_eq!(
+        label(origin, None),
+        EndingReason::AppQuit,
+        "the watchdog kills a session whose app went away"
+    );
 
-    assert_eq!(label(closed(RUN, "interrupted", None, Some(143)), None), EndingReason::StoppedByDeveloper);
-    assert_eq!(label(json!({"type": "session_closed", "runId": RUN, "reason": "completed"}), None), EndingReason::Unknown);
+    assert_eq!(
+        label(closed(RUN, "interrupted", None, Some(143)), None),
+        EndingReason::StoppedByDeveloper
+    );
+    assert_eq!(
+        label(
+            json!({"type": "session_closed", "runId": RUN, "reason": "completed"}),
+            None
+        ),
+        EndingReason::Unknown
+    );
 
     assert_eq!(
         classify_session_closed(&closed(RUN, "completed", Some(clean), Some(0)), None, true),
@@ -132,20 +205,55 @@ fn the_ending_label_is_read_from_the_result_line_and_the_exit_code() {
 fn a_refusal_and_a_usage_limit_are_read_from_the_last_assistant_message() {
     let clean = json!({"subtype": "success", "isError": false, "terminalReason": "completed"});
     let refused = LastAssistantMessage {
-        text: "API Error: Claude's safeguards flagged this message. Details: `[reasoning_extraction]`".into(),
+        text:
+            "API Error: Claude's safeguards flagged this message. Details: `[reasoning_extraction]`"
+                .into(),
         is_api_error: true,
         rate_limited: false,
     };
-    assert_eq!(label(closed(RUN, "completed", Some(clean.clone()), Some(0)), Some(refused)), EndingReason::Refusal);
+    assert_eq!(
+        label(
+            closed(RUN, "completed", Some(clean.clone()), Some(0)),
+            Some(refused)
+        ),
+        EndingReason::Refusal
+    );
 
-    let limited = LastAssistantMessage { text: "Claude AI usage limit reached|1760000000".into(), is_api_error: true, rate_limited: false };
-    assert_eq!(label(closed(RUN, "completed", Some(clean.clone()), Some(0)), Some(limited)), EndingReason::UsageLimit);
+    let limited = LastAssistantMessage {
+        text: "Claude AI usage limit reached|1760000000".into(),
+        is_api_error: true,
+        rate_limited: false,
+    };
+    assert_eq!(
+        label(
+            closed(RUN, "completed", Some(clean.clone()), Some(0)),
+            Some(limited)
+        ),
+        EndingReason::UsageLimit
+    );
 
-    let flagged = LastAssistantMessage { text: "anything".into(), is_api_error: true, rate_limited: true };
-    assert_eq!(label(closed(RUN, "failed", Some(clean.clone()), Some(1)), Some(flagged)), EndingReason::UsageLimit);
+    let flagged = LastAssistantMessage {
+        text: "anything".into(),
+        is_api_error: true,
+        rate_limited: true,
+    };
+    assert_eq!(
+        label(
+            closed(RUN, "failed", Some(clean.clone()), Some(1)),
+            Some(flagged)
+        ),
+        EndingReason::UsageLimit
+    );
 
-    let api = LastAssistantMessage { text: "API Error: 500 Internal server error".into(), is_api_error: true, rate_limited: false };
-    assert_eq!(label(closed(RUN, "completed", Some(clean), Some(0)), Some(api)), EndingReason::ApiError);
+    let api = LastAssistantMessage {
+        text: "API Error: 500 Internal server error".into(),
+        is_api_error: true,
+        rate_limited: false,
+    };
+    assert_eq!(
+        label(closed(RUN, "completed", Some(clean), Some(0)), Some(api)),
+        EndingReason::ApiError
+    );
 }
 
 #[test]
@@ -154,7 +262,10 @@ fn every_label_has_words_and_round_trips_through_its_column_value() {
         assert_eq!(EndingReason::parse(reason.as_str()), Some(reason));
         assert!(!reason.words().is_empty());
     }
-    assert_eq!(EndingReason::EndedWithoutHandOff.words(), "ended without hand-off");
+    assert_eq!(
+        EndingReason::EndedWithoutHandOff.words(),
+        "ended without hand-off"
+    );
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -168,38 +279,80 @@ fn a_killed_session_flags_the_story_stopped_and_leaves_a_stub_with_the_last_mess
         let head_before = git(&f.worktree, &["rev-parse", "HEAD"]);
         let status_before = git(&f.worktree, &["status", "--porcelain"]);
         let long = format!("I was halfway through the parser. {}", "x".repeat(2000));
-        write_log(&f.run.id, &[json!({"type": "assistant_text", "text": long}), json!({"type": "cost_update"})]);
+        write_log(
+            &f.run.id,
+            &[
+                json!({"type": "assistant_text", "text": long}),
+                json!({"type": "cost_update"}),
+            ],
+        );
 
-        assert!(stopped_session_for_story(&f.conn, &f.story.id).unwrap().is_none(), "a live session is not Stopped");
+        assert!(
+            stopped_session_for_story(&f.conn, &f.story.id)
+                .unwrap()
+                .is_none(),
+            "a live session is not Stopped"
+        );
         apply_session_closed(&mut f.conn, &closed(&f.run.id, "failed", None, Some(143))).unwrap();
 
         assert_eq!(ending_reason(&f.conn, &f.run.id).as_deref(), Some("crash"));
-        let stopped = stopped_session_for_story(&f.conn, &f.story.id).unwrap().expect("the Story is Stopped");
+        let stopped = stopped_session_for_story(&f.conn, &f.story.id)
+            .unwrap()
+            .expect("the Story is Stopped");
         assert_eq!(stopped.session_id, f.run.id);
         assert_eq!(stopped.ending_reason.as_deref(), Some("crash"));
 
-        let stub = latest_summary_for_run(&f.conn, &f.run.id).unwrap().expect("a stub summary");
+        let stub = latest_summary_for_run(&f.conn, &f.run.id)
+            .unwrap()
+            .expect("a stub summary");
         assert!(stub.is_stub);
         let note = &stub.next_session_must_know;
         assert!(note.contains("crash"), "{note}");
         assert!(note.contains("Wire the parser"), "{note}");
         assert!(note.contains("I was halfway through the parser."), "{note}");
-        assert!(note.chars().count() < 1200, "the last message is truncated: {} chars", note.chars().count());
+        assert!(
+            note.chars().count() < 1200,
+            "the last message is truncated: {} chars",
+            note.chars().count()
+        );
 
         let tasks = tasks_for_story(&f.conn, &f.story.id).unwrap();
         assert_eq!(tasks[0].state, "doing", "the doing Task stays doing");
-        let story_state: String =
-            f.conn.query_row("SELECT state FROM stories WHERE id = ?1", params![f.story.id], |r| r.get(0)).unwrap();
-        assert_eq!(story_state, "running", "Stopped is attention, never a state");
+        let story_state: String = f
+            .conn
+            .query_row(
+                "SELECT state FROM stories WHERE id = ?1",
+                params![f.story.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            story_state, "running",
+            "Stopped is attention, never a state"
+        );
 
-        assert_eq!(git(&f.worktree, &["rev-parse", "HEAD"]), head_before, "no WIP commit");
-        assert_eq!(git(&f.worktree, &["status", "--porcelain"]), status_before, "no reset, no clean");
+        assert_eq!(
+            git(&f.worktree, &["rev-parse", "HEAD"]),
+            head_before,
+            "no WIP commit"
+        );
+        assert_eq!(
+            git(&f.worktree, &["status", "--porcelain"]),
+            status_before,
+            "no reset, no clean"
+        );
         assert!(f.worktree.join("half-done.txt").is_file());
 
         let packet = build_context_packet(&f.conn, &f.story.id, "Pick the parser back up").unwrap();
-        assert!(packet.contains("I was halfway through the parser."), "the stub reaches the next packet");
+        assert!(
+            packet.contains("I was halfway through the parser."),
+            "the stub reaches the next packet"
+        );
         assert!(packet.contains("Resume note: Pick the parser back up"));
-        assert!(packet.contains("re-verify"), "the packet tells the agent to re-verify the doing Task");
+        assert!(
+            packet.contains("re-verify"),
+            "the packet tells the agent to re-verify the doing Task"
+        );
         remove_log(&f.run.id);
     });
 }
@@ -213,25 +366,58 @@ fn a_session_stopped_mid_task_leaves_the_doing_tasks_note_in_the_stub_and_the_pa
         let doing = tasks_for_story(&f.conn, &f.story.id).unwrap().remove(0);
         let learned = "Parser entry is src/parse.rs::parse_line.\nLeft: the error path.";
         set_task_note(&mut f.conn, &f.run.actor_id, &doing.id, learned).unwrap();
-        let later = add_task(&mut f.conn, &f.run.actor_id, &f.story.id, "Document the grammar").unwrap();
-        set_task_note(&mut f.conn, &f.actor_id, &later.id, "Use the README's table.").unwrap();
+        let later = add_task(
+            &mut f.conn,
+            &f.run.actor_id,
+            &f.story.id,
+            "Document the grammar",
+        )
+        .unwrap();
+        set_task_note(
+            &mut f.conn,
+            &f.actor_id,
+            &later.id,
+            "Use the README's table.",
+        )
+        .unwrap();
 
         apply_session_closed(&mut f.conn, &closed(&f.run.id, "failed", None, Some(143))).unwrap();
 
-        let stub = latest_summary_for_run(&f.conn, &f.run.id).unwrap().expect("a stub summary");
+        let stub = latest_summary_for_run(&f.conn, &f.run.id)
+            .unwrap()
+            .expect("a stub summary");
         let must_know = &stub.next_session_must_know;
         assert!(must_know.contains("Its note on that Task:"), "{must_know}");
-        assert!(must_know.contains("> Parser entry is src/parse.rs::parse_line.\n> Left: the error path."), "{must_know}");
-        assert!(!must_know.contains("README's table"), "only the doing Task's note goes in the stub: {must_know}");
-        assert!(must_know.contains("The worktree is left exactly as it was"), "{must_know}");
+        assert!(
+            must_know
+                .contains("> Parser entry is src/parse.rs::parse_line.\n> Left: the error path."),
+            "{must_know}"
+        );
+        assert!(
+            !must_know.contains("README's table"),
+            "only the doing Task's note goes in the stub: {must_know}"
+        );
+        assert!(
+            must_know.contains("The worktree is left exactly as it was"),
+            "{must_know}"
+        );
 
         let packet = build_context_packet(&f.conn, &f.story.id, "").unwrap();
-        let tasks = packet.split("## Tasks").nth(1).unwrap().split("\n## ").next().unwrap();
+        let tasks = packet
+            .split("## Tasks")
+            .nth(1)
+            .unwrap()
+            .split("\n## ")
+            .next()
+            .unwrap();
         assert!(
             tasks.contains("- [doing] Wire the parser\n  Note: Parser entry is src/parse.rs::parse_line.\n  Left: the error path.\n"),
             "the doing Task's note sits under it: {tasks}"
         );
-        assert!(tasks.contains("- [open] Document the grammar\n  Note: Use the README's table.\n"), "{tasks}");
+        assert!(
+            tasks.contains("- [open] Document the grammar\n  Note: Use the README's table.\n"),
+            "{tasks}"
+        );
         assert!(tasks.contains("starting from its note"), "{tasks}");
     });
 }
@@ -241,12 +427,29 @@ fn a_clean_exit_without_a_hand_off_reads_ended_without_hand_off() {
     with_scratch_worktree_root(|_| {
         let mut f = running_story();
         let result = json!({"subtype": "success", "isError": false, "terminalReason": "completed", "stopReason": "end_turn"});
-        apply_session_closed(&mut f.conn, &closed(&f.run.id, "completed", Some(result), Some(0))).unwrap();
+        apply_session_closed(
+            &mut f.conn,
+            &closed(&f.run.id, "completed", Some(result), Some(0)),
+        )
+        .unwrap();
 
-        assert_eq!(ending_reason(&f.conn, &f.run.id).as_deref(), Some("ended_without_hand_off"));
-        assert!(stopped_session_for_story(&f.conn, &f.story.id).unwrap().is_some(), "a clean exit counts as Stopped");
+        assert_eq!(
+            ending_reason(&f.conn, &f.run.id).as_deref(),
+            Some("ended_without_hand_off")
+        );
+        assert!(
+            stopped_session_for_story(&f.conn, &f.story.id)
+                .unwrap()
+                .is_some(),
+            "a clean exit counts as Stopped"
+        );
         let stub = latest_summary_for_run(&f.conn, &f.run.id).unwrap().unwrap();
-        assert!(stub.next_session_must_know.contains("ended without hand-off"), "{}", stub.next_session_must_know);
+        assert!(
+            stub.next_session_must_know
+                .contains("ended without hand-off"),
+            "{}",
+            stub.next_session_must_know
+        );
     });
 }
 
@@ -255,13 +458,33 @@ fn a_session_that_handed_off_is_not_stopped_and_gets_no_stub() {
     with_scratch_worktree_root(|_| {
         let mut f = running_story();
         create_summary(&mut f.conn, &f.run.id, "parser done", "kept the old lexer").unwrap();
-        set_story_state(&mut f.conn, &f.run.actor_id, &f.story.id, StoryState::InReview).unwrap();
+        set_story_state(
+            &mut f.conn,
+            &f.run.actor_id,
+            &f.story.id,
+            StoryState::InReview,
+        )
+        .unwrap();
         let result = json!({"subtype": "success", "isError": false, "terminalReason": "completed"});
-        apply_session_closed(&mut f.conn, &closed(&f.run.id, "completed", Some(result), Some(0))).unwrap();
+        apply_session_closed(
+            &mut f.conn,
+            &closed(&f.run.id, "completed", Some(result), Some(0)),
+        )
+        .unwrap();
 
-        assert_eq!(ending_reason(&f.conn, &f.run.id).as_deref(), Some("handed_off"));
-        assert!(stopped_session_for_story(&f.conn, &f.story.id).unwrap().is_none());
-        assert!(!latest_summary_for_run(&f.conn, &f.run.id).unwrap().unwrap().is_stub);
+        assert_eq!(
+            ending_reason(&f.conn, &f.run.id).as_deref(),
+            Some("handed_off")
+        );
+        assert!(stopped_session_for_story(&f.conn, &f.story.id)
+            .unwrap()
+            .is_none());
+        assert!(
+            !latest_summary_for_run(&f.conn, &f.run.id)
+                .unwrap()
+                .unwrap()
+                .is_stub
+        );
     });
 }
 
@@ -270,19 +493,43 @@ fn a_stop_and_an_app_quit_carry_their_own_labels() {
     with_scratch_worktree_root(|_| {
         let mut f = running_story();
         interrupt_session(&mut f.conn, &f.run.id, &f.actor_id).unwrap();
-        assert_eq!(ending_reason(&f.conn, &f.run.id).as_deref(), Some("stopped_by_developer"));
-        assert!(stopped_session_for_story(&f.conn, &f.story.id).unwrap().is_some());
+        assert_eq!(
+            ending_reason(&f.conn, &f.run.id).as_deref(),
+            Some("stopped_by_developer")
+        );
+        assert!(stopped_session_for_story(&f.conn, &f.story.id)
+            .unwrap()
+            .is_some());
 
         // The sidecar's late terminal event never relabels a session that is already terminal.
-        apply_session_closed(&mut f.conn, &closed(&f.run.id, "interrupted", None, Some(143))).unwrap();
-        assert_eq!(ending_reason(&f.conn, &f.run.id).as_deref(), Some("stopped_by_developer"));
+        apply_session_closed(
+            &mut f.conn,
+            &closed(&f.run.id, "interrupted", None, Some(143)),
+        )
+        .unwrap();
+        assert_eq!(
+            ending_reason(&f.conn, &f.run.id).as_deref(),
+            Some("stopped_by_developer")
+        );
 
         let next = start_session(&mut f.conn, &f.story.id, "acceptEdits", &f.actor_id).unwrap();
-        assert!(stopped_session_for_story(&f.conn, &f.story.id).unwrap().is_none(), "a resumed Story is not Stopped");
+        assert!(
+            stopped_session_for_story(&f.conn, &f.story.id)
+                .unwrap()
+                .is_none(),
+            "a resumed Story is not Stopped"
+        );
         mark_abandoned(&mut f.conn, &next.id, &f.actor_id, None).unwrap();
-        assert_eq!(ending_reason(&f.conn, &next.id).as_deref(), Some("app_quit"));
+        assert_eq!(
+            ending_reason(&f.conn, &next.id).as_deref(),
+            Some("app_quit")
+        );
         let stub = latest_summary_for_run(&f.conn, &next.id).unwrap().unwrap();
-        assert!(stub.next_session_must_know.contains("app quit"), "{}", stub.next_session_must_know);
+        assert!(
+            stub.next_session_must_know.contains("app quit"),
+            "{}",
+            stub.next_session_must_know
+        );
     });
 }
 
@@ -290,21 +537,42 @@ fn a_stop_and_an_app_quit_carry_their_own_labels() {
 fn a_pending_request_expires_with_its_session() {
     with_scratch_worktree_root(|_| {
         let mut f = running_story();
-        let gated =
-            create_pending_request(&mut f.conn, &f.run.id, "Bash", Some("{}"), &f.run.actor_id, Some("force-push")).unwrap();
+        let gated = create_pending_request(
+            &mut f.conn,
+            &f.run.id,
+            "Bash",
+            Some("{}"),
+            &f.run.actor_id,
+            Some("force-push"),
+        )
+        .unwrap();
         assert!(pending_for_run(&f.conn, &f.run.id).unwrap().is_some());
 
         apply_session_closed(&mut f.conn, &closed(&f.run.id, "failed", None, Some(137))).unwrap();
 
-        assert!(pending_for_run(&f.conn, &f.run.id).unwrap().is_none(), "the request disappears with its session");
-        assert!(pending_requests_for_run(&f.conn, &f.run.id).unwrap().is_empty());
+        assert!(
+            pending_for_run(&f.conn, &f.run.id).unwrap().is_none(),
+            "the request disappears with its session"
+        );
+        assert!(pending_requests_for_run(&f.conn, &f.run.id)
+            .unwrap()
+            .is_empty());
         assert!(
             answer_request(&mut f.conn, &gated.id, "allowed", &f.actor_id).is_err(),
             "an expired request can no longer be answered"
         );
-        let status: String =
-            f.conn.query_row("SELECT status FROM sessions WHERE id = ?1", params![f.run.id], |r| r.get(0)).unwrap();
-        assert_eq!(status, "failed", "answering never brings a dead session back to running");
+        let status: String = f
+            .conn
+            .query_row(
+                "SELECT status FROM sessions WHERE id = ?1",
+                params![f.run.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            status, "failed",
+            "answering never brings a dead session back to running"
+        );
         let expired: i64 = f
             .conn
             .query_row(
@@ -324,7 +592,10 @@ fn the_session_list_carries_each_sessions_ending_reason() {
         interrupt_session(&mut f.conn, &f.run.id, &f.actor_id).unwrap();
         let rows = runs_for_story(&f.conn, &f.story.id, 10, 0).unwrap();
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].ending_reason.as_deref(), Some("stopped_by_developer"));
+        assert_eq!(
+            rows[0].ending_reason.as_deref(),
+            Some("stopped_by_developer")
+        );
         assert!(rows[0].ended_at.is_some());
     });
 }
@@ -333,12 +604,16 @@ fn the_session_list_carries_each_sessions_ending_reason() {
 fn one_session_is_read_by_id_with_its_stored_status_and_ending() {
     with_scratch_worktree_root(|_| {
         let mut f = running_story();
-        let live = run_by_id(&f.conn, &f.run.id).unwrap().expect("the session exists");
+        let live = run_by_id(&f.conn, &f.run.id)
+            .unwrap()
+            .expect("the session exists");
         assert_eq!(live.status, "running");
         assert!(live.ended_at.is_none() && live.ending_reason.is_none());
 
         interrupt_session(&mut f.conn, &f.run.id, &f.actor_id).unwrap();
-        let ended = run_by_id(&f.conn, &f.run.id).unwrap().expect("the session exists");
+        let ended = run_by_id(&f.conn, &f.run.id)
+            .unwrap()
+            .expect("the session exists");
         assert_eq!(ended.status, "interrupted");
         assert_eq!(ended.ending_reason.as_deref(), Some("stopped_by_developer"));
         assert!(ended.ended_at.is_some());
@@ -350,7 +625,10 @@ fn one_session_is_read_by_id_with_its_stored_status_and_ending() {
 #[test]
 fn the_last_assistant_message_is_read_from_the_log_tail() {
     let run_id = flywheel_core::ids::new_id();
-    assert!(last_assistant_message(&run_id).is_none(), "no log, no message");
+    assert!(
+        last_assistant_message(&run_id).is_none(),
+        "no log, no message"
+    );
     write_log(
         &run_id,
         &[

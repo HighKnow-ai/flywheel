@@ -33,7 +33,11 @@ fn move_one(items: &mut [(String, String)], idx: usize, direction: ReorderDirect
         ReorderDirection::Down => idx + 1,
     };
     items.swap(idx, target);
-    let before = if target == 0 { None } else { Some(items[target - 1].1.clone()) };
+    let before = if target == 0 {
+        None
+    } else {
+        Some(items[target - 1].1.clone())
+    };
     let after = items.get(target + 1).map(|(_, r)| r.clone());
     let new_rank = match (before, after) {
         (Some(b), Some(a)) => rank_between(&b, &a),
@@ -69,11 +73,19 @@ fn many_moves_keep_ranks_distinct() {
     while moves_applied < 200 {
         let idx = (next_rand() as usize) % items.len();
         let go_up = next_rand() % 2 == 0;
-        let can_move = if go_up { idx > 0 } else { idx < items.len() - 1 };
+        let can_move = if go_up {
+            idx > 0
+        } else {
+            idx < items.len() - 1
+        };
         if !can_move {
             continue;
         }
-        let direction = if go_up { ReorderDirection::Up } else { ReorderDirection::Down };
+        let direction = if go_up {
+            ReorderDirection::Up
+        } else {
+            ReorderDirection::Down
+        };
         move_one(&mut items, idx, direction);
         moves_applied += 1;
     }
@@ -99,12 +111,15 @@ fn many_moves_keep_ranks_distinct() {
 #[test]
 fn story_order_is_reproducible() {
     let (mut conn, actor_id, project) = seeded_project();
-    let m = milestone::create_milestone(&mut conn, &project.id, &actor_id, "Ranked milestone", None)
-        .expect("create_milestone should succeed");
-    let e = epic::create_epic(&mut conn, &actor_id, &m.id, "Ranked epic").expect("create_epic should succeed");
+    let m =
+        milestone::create_milestone(&mut conn, &project.id, &actor_id, "Ranked milestone", None)
+            .expect("create_milestone should succeed");
+    let e = epic::create_epic(&mut conn, &actor_id, &m.id, "Ranked epic")
+        .expect("create_epic should succeed");
     let mut created: Vec<String> = Vec::new();
     for i in 0..10 {
-        let s = story::create_story(&mut conn, &actor_id, &e.id, &format!("S{i}")).expect("create_story should succeed");
+        let s = story::create_story(&mut conn, &actor_id, &e.id, &format!("S{i}"))
+            .expect("create_story should succeed");
         created.push(s.id);
     }
 
@@ -123,5 +138,8 @@ fn story_order_is_reproducible() {
         "reading the Stories twice with no intervening write must return byte-identical id \
          sequences — the order is total, not merely sorted"
     );
-    assert_eq!(first, created, "Stories appended to an Epic read back in creation (rank) order");
+    assert_eq!(
+        first, created,
+        "Stories appended to an Epic read back in creation (rank) order"
+    );
 }

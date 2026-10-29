@@ -120,16 +120,24 @@ pub(crate) fn start_session_recording_first(
     instruction: &str,
     human_actor_id: &str,
 ) -> Result<StartRunOutcome, String> {
-    let run = flywheel_core::domain::session::start_session(conn, story_id, permission_mode, human_actor_id)
-        .map_err(|e| e.to_string())?;
+    let run = flywheel_core::domain::session::start_session(
+        conn,
+        story_id,
+        permission_mode,
+        human_actor_id,
+    )
+    .map_err(|e| e.to_string())?;
 
     let built = (|| -> Result<(String, String, String, String), String> {
-        let prompt = flywheel_core::context_packet::build_context_packet(conn, story_id, instruction)
-            .map_err(|e| e.to_string())?;
+        let prompt =
+            flywheel_core::context_packet::build_context_packet(conn, story_id, instruction)
+                .map_err(|e| e.to_string())?;
         // A Story has one worktree, and `start_session` just ensured it.
         let worktree = flywheel_core::domain::worktree::worktree_for_story(conn, story_id)
             .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("the worktree of the session just started on Story {story_id:?} is gone"))?;
+            .ok_or_else(|| {
+                format!("the worktree of the session just started on Story {story_id:?} is gone")
+            })?;
         let working_dir = worktree.project_dir().to_string_lossy().into_owned();
         Ok((prompt, worktree.path, working_dir, worktree.branch))
     })();
@@ -138,7 +146,13 @@ pub(crate) fn start_session_recording_first(
         Err(why) => return Err(fail_launch(conn, &run.id, why)),
     };
 
-    Ok(StartRunOutcome { run_id: run.id, worktree_path, working_dir, branch, prompt })
+    Ok(StartRunOutcome {
+        run_id: run.id,
+        worktree_path,
+        working_dir,
+        branch,
+        prompt,
+    })
 }
 
 /// Close a session whose launch failed after its row was inserted, and hand `why` back for the
@@ -162,7 +176,11 @@ pub(crate) fn fail_launch(conn: &mut Connection, run_id: &str, why: String) -> S
 /// delegates everything else to [`launch_run_for_story`]. It takes no permission mode: a Story
 /// session's mode is fixed by its kind (ADR 0001).
 #[tauri::command]
-pub async fn session_start(app: AppHandle, story_id: String, instruction: Option<String>) -> Result<SessionDto, String> {
+pub async fn session_start(
+    app: AppHandle,
+    story_id: String,
+    instruction: Option<String>,
+) -> Result<SessionDto, String> {
     let instruction = validate_instruction(instruction.as_deref())?;
     // The launch runs git and waits out the spawn floor: on the blocking pool (issue #220).
     tauri::async_runtime::spawn_blocking(move || {
@@ -177,9 +195,15 @@ pub async fn session_start(app: AppHandle, story_id: String, instruction: Option
 /// `SidecarHandle::send_spawn_request`, which enforces the per-repository spawn floor. The caller
 /// must NOT hold the `AppState.db` lock: the floor sleeps. With no sidecar attached there is nothing
 /// to send and this succeeds.
-pub(crate) fn send_gated_spawn(state: &AppState, repo_path: &str, request: &serde_json::Value) -> Result<(), String> {
+pub(crate) fn send_gated_spawn(
+    state: &AppState,
+    repo_path: &str,
+    request: &serde_json::Value,
+) -> Result<(), String> {
     match state.sidecar.as_ref() {
-        Some(sidecar) => sidecar.send_spawn_request(repo_path, &request.to_string()).map_err(|e| e.to_string()),
+        Some(sidecar) => sidecar
+            .send_spawn_request(repo_path, &request.to_string())
+            .map_err(|e| e.to_string()),
         None => Ok(()),
     }
 }
@@ -201,7 +225,8 @@ pub(crate) fn prepare_launch(
     kind: SessionKind,
     instruction: &str,
 ) -> Result<PreparedLaunch, String> {
-    let initiator_id = flywheel_core::domain::actor::local_human_actor_id(conn).map_err(|e| e.to_string())?;
+    let initiator_id =
+        flywheel_core::domain::actor::local_human_actor_id(conn).map_err(|e| e.to_string())?;
 
     // Resolve the credential BEFORE any session/worktree state is created (D-39, T-02-42): a
     // missing API key must never leave behind a `running` row and a worktree nothing spawns into.
@@ -228,14 +253,25 @@ pub(crate) fn prepare_launch(
         )
         .map_err(|e| e.to_string())?;
     if live {
-        return Err("This Story already has a running or blocked session. A second agent in the same \
+        return Err(
+            "This Story already has a running or blocked session. A second agent in the same \
                     worktree would corrupt the work, so this launch is refused."
-            .to_string());
+                .to_string(),
+        );
     }
 
-    let outcome =
-        start_session_recording_first(conn, story_id, kind.launch_policy().permission_mode, instruction, &initiator_id)?;
-    Ok(PreparedLaunch { outcome, repo_path, env })
+    let outcome = start_session_recording_first(
+        conn,
+        story_id,
+        kind.launch_policy().permission_mode,
+        instruction,
+        &initiator_id,
+    )?;
+    Ok(PreparedLaunch {
+        outcome,
+        repo_path,
+        env,
+    })
 }
 
 /// The process-facing half of a launch, after [`prepare_launch`] inserted the session row: the shim
@@ -254,11 +290,18 @@ pub(crate) fn spawn_prepared_run(
     merge_shim: impl FnOnce(&mut std::collections::HashMap<String, String>, &str) -> anyhow::Result<()>,
     send: impl FnOnce(&serde_json::Value) -> Result<(), String>,
 ) -> Result<(), String> {
-    merge_shim(&mut env, &outcome.run_id).map_err(|e| fail_launch(conn, &outcome.run_id, e.to_string()))?;
+    merge_shim(&mut env, &outcome.run_id)
+        .map_err(|e| fail_launch(conn, &outcome.run_id, e.to_string()))?;
     // The Gated-action deny-list allows a recursive `rm` inside, and deleting or rewriting, only the
     // Story's own worktree and branch, so the shim needs to know which ones those are.
-    env.insert(flywheel_core::destructive::WORKTREE_ENV.to_string(), outcome.worktree_path.clone());
-    env.insert(flywheel_core::destructive::STORY_BRANCH_ENV.to_string(), outcome.branch.clone());
+    env.insert(
+        flywheel_core::destructive::WORKTREE_ENV.to_string(),
+        outcome.worktree_path.clone(),
+    );
+    env.insert(
+        flywheel_core::destructive::STORY_BRANCH_ENV.to_string(),
+        outcome.branch.clone(),
+    );
 
     let request = spawn_request(outcome, &env, kind);
     send(&request).map_err(|why| fail_launch(conn, &outcome.run_id, why))
@@ -273,7 +316,13 @@ pub(crate) fn spawn_request(
     env: &std::collections::HashMap<String, String>,
     kind: SessionKind,
 ) -> serde_json::Value {
-    spawn_request_in(&outcome.run_id, &outcome.working_dir, &outcome.prompt, env, kind)
+    spawn_request_in(
+        &outcome.run_id,
+        &outcome.working_dir,
+        &outcome.prompt,
+        env,
+        kind,
+    )
 }
 
 /// [`spawn_request`] for a session that runs in `cwd`: a Story session's worktree, or the project's
@@ -290,7 +339,12 @@ pub(crate) fn spawn_request_in(
     // The kind's own env wins over the resolved one: nothing upstream can lower a Story session's
     // MCP tool timeouts (issue #92).
     let mut env = env.clone();
-    env.extend(policy.env.iter().map(|(name, value)| (name.to_string(), value.clone())));
+    env.extend(
+        policy
+            .env
+            .iter()
+            .map(|(name, value)| (name.to_string(), value.clone())),
+    );
     serde_json::json!({
         "id": run_id,
         "op": "spawn",
@@ -322,7 +376,11 @@ pub(crate) fn launch_run_for_story(
     // connection, with this Story's work lock in place of the board mutex (issue #215).
     let outcome = super::with_story_work(story_id, || -> Result<StartRunOutcome, String> {
         let mut conn = super::side_connection(&state.db)?;
-        let PreparedLaunch { outcome, repo_path, env } = prepare_launch(&mut conn, story_id, kind, instruction)?;
+        let PreparedLaunch {
+            outcome,
+            repo_path,
+            env,
+        } = prepare_launch(&mut conn, story_id, kind, instruction)?;
         spawn_prepared_run(
             &mut conn,
             &outcome,
@@ -349,7 +407,11 @@ pub(crate) fn launch_run_for_story(
 /// The developer's Start (docs/mvp-spec.md §2, Ready → Running): refuse unless the Story is
 /// Ready, create its worktree and branch and launch a session there, then move it to Running.
 #[tauri::command]
-pub async fn story_start(app: AppHandle, story_id: String, instruction: Option<String>) -> Result<SessionDto, String> {
+pub async fn story_start(
+    app: AppHandle,
+    story_id: String,
+    instruction: Option<String>,
+) -> Result<SessionDto, String> {
     let instruction = validate_instruction(instruction.as_deref())?;
     // The launch runs git and waits out the spawn floor: on the blocking pool (issue #220).
     tauri::async_runtime::spawn_blocking(move || story_start_blocking(&app, story_id, &instruction))
@@ -357,7 +419,11 @@ pub async fn story_start(app: AppHandle, story_id: String, instruction: Option<S
         .map_err(|e| super::ipc_error("story_start:join", e))?
 }
 
-fn story_start_blocking(app: &AppHandle, story_id: String, instruction: &str) -> Result<SessionDto, String> {
+fn story_start_blocking(
+    app: &AppHandle,
+    story_id: String,
+    instruction: &str,
+) -> Result<SessionDto, String> {
     let state = app.state::<AppState>();
     let outcome = start_ready_story(
         &state.db,
@@ -373,7 +439,10 @@ fn story_start_blocking(app: &AppHandle, story_id: String, instruction: &str) ->
         id: outcome.run_id,
         story_id,
         status: "running".to_string(),
-        permission_mode: SessionKind::Story.launch_policy().permission_mode.to_string(),
+        permission_mode: SessionKind::Story
+            .launch_policy()
+            .permission_mode
+            .to_string(),
     })
 }
 
@@ -406,20 +475,31 @@ pub fn start_ready_story(
             return Err(format!("Start needs a Ready Story; this one is {current}"));
         }
         find_claude()?;
-        let PreparedLaunch { outcome, repo_path, env } =
-            prepare_launch(&mut conn, story_id, SessionKind::Story, instruction)?;
-        spawn_prepared_run(&mut conn, &outcome, env, SessionKind::Story, merge_shim, |request| {
-            send(&repo_path, request)
-        })?;
+        let PreparedLaunch {
+            outcome,
+            repo_path,
+            env,
+        } = prepare_launch(&mut conn, story_id, SessionKind::Story, instruction)?;
+        spawn_prepared_run(
+            &mut conn,
+            &outcome,
+            env,
+            SessionKind::Story,
+            merge_shim,
+            |request| send(&repo_path, request),
+        )?;
 
-        let human = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+        let human =
+            flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
         flywheel_core::domain::story::set_story_state(
             &mut conn,
             &human,
             story_id,
             flywheel_core::domain::story::StoryState::Running,
         )
-        .map_err(|e| format!("the session started, but the Story could not move to Running: {e}"))?;
+        .map_err(|e| {
+            format!("the session started, but the Story could not move to Running: {e}")
+        })?;
         Ok(outcome)
     })
 }
@@ -435,7 +515,9 @@ fn validate_resume_note(note: Option<&str>) -> Result<String, String> {
     }
     let chars = note.chars().count();
     if chars > MAX_RESUME_NOTE_LEN {
-        return Err(format!("the resume note must be at most {MAX_RESUME_NOTE_LEN} characters, got {chars}"));
+        return Err(format!(
+            "the resume note must be at most {MAX_RESUME_NOTE_LEN} characters, got {chars}"
+        ));
     }
     Ok(note.to_string())
 }
@@ -444,7 +526,11 @@ fn validate_resume_note(note: Option<&str>) -> Result<String, String> {
 /// Story's own worktree, started from the Context packet with the optional one-line note in its
 /// section 7. Never `claude --resume`: the old session's conversation is gone on purpose.
 #[tauri::command]
-pub async fn story_resume(app: AppHandle, story_id: String, note: Option<String>) -> Result<SessionDto, String> {
+pub async fn story_resume(
+    app: AppHandle,
+    story_id: String,
+    note: Option<String>,
+) -> Result<SessionDto, String> {
     let note = validate_resume_note(note.as_deref())?;
     // The launch runs git and waits out the spawn floor: on the blocking pool (issue #220).
     tauri::async_runtime::spawn_blocking(move || story_resume_blocking(&app, story_id, &note))
@@ -452,7 +538,11 @@ pub async fn story_resume(app: AppHandle, story_id: String, note: Option<String>
         .map_err(|e| super::ipc_error("story_resume:join", e))?
 }
 
-fn story_resume_blocking(app: &AppHandle, story_id: String, note: &str) -> Result<SessionDto, String> {
+fn story_resume_blocking(
+    app: &AppHandle,
+    story_id: String,
+    note: &str,
+) -> Result<SessionDto, String> {
     let state = app.state::<AppState>();
     let outcome = resume_stopped_story(
         &state.db,
@@ -468,7 +558,10 @@ fn story_resume_blocking(app: &AppHandle, story_id: String, note: &str) -> Resul
         id: outcome.run_id,
         story_id,
         status: "running".to_string(),
-        permission_mode: SessionKind::Story.launch_policy().permission_mode.to_string(),
+        permission_mode: SessionKind::Story
+            .launch_policy()
+            .permission_mode
+            .to_string(),
     })
 }
 
@@ -495,11 +588,19 @@ pub(crate) fn resume_stopped_story(
             return Err("Resume needs a Stopped Story: Running, with no live session".to_string());
         }
         find_claude()?;
-        let PreparedLaunch { outcome, repo_path, env } =
-            prepare_launch(&mut conn, story_id, SessionKind::Story, &note)?;
-        spawn_prepared_run(&mut conn, &outcome, env, SessionKind::Story, merge_shim, |request| {
-            send(&repo_path, request)
-        })?;
+        let PreparedLaunch {
+            outcome,
+            repo_path,
+            env,
+        } = prepare_launch(&mut conn, story_id, SessionKind::Story, &note)?;
+        spawn_prepared_run(
+            &mut conn,
+            &outcome,
+            env,
+            SessionKind::Story,
+            merge_shim,
+            |request| send(&repo_path, request),
+        )?;
         Ok(outcome)
     })
 }
@@ -517,10 +618,18 @@ pub struct StoppedDto {
 
 /// The Story's Stopped attention, or `null` when it is not Stopped. Read-only.
 #[tauri::command]
-pub fn story_stopped(state: State<AppState>, story_id: String) -> Result<Option<StoppedDto>, String> {
+pub fn story_stopped(
+    state: State<AppState>,
+    story_id: String,
+) -> Result<Option<StoppedDto>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let stopped = flywheel_core::query::sessions::stopped_session_for_story(&conn, &story_id).map_err(|e| e.to_string())?;
-    Ok(stopped.map(|s| StoppedDto { session_id: s.session_id, ending_reason: s.ending_reason, ended_at: s.ended_at }))
+    let stopped = flywheel_core::query::sessions::stopped_session_for_story(&conn, &story_id)
+        .map_err(|e| e.to_string())?;
+    Ok(stopped.map(|s| StoppedDto {
+        session_id: s.session_id,
+        ending_reason: s.ending_reason,
+        ended_at: s.ended_at,
+    }))
 }
 
 /// What [`session_stop`] recorded (CR-04, D-35, PROC-06). `status` is read back from
@@ -622,7 +731,11 @@ pub(crate) fn stop_session_recording_first(
         )
     });
 
-    Ok(SessionStopDto { session_id: session_id.to_string(), status, sidecar_warning })
+    Ok(SessionStopDto {
+        session_id: session_id.to_string(),
+        status,
+        sidecar_warning,
+    })
 }
 
 /// Stop a running agent run (D-35: interrupt, then force; CR-04). The interrupt request is still
@@ -658,10 +771,16 @@ pub async fn session_stop(app: AppHandle, session_id: String) -> Result<SessionS
 }
 
 /// [`session_stop`]'s body, on the blocking pool.
-fn session_stop_blocking(state: &AppState, app: &AppHandle, session_id: String) -> Result<SessionStopDto, String> {
+fn session_stop_blocking(
+    state: &AppState,
+    app: &AppHandle,
+    session_id: String,
+) -> Result<SessionStopDto, String> {
     // Resolve the interrupt outcome BEFORE touching `state.db` — see the CR-01 note above.
     let interrupt_result = match state.sidecar.as_ref() {
-        Some(sidecar) => sidecar.interrupt_run(&session_id).map_err(|e| e.to_string()),
+        Some(sidecar) => sidecar
+            .interrupt_run(&session_id)
+            .map_err(|e| e.to_string()),
         None => Ok(()),
     };
 
@@ -747,7 +866,11 @@ pub async fn session_discard(app: AppHandle, session_id: String) -> Result<Sessi
 }
 
 /// [`session_discard`]'s body, on the blocking pool.
-fn session_discard_blocking(state: &AppState, app: &AppHandle, session_id: String) -> Result<SessionStopDto, String> {
+fn session_discard_blocking(
+    state: &AppState,
+    app: &AppHandle,
+    session_id: String,
+) -> Result<SessionStopDto, String> {
     let deadline =
         std::time::Instant::now() + std::time::Duration::from_millis(DISCARD_SUMMARY_WAIT_MS);
     loop {
@@ -770,7 +893,9 @@ fn session_discard_blocking(state: &AppState, app: &AppHandle, session_id: Strin
     // locking-the-shared-db-mutex ordering, then the ONE shared termination tail
     // (stop_session_recording_first), then the same board:changed emit shape session_stop uses.
     let interrupt_result = match state.sidecar.as_ref() {
-        Some(sidecar) => sidecar.interrupt_run(&session_id).map_err(|e| e.to_string()),
+        Some(sidecar) => sidecar
+            .interrupt_run(&session_id)
+            .map_err(|e| e.to_string()),
         None => Ok(()),
     };
 
@@ -838,11 +963,14 @@ pub fn process_inbound_permission_request(
     // function's own doc comment for why that bypass is load-bearing, not an optimisation.
     // Issue #100: nor does an agent's question. A rule would allow it with no answers, and the
     // agent would read "The user did not answer the questions."
-    let rule = if destructive_category.is_some() || flywheel_core::domain::question::is_question(tool_name) {
+    let rule = if destructive_category.is_some()
+        || flywheel_core::domain::question::is_question(tool_name)
+    {
         None
     } else {
-        let input: serde_json::Value =
-            input_payload.and_then(|raw| serde_json::from_str(raw).ok()).unwrap_or(serde_json::Value::Null);
+        let input: serde_json::Value = input_payload
+            .and_then(|raw| serde_json::from_str(raw).ok())
+            .unwrap_or(serde_json::Value::Null);
         flywheel_core::domain::permission_rule::matching_rule(conn, &project_id, tool_name, &input)
             .map_err(|e| e.to_string())?
     };
@@ -880,7 +1008,9 @@ pub fn process_inbound_permission_request(
         )
         .map_err(|e| e.to_string())?;
         tx.commit().map_err(|e| e.to_string())?;
-        return Ok(PermissionRequestOutcome::AutoResolved { decision: "allow".to_string() });
+        return Ok(PermissionRequestOutcome::AutoResolved {
+            decision: "allow".to_string(),
+        });
     }
 
     let request = flywheel_core::domain::permission_request::create_pending_request(
@@ -893,7 +1023,9 @@ pub fn process_inbound_permission_request(
     )
     .map_err(|e| e.to_string())?;
 
-    Ok(PermissionRequestOutcome::Pending { db_request_id: request.id })
+    Ok(PermissionRequestOutcome::Pending {
+        db_request_id: request.id,
+    })
 }
 
 /// The project name and subject label a notification names, read in the caller's existing
@@ -928,10 +1060,14 @@ fn closed_transition(
     run_id: &str,
     outcome: &flywheel_core::domain::session::SessionClosedOutcome,
 ) -> Option<crate::notify::Transition> {
-    use flywheel_core::domain::session::{SessionStatus, SessionClosedOutcome};
+    use flywheel_core::domain::session::{SessionClosedOutcome, SessionStatus};
     let kind = match outcome {
-        SessionClosedOutcome::Closed(SessionStatus::Completed) => crate::notify::TransitionKind::Completed,
-        SessionClosedOutcome::Closed(SessionStatus::Failed) => crate::notify::TransitionKind::Failed,
+        SessionClosedOutcome::Closed(SessionStatus::Completed) => {
+            crate::notify::TransitionKind::Completed
+        }
+        SessionClosedOutcome::Closed(SessionStatus::Failed) => {
+            crate::notify::TransitionKind::Failed
+        }
         _ => return None,
     };
     let (project_name, subject_label) = notify_context(conn, run_id);
@@ -958,7 +1094,10 @@ pub fn handle_inbound_permission_request(app: &AppHandle, event: &serde_json::Va
     ) else {
         return;
     };
-    let input = event.get("input").cloned().unwrap_or(serde_json::Value::Null);
+    let input = event
+        .get("input")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
     let input_payload = input.to_string();
 
     // D-56/D-57 (plan 03-07): a TOP-LEVEL `destructiveCategory` field on the event itself — lifted
@@ -980,9 +1119,15 @@ pub fn handle_inbound_permission_request(app: &AppHandle, event: &serde_json::Va
                 .as_str()
         });
 
-    let Some(state) = app.try_state::<AppState>() else { return };
-    let Some(sidecar) = state.sidecar.as_ref() else { return };
-    let Ok(mut conn) = state.db.lock() else { return };
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
+    let Some(sidecar) = state.sidecar.as_ref() else {
+        return;
+    };
+    let Ok(mut conn) = state.db.lock() else {
+        return;
+    };
 
     let outcome = match process_inbound_permission_request(
         &mut conn,
@@ -1022,8 +1167,12 @@ pub fn handle_inbound_permission_request(app: &AppHandle, event: &serde_json::Va
 /// `sidecar.rs`'s own "a malformed line never crashes the reader task" discipline. No per-run fault
 /// on this path may ever disturb the shared reader loop that calls it.
 pub fn handle_inbound_session_closed(app: &AppHandle, event: &serde_json::Value) {
-    let Some(state) = app.try_state::<AppState>() else { return };
-    let Ok(mut conn) = state.db.lock() else { return };
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
+    let Ok(mut conn) = state.db.lock() else {
+        return;
+    };
 
     let outcome = match flywheel_core::domain::session::apply_session_closed(&mut conn, event) {
         Ok(outcome) => outcome,
@@ -1099,34 +1248,54 @@ pub fn answer_permission_request(
         None
     };
 
-    let answered =
-        flywheel_core::domain::permission_request::answer_request(conn, request_id, db_decision, actor_id)
-            .map_err(|e| e.to_string())?;
+    let answered = flywheel_core::domain::permission_request::answer_request(
+        conn,
+        request_id,
+        db_decision,
+        actor_id,
+    )
+    .map_err(|e| e.to_string())?;
 
     if let Some((tool, pattern)) = grant {
-        flywheel_core::domain::permission_rule::upsert_rule(conn, &answered.project_id, &tool, &pattern, actor_id)
-            .map_err(|e| e.to_string())?;
+        flywheel_core::domain::permission_rule::upsert_rule(
+            conn,
+            &answered.project_id,
+            &tool,
+            &pattern,
+            actor_id,
+        )
+        .map_err(|e| e.to_string())?;
     }
 
     let relay_decision: &'static str = if decision == "deny" { "deny" } else { "allow" };
-    Ok(PermissionRelayInstruction { run_id: answered.session_id, decision: relay_decision })
+    Ok(PermissionRelayInstruction {
+        run_id: answered.session_id,
+        decision: relay_decision,
+    })
 }
 
 /// The (tool, pattern) an `allow_always` answer grants, checked against the request and the
 /// backend's rule refusal before anything is written.
-fn rule_to_grant(conn: &Connection, request_id: &str, rule: Option<&str>) -> Result<(String, String), String> {
+fn rule_to_grant(
+    conn: &Connection,
+    request_id: &str,
+    rule: Option<&str>,
+) -> Result<(String, String), String> {
     let request = flywheel_core::domain::permission_request::find_request(conn, request_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("permission request {request_id:?} not found"))?;
     let (tool, pattern) = match rule {
-        Some(text) => flywheel_core::permission_pattern::parse_rule(text).map_err(|e| e.to_string())?,
+        Some(text) => {
+            flywheel_core::permission_pattern::parse_rule(text).map_err(|e| e.to_string())?
+        }
         None => {
             let input: serde_json::Value = request
                 .input_payload
                 .as_deref()
                 .and_then(|raw| serde_json::from_str(raw).ok())
                 .unwrap_or(serde_json::Value::Null);
-            let pattern = flywheel_core::permission_pattern::suggested_pattern(&request.tool_name, &input);
+            let pattern =
+                flywheel_core::permission_pattern::suggested_pattern(&request.tool_name, &input);
             (request.tool_name.clone(), pattern)
         }
     };
@@ -1157,8 +1326,13 @@ pub fn session_answer_permission(
     let actor_id =
         flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
 
-    let instruction =
-        answer_permission_request(&mut conn, &request_id, &decision, rule.as_deref(), &actor_id)?;
+    let instruction = answer_permission_request(
+        &mut conn,
+        &request_id,
+        &decision,
+        rule.as_deref(),
+        &actor_id,
+    )?;
     let project_id = project_of(&conn, "sessions", &instruction.run_id);
     drop(conn);
 
@@ -1168,7 +1342,12 @@ pub fn session_answer_permission(
             .map_err(|e| e.to_string())?;
     }
 
-    emit_board_changed(&app, project_id.as_deref(), "session", Some(&instruction.run_id));
+    emit_board_changed(
+        &app,
+        project_id.as_deref(),
+        "session",
+        Some(&instruction.run_id),
+    );
 
     Ok(())
 }
@@ -1188,8 +1367,13 @@ pub fn session_answer_question(
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     let actor_id =
         flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    let answered = flywheel_core::domain::question::answer_question(&mut conn, &request_id, &answers, &actor_id)
-        .map_err(|e| e.to_string())?;
+    let answered = flywheel_core::domain::question::answer_question(
+        &mut conn,
+        &request_id,
+        &answers,
+        &actor_id,
+    )
+    .map_err(|e| e.to_string())?;
     drop(conn);
 
     if let Some(sidecar) = state.sidecar.as_ref() {
@@ -1198,7 +1382,12 @@ pub fn session_answer_question(
             .map_err(|e| e.to_string())?;
     }
 
-    emit_board_changed(&app, Some(&answered.project_id), "session", Some(&answered.session_id));
+    emit_board_changed(
+        &app,
+        Some(&answered.project_id),
+        "session",
+        Some(&answered.session_id),
+    );
     Ok(())
 }
 
@@ -1240,7 +1429,11 @@ pub fn permission_rules_list(
 
 /// Revoke an allow-always rule (D-38) — `actor_id` resolved server-side (T-01-04).
 #[tauri::command]
-pub fn permission_rule_revoke(state: State<AppState>, app: AppHandle, rule_id: String) -> Result<(), String> {
+pub fn permission_rule_revoke(
+    state: State<AppState>,
+    app: AppHandle,
+    rule_id: String,
+) -> Result<(), String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     let actor_id =
         flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
@@ -1250,7 +1443,12 @@ pub fn permission_rule_revoke(state: State<AppState>, app: AppHandle, rule_id: S
         .map_err(|e| e.to_string())?;
     drop(conn);
 
-    emit_board_changed(&app, project_id.as_deref(), "permission_rule", Some(&rule_id));
+    emit_board_changed(
+        &app,
+        project_id.as_deref(),
+        "permission_rule",
+        Some(&rule_id),
+    );
 
     Ok(())
 }
@@ -1287,14 +1485,22 @@ pub(crate) fn card_suggested_rule(
     }
     match destructive_category {
         Some(_) => None,
-        None => Some(flywheel_core::permission_pattern::suggested_rule(tool_name, input_payload)),
+        None => Some(flywheel_core::permission_pattern::suggested_rule(
+            tool_name,
+            input_payload,
+        )),
     }
 }
 
-impl From<flywheel_core::query::permissions::PendingPermissionRequest> for PendingPermissionRequestDto {
+impl From<flywheel_core::query::permissions::PendingPermissionRequest>
+    for PendingPermissionRequestDto
+{
     fn from(r: flywheel_core::query::permissions::PendingPermissionRequest) -> Self {
-        let suggested_rule =
-            card_suggested_rule(&r.tool_name, r.input_payload.as_deref(), r.destructive_category.as_deref());
+        let suggested_rule = card_suggested_rule(
+            &r.tool_name,
+            r.input_payload.as_deref(),
+            r.destructive_category.as_deref(),
+        );
         Self {
             suggested_rule,
             id: r.id,
@@ -1325,9 +1531,13 @@ pub fn session_pending_permissions(
 /// compact permission-request card mount can read the exact same `session_id`-keyed query the
 /// session feed's mount uses. Read-only.
 #[tauri::command]
-pub fn story_latest_session(state: State<AppState>, story_id: String) -> Result<Option<String>, String> {
+pub fn story_latest_session(
+    state: State<AppState>,
+    story_id: String,
+) -> Result<Option<String>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    flywheel_core::query::permissions::latest_run_id_for_story(&conn, &story_id).map_err(|e| e.to_string())
+    flywheel_core::query::permissions::latest_run_id_for_story(&conn, &story_id)
+        .map_err(|e| e.to_string())
 }
 
 /// D-37's board-visible blocked signal for one project (plan 02-06 Task 3): the board row's
@@ -1351,19 +1561,33 @@ pub struct BlockedSummaryDto {
 /// Every blocked Story id in `project_id` plus the count (D-37) — feeds `BoardRow.tsx`'s blocked
 /// pill and `ProjectRail.tsx`'s count badge, delegating straight to `query::permissions`. Read-only.
 #[tauri::command]
-pub fn board_blocked_summary(state: State<AppState>, project_id: String) -> Result<BlockedSummaryDto, String> {
+pub fn board_blocked_summary(
+    state: State<AppState>,
+    project_id: String,
+) -> Result<BlockedSummaryDto, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let blocked_story_ids = flywheel_core::query::permissions::blocked_story_ids_for_project(&conn, &project_id)
-        .map_err(|e| e.to_string())?;
-    let waiting_epic_ids = flywheel_core::query::permissions::waiting_epic_ids_for_project(&conn, &project_id)
-        .map_err(|e| e.to_string())?;
-    let waiting_milestone_ids = flywheel_core::query::permissions::waiting_milestone_ids_for_project(&conn, &project_id)
-        .map_err(|e| e.to_string())?;
-    let roadmap_waiting = flywheel_core::query::permissions::roadmap_waiting_for_project(&conn, &project_id)
-        .map_err(|e| e.to_string())?;
-    let blocked_count = flywheel_core::query::permissions::blocked_count_for_project(&conn, &project_id)
-        .map_err(|e| e.to_string())?;
-    Ok(BlockedSummaryDto { blocked_story_ids, waiting_epic_ids, waiting_milestone_ids, roadmap_waiting, blocked_count })
+    let blocked_story_ids =
+        flywheel_core::query::permissions::blocked_story_ids_for_project(&conn, &project_id)
+            .map_err(|e| e.to_string())?;
+    let waiting_epic_ids =
+        flywheel_core::query::permissions::waiting_epic_ids_for_project(&conn, &project_id)
+            .map_err(|e| e.to_string())?;
+    let waiting_milestone_ids =
+        flywheel_core::query::permissions::waiting_milestone_ids_for_project(&conn, &project_id)
+            .map_err(|e| e.to_string())?;
+    let roadmap_waiting =
+        flywheel_core::query::permissions::roadmap_waiting_for_project(&conn, &project_id)
+            .map_err(|e| e.to_string())?;
+    let blocked_count =
+        flywheel_core::query::permissions::blocked_count_for_project(&conn, &project_id)
+            .map_err(|e| e.to_string())?;
+    Ok(BlockedSummaryDto {
+        blocked_story_ids,
+        waiting_epic_ids,
+        waiting_milestone_ids,
+        roadmap_waiting,
+        blocked_count,
+    })
 }
 
 /// D-46's board-visible "recovery needed" signal for one project (plan 03-11): a Story's worktree
@@ -1382,17 +1606,27 @@ pub struct RecoverySummaryDto {
 /// `BoardRow.tsx`'s Needs Decision pill and `ProjectRail.tsx`'s second count badge, delegating
 /// straight to `query::recovery`. Read-only.
 #[tauri::command]
-pub fn board_recovery_summary(state: State<AppState>, project_id: String) -> Result<RecoverySummaryDto, String> {
+pub fn board_recovery_summary(
+    state: State<AppState>,
+    project_id: String,
+) -> Result<RecoverySummaryDto, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let recovery_story_ids = flywheel_core::query::recovery::recovery_story_ids_for_project(&conn, &project_id)
-        .map_err(|e| e.to_string())?;
-    let recovery_count = flywheel_core::query::recovery::recovery_count_for_project(&conn, &project_id)
-        .map_err(|e| e.to_string())?;
-    Ok(RecoverySummaryDto { recovery_story_ids, recovery_count })
+    let recovery_story_ids =
+        flywheel_core::query::recovery::recovery_story_ids_for_project(&conn, &project_id)
+            .map_err(|e| e.to_string())?;
+    let recovery_count =
+        flywheel_core::query::recovery::recovery_count_for_project(&conn, &project_id)
+            .map_err(|e| e.to_string())?;
+    Ok(RecoverySummaryDto {
+        recovery_story_ids,
+        recovery_count,
+    })
 }
 
 fn resolve_log_window_limit(limit: Option<i64>) -> i64 {
-    limit.unwrap_or(LOG_WINDOW_DEFAULT_LIMIT).clamp(1, LOG_WINDOW_MAX_LIMIT)
+    limit
+        .unwrap_or(LOG_WINDOW_DEFAULT_LIMIT)
+        .clamp(1, LOG_WINDOW_MAX_LIMIT)
 }
 
 /// A bounded page of `session_id`'s durable JSONL log (D-33/D-34, plan 02-07 Task 1) — a thin
@@ -1478,7 +1712,12 @@ pub fn session_raw_window(
         flywheel_core::session_log::session_log_path(&session_id).map_err(|e| e.to_string())?;
     let lines = read_raw_line_window(&path, offset as usize, limit as usize, total);
 
-    Ok(RawLogWindowDto { lines, offset, limit, total: total as i64 })
+    Ok(RawLogWindowDto {
+        lines,
+        offset,
+        limit,
+        total: total as i64,
+    })
 }
 
 /// The actual bounded verbatim read behind [`session_raw_window`] — split out so it is
@@ -1512,7 +1751,10 @@ fn read_raw_line_window(
         let Ok(text) = line_result else {
             break;
         };
-        out.push(RawLogLineDto { line: line_number as i64, text });
+        out.push(RawLogLineDto {
+            line: line_number as i64,
+            text,
+        });
     }
     out
 }
@@ -1521,7 +1763,9 @@ const SESSIONS_FOR_STORY_DEFAULT_LIMIT: i64 = 50;
 const SESSIONS_FOR_STORY_MAX_LIMIT: i64 = 50;
 
 fn resolve_sessions_limit(limit: Option<i64>) -> i64 {
-    limit.unwrap_or(SESSIONS_FOR_STORY_DEFAULT_LIMIT).clamp(1, SESSIONS_FOR_STORY_MAX_LIMIT)
+    limit
+        .unwrap_or(SESSIONS_FOR_STORY_DEFAULT_LIMIT)
+        .clamp(1, SESSIONS_FOR_STORY_MAX_LIMIT)
 }
 
 /// One row of a Story's Runs section (02-UI-SPEC.md "Runs section") — mirrors
@@ -1563,7 +1807,9 @@ impl From<flywheel_core::query::sessions::RunRow> for RunSummaryDto {
     fn from(run: flywheel_core::query::sessions::RunRow) -> Self {
         let abandoned_reason = if run.status == "abandoned" {
             match flywheel_core::runtime_protocol::read_kill_record(&run.id) {
-                flywheel_core::runtime_protocol::KillRecordRead::Found(record) => Some(record.killed_at),
+                flywheel_core::runtime_protocol::KillRecordRead::Found(record) => {
+                    Some(record.killed_at)
+                }
                 flywheel_core::runtime_protocol::KillRecordRead::Absent
                 | flywheel_core::runtime_protocol::KillRecordRead::Malformed(_) => None,
             }
@@ -1609,9 +1855,13 @@ pub fn sessions_for_story(
 /// view reads it so its header and controls follow what was recorded, not what the view last heard.
 /// `None` for an unknown id. Read-only.
 #[tauri::command]
-pub fn session_get(state: State<AppState>, session_id: String) -> Result<Option<RunSummaryDto>, String> {
+pub fn session_get(
+    state: State<AppState>,
+    session_id: String,
+) -> Result<Option<RunSummaryDto>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let row = flywheel_core::query::sessions::run_by_id(&conn, &session_id).map_err(|e| e.to_string())?;
+    let row =
+        flywheel_core::query::sessions::run_by_id(&conn, &session_id).map_err(|e| e.to_string())?;
     Ok(row.map(RunSummaryDto::from))
 }
 
@@ -1675,7 +1925,10 @@ pub struct AcknowledgeResultDto {
 /// Acknowledge each id through [`flywheel_core::domain::session::acknowledge_run`]. A list longer
 /// than [`ACKNOWLEDGE_MANY_CAP`] is refused as a whole, before anything is written, as the reclaim
 /// batch is -- never silently truncated.
-fn acknowledge_many(conn: &Connection, session_ids: Vec<String>) -> Result<Vec<AcknowledgeResultDto>, String> {
+fn acknowledge_many(
+    conn: &Connection,
+    session_ids: Vec<String>,
+) -> Result<Vec<AcknowledgeResultDto>, String> {
     if session_ids.len() > ACKNOWLEDGE_MANY_CAP {
         return Err(format!(
             "session_acknowledge_many refused: {} runs named, at most {ACKNOWLEDGE_MANY_CAP} at a time",
@@ -1686,8 +1939,16 @@ fn acknowledge_many(conn: &Connection, session_ids: Vec<String>) -> Result<Vec<A
         .into_iter()
         .map(|session_id| {
             match flywheel_core::domain::session::acknowledge_run(conn, &session_id) {
-                Ok(acknowledged) => AcknowledgeResultDto { session_id, acknowledged, error: None },
-                Err(e) => AcknowledgeResultDto { session_id, acknowledged: false, error: Some(format!("{e:#}")) },
+                Ok(acknowledged) => AcknowledgeResultDto {
+                    session_id,
+                    acknowledged,
+                    error: None,
+                },
+                Err(e) => AcknowledgeResultDto {
+                    session_id,
+                    acknowledged: false,
+                    error: Some(format!("{e:#}")),
+                },
             }
         })
         .collect())
@@ -1727,7 +1988,11 @@ pub struct WorktreeSummaryDto {
 
 impl From<flywheel_core::query::sessions::WorktreeSummary> for WorktreeSummaryDto {
     fn from(summary: flywheel_core::query::sessions::WorktreeSummary) -> Self {
-        Self { branch: summary.branch, path: summary.path, status: summary.status }
+        Self {
+            branch: summary.branch,
+            path: summary.path,
+            status: summary.status,
+        }
     }
 }
 
@@ -1755,7 +2020,10 @@ pub struct PorcelainEntryDto {
 
 impl From<flywheel_core::domain::worktree::PorcelainEntry> for PorcelainEntryDto {
     fn from(entry: flywheel_core::domain::worktree::PorcelainEntry) -> Self {
-        Self { code: entry.code, path: entry.path }
+        Self {
+            code: entry.code,
+            path: entry.path,
+        }
     }
 }
 
@@ -1784,7 +2052,8 @@ pub async fn worktree_remove_check(
 ) -> Result<Option<WorktreeRemovalCheckDto>, String> {
     let summary = {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
-        flywheel_core::query::sessions::worktree_summary_for_story(&conn, &story_id).map_err(|e| e.to_string())?
+        flywheel_core::query::sessions::worktree_summary_for_story(&conn, &story_id)
+            .map_err(|e| e.to_string())?
     };
     let Some(summary) = summary else {
         return Ok(None);
@@ -1816,7 +2085,11 @@ pub async fn worktree_remove_check(
 /// with `{ entity: "worktree", id: story_id }` after a successful removal, the same shape every
 /// other state-changing command in this file uses (D-04).
 #[tauri::command]
-pub async fn worktree_remove(state: State<'_, AppState>, app: AppHandle, story_id: String) -> Result<(), String> {
+pub async fn worktree_remove(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    story_id: String,
+) -> Result<(), String> {
     // The porcelain re-read and `git worktree remove` are git: a side connection, under the Story's
     // work lock, never the board mutex (issue #215), on the blocking pool (issue #220).
     let db_path = super::board_path(&state.db)?;
@@ -1824,7 +2097,8 @@ pub async fn worktree_remove(state: State<'_, AppState>, app: AppHandle, story_i
     let project_id = tauri::async_runtime::spawn_blocking(move || {
         super::with_story_work(&id, || -> Result<Option<String>, String> {
             let mut conn = super::open_beside(&db_path)?;
-            let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+            let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn)
+                .map_err(|e| e.to_string())?;
             flywheel_core::domain::worktree::remove_worktree_for_story(&mut conn, &id, &actor_id)
                 .map_err(|e| e.to_string())?;
             Ok(project_of(&conn, "stories", &id))
@@ -1847,13 +2121,18 @@ pub async fn worktree_remove(state: State<'_, AppState>, app: AppHandle, story_i
 /// `board:changed` with `{ entity: "worktree", id: story_id }` on success — `useWorktreeSummary`'s
 /// existing invalidation is what makes the banner disappear once the row reads `active` again.
 #[tauri::command]
-pub async fn worktree_recreate(state: State<'_, AppState>, app: AppHandle, story_id: String) -> Result<(), String> {
+pub async fn worktree_recreate(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    story_id: String,
+) -> Result<(), String> {
     let db_path = super::board_path(&state.db)?;
     let id = story_id.clone();
     let project_id = tauri::async_runtime::spawn_blocking(move || {
         super::with_story_work(&id, || -> Result<Option<String>, String> {
             let mut conn = super::open_beside(&db_path)?;
-            let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+            let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn)
+                .map_err(|e| e.to_string())?;
             flywheel_core::domain::worktree::recreate_worktree_for_story(&mut conn, &id, &actor_id)
                 .map_err(|e| e.to_string())?;
             Ok(project_of(&conn, "stories", &id))
@@ -1874,7 +2153,11 @@ pub async fn worktree_recreate(state: State<'_, AppState>, app: AppHandle, story
 /// force/override parameter beyond `story_id`, so there is no second guard here and no way around
 /// the first. Emits `board:changed` with `{ entity: "worktree", id: story_id }` on success.
 #[tauri::command]
-pub fn worktree_forget_record(state: State<AppState>, app: AppHandle, story_id: String) -> Result<(), String> {
+pub fn worktree_forget_record(
+    state: State<AppState>,
+    app: AppHandle,
+    story_id: String,
+) -> Result<(), String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     let actor_id =
         flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
@@ -1929,7 +2212,11 @@ impl From<flywheel_core::domain::session::LiveOrphan> for PendingOrphanDto {
 #[tauri::command]
 pub fn sessions_pending_orphans(state: State<AppState>) -> Result<Vec<PendingOrphanDto>, String> {
     let orphans = state.pending_orphans.lock().map_err(|e| e.to_string())?;
-    Ok(orphans.iter().cloned().map(PendingOrphanDto::from).collect())
+    Ok(orphans
+        .iter()
+        .cloned()
+        .map(PendingOrphanDto::from)
+        .collect())
 }
 
 /// What [`orphan_kill`] returns (plan 03-06, T-03-06-04) — mirrors
@@ -1989,11 +2276,17 @@ pub async fn orphan_kill(app: AppHandle, session_id: String) -> Result<OrphanKil
 }
 
 /// [`orphan_kill`]'s body, on the blocking pool.
-fn orphan_kill_blocking(state: &AppState, app: &AppHandle, session_id: String) -> Result<OrphanKillDto, String> {
+fn orphan_kill_blocking(
+    state: &AppState,
+    app: &AppHandle,
+    session_id: String,
+) -> Result<OrphanKillDto, String> {
     {
         let pending = state.pending_orphans.lock().map_err(|e| e.to_string())?;
         if !pending.iter().any(|orphan| orphan.run_id == session_id) {
-            return Err(format!("no pending orphan found for session_id {session_id:?}"));
+            return Err(format!(
+                "no pending orphan found for session_id {session_id:?}"
+            ));
         }
     }
 
@@ -2014,7 +2307,11 @@ fn orphan_kill_blocking(state: &AppState, app: &AppHandle, session_id: String) -
 
     emit_board_changed(app, project_id.as_deref(), "session", Some(&session_id));
 
-    Ok(OrphanKillDto { killed: outcome.killed, pid: outcome.pid, detail: outcome.detail })
+    Ok(OrphanKillDto {
+        killed: outcome.killed,
+        pid: outcome.pid,
+        detail: outcome.detail,
+    })
 }
 
 /// The one shared scratch worktree-root helper (issue #42), included by path rather than copied.
@@ -2086,8 +2383,12 @@ pub(crate) mod tests {
 
     #[test]
     fn read_raw_line_window_on_a_missing_file_returns_an_empty_window() {
-        let window =
-            read_raw_line_window(std::path::Path::new("/nonexistent/path/to/a/log.jsonl"), 0, 50, 0);
+        let window = read_raw_line_window(
+            std::path::Path::new("/nonexistent/path/to/a/log.jsonl"),
+            0,
+            50,
+            0,
+        );
         assert!(window.is_empty());
     }
 
@@ -2097,23 +2398,41 @@ pub(crate) mod tests {
     #[test]
     fn session_log_window_rejects_a_run_id_that_is_not_ulid_shaped() {
         let result = session_log_window("../../../etc/passwd".to_string(), None, None);
-        assert!(result.is_err(), "a traversal-shaped session_id must be rejected");
+        assert!(
+            result.is_err(),
+            "a traversal-shaped session_id must be rejected"
+        );
     }
 
     #[test]
     fn session_raw_window_rejects_a_run_id_that_is_not_ulid_shaped() {
         let result = session_raw_window("../../../etc/passwd".to_string(), None, None);
-        assert!(result.is_err(), "a traversal-shaped session_id must be rejected");
+        assert!(
+            result.is_err(),
+            "a traversal-shaped session_id must be rejected"
+        );
     }
 
     /// One Milestone, one Epic under it and one Story under that, through the core's own writers.
-    fn new_story(conn: &mut Connection, project_id: &str, actor_id: &str, title: &str) -> flywheel_core::domain::story::Story {
-        let milestone =
-            flywheel_core::domain::milestone::create_milestone(conn, project_id, actor_id, "Test milestone", None)
-                .expect("create_milestone should succeed");
-        let epic = flywheel_core::domain::epic::create_epic(conn, actor_id, &milestone.id, "Test epic")
-            .expect("create_epic should succeed");
-        flywheel_core::domain::story::create_story(conn, actor_id, &epic.id, title).expect("create_story should succeed")
+    fn new_story(
+        conn: &mut Connection,
+        project_id: &str,
+        actor_id: &str,
+        title: &str,
+    ) -> flywheel_core::domain::story::Story {
+        let milestone = flywheel_core::domain::milestone::create_milestone(
+            conn,
+            project_id,
+            actor_id,
+            "Test milestone",
+            None,
+        )
+        .expect("create_milestone should succeed");
+        let epic =
+            flywheel_core::domain::epic::create_epic(conn, actor_id, &milestone.id, "Test epic")
+                .expect("create_epic should succeed");
+        flywheel_core::domain::story::create_story(conn, actor_id, &epic.id, title)
+            .expect("create_story should succeed")
     }
 
     /// A fresh migrated database with one project and one Story — no real git repository needed,
@@ -2155,14 +2474,27 @@ pub(crate) mod tests {
     #[test]
     fn a_routine_card_pre_fills_the_suggested_rule_and_a_gated_card_offers_none() {
         let payload = Some(r#"{"command":"npm test"}"#);
-        assert_eq!(card_suggested_rule("Bash", payload, None).as_deref(), Some("Bash(npm test)"));
-        assert_eq!(card_suggested_rule("WebFetch", None, None).as_deref(), Some("WebFetch"));
-        assert_eq!(card_suggested_rule("Bash", Some(r#"{"command":"git push"}"#), Some("git-push")), None);
+        assert_eq!(
+            card_suggested_rule("Bash", payload, None).as_deref(),
+            Some("Bash(npm test)")
+        );
+        assert_eq!(
+            card_suggested_rule("WebFetch", None, None).as_deref(),
+            Some("WebFetch")
+        );
+        assert_eq!(
+            card_suggested_rule("Bash", Some(r#"{"command":"git push"}"#), Some("git-push")),
+            None
+        );
     }
 
     #[test]
     fn a_story_spawn_request_asks_for_accept_edits_a_broad_bash_allow_and_the_permission_prompt() {
-        let request = spawn_request(&outcome_for_request(), &std::collections::HashMap::new(), SessionKind::Story);
+        let request = spawn_request(
+            &outcome_for_request(),
+            &std::collections::HashMap::new(),
+            SessionKind::Story,
+        );
         assert_eq!(request["permissionMode"], "acceptEdits");
         assert_eq!(
             request["allowedTools"],
@@ -2186,8 +2518,11 @@ pub(crate) mod tests {
     /// whatever the resolved env held, so a waiting request outlives Claude Code's defaults.
     #[test]
     fn a_story_spawn_request_carries_the_kinds_mcp_tool_timeouts_over_the_resolved_env() {
-        let resolved: std::collections::HashMap<String, String> =
-            [("MCP_TOOL_TIMEOUT".to_string(), "60000".to_string()), ("KEEP".to_string(), "1".to_string())].into();
+        let resolved: std::collections::HashMap<String, String> = [
+            ("MCP_TOOL_TIMEOUT".to_string(), "60000".to_string()),
+            ("KEEP".to_string(), "1".to_string()),
+        ]
+        .into();
         let request = spawn_request(&outcome_for_request(), &resolved, SessionKind::Story);
         for (name, value) in SessionKind::Story.launch_policy().env {
             assert_eq!(request["env"][name], value, "{name}");
@@ -2197,10 +2532,17 @@ pub(crate) mod tests {
 
     #[test]
     fn a_shaping_spawn_request_is_read_only_and_never_wired_to_the_permission_prompt() {
-        let request = spawn_request(&outcome_for_request(), &std::collections::HashMap::new(), SessionKind::Shaping);
+        let request = spawn_request(
+            &outcome_for_request(),
+            &std::collections::HashMap::new(),
+            SessionKind::Shaping,
+        );
         assert_eq!(request["permissionMode"], "dontAsk");
         assert_eq!(request["permissionPrompt"], false);
-        assert_eq!(request["sessionKind"], "shaping", "the board server lists it the shaping tools");
+        assert_eq!(
+            request["sessionKind"], "shaping",
+            "the board server lists it the shaping tools"
+        );
         assert_eq!(
             request["allowedTools"],
             serde_json::json!([
@@ -2218,7 +2560,8 @@ pub(crate) mod tests {
                 "mcp__flywheel-board__propose_criterion"
             ])
         );
-        let denied: Vec<String> = serde_json::from_value(request["disallowedTools"].clone()).unwrap();
+        let denied: Vec<String> =
+            serde_json::from_value(request["disallowedTools"].clone()).unwrap();
         assert!(denied.iter().any(|t| t == "Bash"), "{denied:?}");
         // Issue #123: held on its Round, it waits past Claude Code's MCP tool timeouts.
         for (name, value) in SessionKind::Shaping.launch_policy().env {
@@ -2228,7 +2571,10 @@ pub(crate) mod tests {
 
     #[test]
     fn validate_instruction_trims_and_rejects_over_4000_characters() {
-        assert_eq!(validate_instruction(None).expect("None should be accepted"), "");
+        assert_eq!(
+            validate_instruction(None).expect("None should be accepted"),
+            ""
+        );
         assert_eq!(
             validate_instruction(Some("  hi  ")).expect("a short instruction should be accepted"),
             "hi"
@@ -2238,9 +2584,16 @@ pub(crate) mod tests {
         assert!(validate_instruction(Some(&exactly_at_limit)).is_ok());
 
         let over_limit = "a".repeat(MAX_INSTRUCTION_LEN + 1);
-        let err = validate_instruction(Some(&over_limit)).expect_err("an over-limit instruction should be rejected");
-        assert!(err.contains("4000"), "the error must name the limit, got: {err}");
-        assert!(err.contains("4001"), "the error must name the actual length, got: {err}");
+        let err = validate_instruction(Some(&over_limit))
+            .expect_err("an over-limit instruction should be rejected");
+        assert!(
+            err.contains("4000"),
+            "the error must name the limit, got: {err}"
+        );
+        assert!(
+            err.contains("4001"),
+            "the error must name the actual length, got: {err}"
+        );
     }
 
     /// A fresh migrated database with one project, one Story and one `running` `sessions` row —
@@ -2251,9 +2604,11 @@ pub(crate) mod tests {
     fn seeded_conn_with_running_session() -> (Connection, String, String, String) {
         let (conn, story_id) = seeded_conn_with_story();
         let project_id: String = conn
-            .query_row("SELECT project_id FROM stories WHERE id = ?1", rusqlite::params![story_id], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT project_id FROM stories WHERE id = ?1",
+                rusqlite::params![story_id],
+                |row| row.get(0),
+            )
             .expect("story's project_id should be readable");
         let agent_actor_id = flywheel_core::domain::session::agent_actor_id(&conn)
             .expect("seeded agent actor should exist");
@@ -2281,28 +2636,54 @@ pub(crate) mod tests {
     #[test]
     fn a_pending_request_is_announced_by_the_waiting_poll_after_thirty_seconds_unfocused() {
         let (mut conn, run_id, _story_id, _project_id) = seeded_conn_with_running_session();
-        let outcome =
-            process_inbound_permission_request(&mut conn, &run_id, "Bash", Some(r#"{"command":"git push"}"#), None)
-                .expect("process_inbound_permission_request");
+        let outcome = process_inbound_permission_request(
+            &mut conn,
+            &run_id,
+            "Bash",
+            Some(r#"{"command":"git push"}"#),
+            None,
+        )
+        .expect("process_inbound_permission_request");
         assert!(matches!(outcome, PermissionRequestOutcome::Pending { .. }));
         let raised: String = conn
-            .query_row("SELECT created_at FROM permission_requests WHERE session_id = ?1", [&run_id], |r| r.get(0))
+            .query_row(
+                "SELECT created_at FROM permission_requests WHERE session_id = ?1",
+                [&run_id],
+                |r| r.get(0),
+            )
             .unwrap();
-        let raised = chrono::DateTime::parse_from_rfc3339(&raised).unwrap().with_timezone(&chrono::Utc);
+        let raised = chrono::DateTime::parse_from_rfc3339(&raised)
+            .unwrap()
+            .with_timezone(&chrono::Utc);
         let db = std::sync::Mutex::new(conn);
         let watch = std::sync::Mutex::new(crate::notify::WaitingWatch::new());
         let after = |secs| raised + chrono::Duration::seconds(secs);
 
-        assert_eq!(crate::notify::waiting_tick(&watch, &db, after(5), false), None, "too soon");
-        assert_eq!(crate::notify::waiting_tick(&watch, &db, after(31), true), None, "focused");
-        let banner = crate::notify::waiting_tick(&watch, &db, after(31), false).expect("unfocused, 31 s: a banner");
+        assert_eq!(
+            crate::notify::waiting_tick(&watch, &db, after(5), false),
+            None,
+            "too soon"
+        );
+        assert_eq!(
+            crate::notify::waiting_tick(&watch, &db, after(31), true),
+            None,
+            "focused"
+        );
+        let banner = crate::notify::waiting_tick(&watch, &db, after(31), false)
+            .expect("unfocused, 31 s: a banner");
         let (title, body) = banner.text();
-        assert_eq!(title, format!("Test Project · {} is waiting on you", story_key(&db)));
+        assert_eq!(
+            title,
+            format!("Test Project · {} is waiting on you", story_key(&db))
+        );
         assert_eq!(body, "Bash", "the tool name only, never the command");
     }
 
     fn story_key(db: &std::sync::Mutex<Connection>) -> String {
-        db.lock().unwrap().query_row("SELECT key FROM stories LIMIT 1", [], |r| r.get(0)).unwrap()
+        db.lock()
+            .unwrap()
+            .query_row("SELECT key FROM stories LIMIT 1", [], |r| r.get(0))
+            .unwrap()
     }
 
     // --- WR-09: the batch acknowledge never hides truncation or a failed write ------------------
@@ -2310,8 +2691,11 @@ pub(crate) mod tests {
     #[test]
     fn acknowledge_many_refuses_an_over_cap_list_as_a_whole_and_writes_nothing() {
         let (conn, run_id, _story_id, _project_id) = seeded_conn_with_running_session();
-        conn.execute("UPDATE sessions SET status = 'completed', ended_at = started_at WHERE id = ?1", [&run_id])
-            .unwrap();
+        conn.execute(
+            "UPDATE sessions SET status = 'completed', ended_at = started_at WHERE id = ?1",
+            [&run_id],
+        )
+        .unwrap();
         let mut ids = vec![run_id.clone()];
         ids.extend((0..ACKNOWLEDGE_MANY_CAP).map(|n| format!("no-such-run-{n}")));
         assert!(ids.len() > ACKNOWLEDGE_MANY_CAP);
@@ -2319,32 +2703,47 @@ pub(crate) mod tests {
         let err = acknowledge_many(&conn, ids).expect_err("an oversize list is refused");
 
         assert!(err.contains("refused"), "{err}");
-        let ack: Option<String> =
-            conn.query_row("SELECT acknowledged_at FROM sessions WHERE id = ?1", [&run_id], |r| r.get(0)).unwrap();
+        let ack: Option<String> = conn
+            .query_row(
+                "SELECT acknowledged_at FROM sessions WHERE id = ?1",
+                [&run_id],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(ack, None, "nothing may be written when the list is refused");
     }
 
     #[test]
     fn acknowledge_many_tells_an_unknown_id_from_a_write_error_and_acknowledges_the_rest() {
         let (conn, run_id, _story_id, _project_id) = seeded_conn_with_running_session();
-        conn.execute("UPDATE sessions SET status = 'completed', ended_at = started_at WHERE id = ?1", [&run_id])
-            .unwrap();
+        conn.execute(
+            "UPDATE sessions SET status = 'completed', ended_at = started_at WHERE id = ?1",
+            [&run_id],
+        )
+        .unwrap();
 
-        let results = acknowledge_many(&conn, vec![run_id.clone(), "no-such-run".to_string()]).unwrap();
+        let results =
+            acknowledge_many(&conn, vec![run_id.clone(), "no-such-run".to_string()]).unwrap();
         assert!(results[0].acknowledged && results[0].error.is_none());
-        assert!(!results[1].acknowledged && results[1].error.is_none(), "unknown is benign, not an error");
+        assert!(
+            !results[1].acknowledged && results[1].error.is_none(),
+            "unknown is benign, not an error"
+        );
 
         // A real write failure: the table the statement targets is gone.
         conn.execute_batch("DROP INDEX IF EXISTS idx_sessions_fleet; ALTER TABLE sessions RENAME TO sessions_gone;")
             .unwrap();
         let results = acknowledge_many(&conn, vec![run_id]).unwrap();
         assert!(!results[0].acknowledged);
-        assert!(results[0].error.is_some(), "a failed write must carry its error");
+        assert!(
+            results[0].error.is_some(),
+            "a failed write must carry its error"
+        );
     }
 
     #[test]
     fn only_completed_and_failed_closes_notify() {
-        use flywheel_core::domain::session::{SessionStatus, SessionClosedOutcome};
+        use flywheel_core::domain::session::{SessionClosedOutcome, SessionStatus};
         let (conn, run_id, _story_id, _project_id) = seeded_conn_with_running_session();
         let kind = |o: SessionClosedOutcome| closed_transition(&conn, &run_id, &o).map(|t| t.kind);
         assert_eq!(
@@ -2355,8 +2754,14 @@ pub(crate) mod tests {
             kind(SessionClosedOutcome::Closed(SessionStatus::Failed)),
             Some(crate::notify::TransitionKind::Failed)
         );
-        assert_eq!(kind(SessionClosedOutcome::Closed(SessionStatus::Interrupted)), None);
-        assert_eq!(kind(SessionClosedOutcome::Closed(SessionStatus::Abandoned)), None);
+        assert_eq!(
+            kind(SessionClosedOutcome::Closed(SessionStatus::Interrupted)),
+            None
+        );
+        assert_eq!(
+            kind(SessionClosedOutcome::Closed(SessionStatus::Abandoned)),
+            None
+        );
         assert_eq!(kind(SessionClosedOutcome::AlreadyTerminal), None);
         assert_eq!(kind(SessionClosedOutcome::BackfilledTerminal), None);
         assert_eq!(kind(SessionClosedOutcome::UnknownRun), None);
@@ -2366,7 +2771,10 @@ pub(crate) mod tests {
     #[test]
     fn a_missing_project_or_story_row_degrades_to_generic_words_and_never_panics() {
         let (conn, _run_id, _story_id, _project_id) = seeded_conn_with_running_session();
-        assert_eq!(notify_context(&conn, "no-such-run"), ("Flywheel".to_string(), "An agent".to_string()));
+        assert_eq!(
+            notify_context(&conn, "no-such-run"),
+            ("Flywheel".to_string(), "An agent".to_string())
+        );
     }
 
     #[test]
@@ -2381,23 +2789,44 @@ pub(crate) mod tests {
             "npm test:*",
             &actor_id,
         )
-            .expect("upsert_rule should succeed");
+        .expect("upsert_rule should succeed");
 
-        let outcome = process_inbound_permission_request(&mut conn, &run_id, "Bash", Some(r#"{"command":"npm test"}"#), None)
-            .expect("process_inbound_permission_request should succeed");
-        assert_eq!(outcome, PermissionRequestOutcome::AutoResolved { decision: "allow".to_string() });
+        let outcome = process_inbound_permission_request(
+            &mut conn,
+            &run_id,
+            "Bash",
+            Some(r#"{"command":"npm test"}"#),
+            None,
+        )
+        .expect("process_inbound_permission_request should succeed");
+        assert_eq!(
+            outcome,
+            PermissionRequestOutcome::AutoResolved {
+                decision: "allow".to_string()
+            }
+        );
 
         let pending_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM permission_requests", [], |row| row.get(0))
-            .expect("count query should succeed");
-        assert_eq!(pending_count, 0, "a rule match must create no permission_requests row");
-
-        let run_status: String = conn
-            .query_row("SELECT status FROM sessions WHERE id = ?1", rusqlite::params![run_id], |row| {
+            .query_row("SELECT COUNT(*) FROM permission_requests", [], |row| {
                 row.get(0)
             })
+            .expect("count query should succeed");
+        assert_eq!(
+            pending_count, 0,
+            "a rule match must create no permission_requests row"
+        );
+
+        let run_status: String = conn
+            .query_row(
+                "SELECT status FROM sessions WHERE id = ?1",
+                rusqlite::params![run_id],
+                |row| row.get(0),
+            )
             .expect("sessions row should exist");
-        assert_eq!(run_status, "running", "a rule match must never block the run");
+        assert_eq!(
+            run_status, "running",
+            "a rule match must never block the run"
+        );
 
         let event_count: i64 = conn
             .query_row(
@@ -2406,7 +2835,10 @@ pub(crate) mod tests {
                 |row| row.get(0),
             )
             .expect("count query should succeed");
-        assert_eq!(event_count, 1, "the automatic decision must still appear in the activity trail (T-02-27)");
+        assert_eq!(
+            event_count, 1,
+            "the automatic decision must still appear in the activity trail (T-02-27)"
+        );
     }
 
     #[test]
@@ -2430,9 +2862,11 @@ pub(crate) mod tests {
         assert_eq!(pending_count, 1);
 
         let run_status: String = conn
-            .query_row("SELECT status FROM sessions WHERE id = ?1", rusqlite::params![run_id], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT status FROM sessions WHERE id = ?1",
+                rusqlite::params![run_id],
+                |row| row.get(0),
+            )
             .expect("sessions row should exist");
         assert_eq!(run_status, "blocked");
     }
@@ -2440,8 +2874,9 @@ pub(crate) mod tests {
     #[test]
     fn an_unknown_run_id_is_a_harmless_no_op() {
         let (mut conn, _run_id, _story_id, _project_id) = seeded_conn_with_running_session();
-        let outcome = process_inbound_permission_request(&mut conn, "not-a-real-run-id", "Bash", None, None)
-            .expect("an unknown run_id must not error");
+        let outcome =
+            process_inbound_permission_request(&mut conn, "not-a-real-run-id", "Bash", None, None)
+                .expect("an unknown run_id must not error");
         assert_eq!(outcome, PermissionRequestOutcome::UnknownRun);
     }
 
@@ -2451,7 +2886,10 @@ pub(crate) mod tests {
         assert_eq!(db_decision_for("deny"), Ok("denied"));
         assert_eq!(db_decision_for("allow_always"), Ok("allowed_always"));
         let err = db_decision_for("yolo").expect_err("an unrecognised decision should be rejected");
-        assert!(err.contains("yolo"), "the error must name the rejected value, got: {err}");
+        assert!(
+            err.contains("yolo"),
+            "the error must name the rejected value, got: {err}"
+        );
     }
 
     #[test]
@@ -2472,19 +2910,31 @@ pub(crate) mod tests {
 
         let err = answer_permission_request(&mut conn, &db_request_id, "yolo", None, &actor_id)
             .expect_err("an out-of-set decision must be rejected");
-        assert!(err.contains("yolo"), "the error must name the rejected value, got: {err}");
+        assert!(
+            err.contains("yolo"),
+            "the error must name the rejected value, got: {err}"
+        );
 
         let events_after: i64 = conn
             .query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))
             .expect("count query should succeed");
-        assert_eq!(events_before, events_after, "an invalid decision must write nothing to the database");
+        assert_eq!(
+            events_before, events_after,
+            "an invalid decision must write nothing to the database"
+        );
     }
 
     #[test]
     fn answering_allow_always_writes_the_answered_row_and_exactly_one_permission_rule() {
         let (mut conn, run_id, _story_id, project_id) = seeded_conn_with_running_session();
-        let outcome = process_inbound_permission_request(&mut conn, &run_id, "Bash", Some(r#"{"command":"npm test"}"#), None)
-            .expect("should succeed");
+        let outcome = process_inbound_permission_request(
+            &mut conn,
+            &run_id,
+            "Bash",
+            Some(r#"{"command":"npm test"}"#),
+            None,
+        )
+        .expect("should succeed");
         let db_request_id = match outcome {
             PermissionRequestOutcome::Pending { db_request_id } => db_request_id,
             other => panic!("expected Pending, got {other:?}"),
@@ -2492,9 +2942,16 @@ pub(crate) mod tests {
         let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn)
             .expect("seeded human actor should exist");
 
-        let instruction = answer_permission_request(&mut conn, &db_request_id, "allow_always", None, &actor_id)
-            .expect("answer_permission_request should succeed");
-        assert_eq!(instruction, PermissionRelayInstruction { run_id: run_id.clone(), decision: "allow" });
+        let instruction =
+            answer_permission_request(&mut conn, &db_request_id, "allow_always", None, &actor_id)
+                .expect("answer_permission_request should succeed");
+        assert_eq!(
+            instruction,
+            PermissionRelayInstruction {
+                run_id: run_id.clone(),
+                decision: "allow"
+            }
+        );
 
         let answered_status: String = conn
             .query_row(
@@ -2512,20 +2969,30 @@ pub(crate) mod tests {
                 |row| row.get(0),
             )
             .expect("count query should succeed");
-        assert_eq!(rule_count, 1, "allow_always must write exactly one permission_rules row");
+        assert_eq!(
+            rule_count, 1,
+            "allow_always must write exactly one permission_rules row"
+        );
 
         let pattern: String = conn
-            .query_row("SELECT pattern FROM permission_rules WHERE project_id = ?1", rusqlite::params![project_id], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT pattern FROM permission_rules WHERE project_id = ?1",
+                rusqlite::params![project_id],
+                |row| row.get(0),
+            )
             .expect("the rule should be readable");
-        assert_eq!(pattern, "npm test", "with no edited rule, the exact command is remembered");
+        assert_eq!(
+            pattern, "npm test",
+            "with no edited rule, the exact command is remembered"
+        );
     }
 
     /// Raise a pending Bash request for `command` and return its id.
     fn pending_bash_request(conn: &mut Connection, run_id: &str, command: &str) -> String {
         let input = serde_json::json!({ "command": command }).to_string();
-        match process_inbound_permission_request(conn, run_id, "Bash", Some(&input), None).expect("should succeed") {
+        match process_inbound_permission_request(conn, run_id, "Bash", Some(&input), None)
+            .expect("should succeed")
+        {
             PermissionRequestOutcome::Pending { db_request_id } => db_request_id,
             other => panic!("expected Pending, got {other:?}"),
         }
@@ -2538,30 +3005,60 @@ pub(crate) mod tests {
     fn an_agent_question_is_held_with_no_rule_and_answered_only_with_answers() {
         let (mut conn, run_id, _story_id, project_id) = seeded_conn_with_running_session();
         let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).unwrap();
-        let whole_tool = flywheel_core::permission_pattern::suggested_pattern("AskUserQuestion", &serde_json::Value::Null);
-        flywheel_core::domain::permission_rule::upsert_rule(&mut conn, &project_id, "AskUserQuestion", &whole_tool, &actor_id)
-            .expect("the pre-#100 card could store this rule");
+        let whole_tool = flywheel_core::permission_pattern::suggested_pattern(
+            "AskUserQuestion",
+            &serde_json::Value::Null,
+        );
+        flywheel_core::domain::permission_rule::upsert_rule(
+            &mut conn,
+            &project_id,
+            "AskUserQuestion",
+            &whole_tool,
+            &actor_id,
+        )
+        .expect("the pre-#100 card could store this rule");
         let input = serde_json::json!({ "questions": [{ "question": "Which?", "header": "H", "multiSelect": false,
             "options": [{ "label": "A", "description": "" }, { "label": "B", "description": "" }] }] })
         .to_string();
-        let request = match process_inbound_permission_request(&mut conn, &run_id, "AskUserQuestion", Some(&input), None)
-            .unwrap()
+        let request = match process_inbound_permission_request(
+            &mut conn,
+            &run_id,
+            "AskUserQuestion",
+            Some(&input),
+            None,
+        )
+        .unwrap()
         {
             PermissionRequestOutcome::Pending { db_request_id } => db_request_id,
             other => panic!("a question must be held, got {other:?}"),
         };
-        assert_eq!(card_suggested_rule("AskUserQuestion", Some(&input), None), None);
+        assert_eq!(
+            card_suggested_rule("AskUserQuestion", Some(&input), None),
+            None
+        );
         for decision in ["allow", "deny", "allow_always"] {
-            assert!(answer_permission_request(&mut conn, &request, decision, None, &actor_id).is_err(), "{decision}");
+            assert!(
+                answer_permission_request(&mut conn, &request, decision, None, &actor_id).is_err(),
+                "{decision}"
+            );
         }
-        let answers = std::collections::BTreeMap::from([("Which?".to_string(), vec!["B".to_string()])]);
-        let answered =
-            flywheel_core::domain::question::answer_question(&mut conn, &request, &answers, &actor_id).unwrap();
-        assert_eq!(serde_json::Value::Object(answered.answers), serde_json::json!({ "Which?": "B" }));
-        assert!(flywheel_core::domain::permission_rule::rules_for_project(&conn, &project_id)
-            .unwrap()
-            .iter()
-            .all(|r| r.tool == "AskUserQuestion"), "answering grants no rule");
+        let answers =
+            std::collections::BTreeMap::from([("Which?".to_string(), vec!["B".to_string()])]);
+        let answered = flywheel_core::domain::question::answer_question(
+            &mut conn, &request, &answers, &actor_id,
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::Value::Object(answered.answers),
+            serde_json::json!({ "Which?": "B" })
+        );
+        assert!(
+            flywheel_core::domain::permission_rule::rules_for_project(&conn, &project_id)
+                .unwrap()
+                .iter()
+                .all(|r| r.tool == "AskUserQuestion"),
+            "answering grants no rule"
+        );
     }
 
     #[test]
@@ -2570,15 +3067,32 @@ pub(crate) mod tests {
         let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).unwrap();
         let request = pending_bash_request(&mut conn, &run_id, "npm test -- --watch");
 
-        answer_permission_request(&mut conn, &request, "allow_always", Some("Bash(npm test:*)"), &actor_id)
-            .expect("an ordinary pattern is stored");
-        let rules = flywheel_core::domain::permission_rule::rules_for_project(&conn, &project_id).unwrap();
+        answer_permission_request(
+            &mut conn,
+            &request,
+            "allow_always",
+            Some("Bash(npm test:*)"),
+            &actor_id,
+        )
+        .expect("an ordinary pattern is stored");
+        let rules =
+            flywheel_core::domain::permission_rule::rules_for_project(&conn, &project_id).unwrap();
         assert_eq!(rules.len(), 1);
-        assert_eq!((rules[0].tool.as_str(), rules[0].pattern.as_str()), ("Bash", "npm test:*"));
+        assert_eq!(
+            (rules[0].tool.as_str(), rules[0].pattern.as_str()),
+            ("Bash", "npm test:*")
+        );
 
         let input = serde_json::json!({ "command": "npm test" }).to_string();
-        let outcome = process_inbound_permission_request(&mut conn, &run_id, "Bash", Some(&input), None).unwrap();
-        assert_eq!(outcome, PermissionRequestOutcome::AutoResolved { decision: "allow".to_string() });
+        let outcome =
+            process_inbound_permission_request(&mut conn, &run_id, "Bash", Some(&input), None)
+                .unwrap();
+        assert_eq!(
+            outcome,
+            PermissionRequestOutcome::AutoResolved {
+                decision: "allow".to_string()
+            }
+        );
     }
 
     #[test]
@@ -2588,19 +3102,37 @@ pub(crate) mod tests {
         let request = pending_bash_request(&mut conn, &run_id, "git status");
 
         for rule in ["Bash", "Bash(git:*)", "Bash(git push:*)"] {
-            let err = answer_permission_request(&mut conn, &request, "allow_always", Some(rule), &actor_id)
-                .expect_err("a rule covering a Gated action must be refused");
+            let err = answer_permission_request(
+                &mut conn,
+                &request,
+                "allow_always",
+                Some(rule),
+                &actor_id,
+            )
+            .expect_err("a rule covering a Gated action must be refused");
             assert!(err.contains("Gated action"), "{rule}: {err}");
         }
-        let err = answer_permission_request(&mut conn, &request, "allow_always", Some("Read"), &actor_id)
-            .expect_err("a rule for another tool must be refused");
+        let err =
+            answer_permission_request(&mut conn, &request, "allow_always", Some("Read"), &actor_id)
+                .expect_err("a rule for another tool must be refused");
         assert!(err.contains("Read"), "{err}");
 
         let status: String = conn
-            .query_row("SELECT status FROM permission_requests WHERE id = ?1", rusqlite::params![request], |r| r.get(0))
+            .query_row(
+                "SELECT status FROM permission_requests WHERE id = ?1",
+                rusqlite::params![request],
+                |r| r.get(0),
+            )
             .unwrap();
-        assert_eq!(status, "pending", "a refused rule leaves the request unanswered");
-        assert!(flywheel_core::domain::permission_rule::rules_for_project(&conn, &project_id).unwrap().is_empty());
+        assert_eq!(
+            status, "pending",
+            "a refused rule leaves the request unanswered"
+        );
+        assert!(
+            flywheel_core::domain::permission_rule::rules_for_project(&conn, &project_id)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -2617,23 +3149,42 @@ pub(crate) mod tests {
 
         // Judged Gated from its own input, with no category from the shim.
         let input = serde_json::json!({ "command": "git push --force origin feature" }).to_string();
-        let outcome = process_inbound_permission_request(&mut conn, &run_id, "Bash", Some(&input), None).unwrap();
-        assert!(matches!(outcome, PermissionRequestOutcome::Pending { .. }), "got {outcome:?}");
+        let outcome =
+            process_inbound_permission_request(&mut conn, &run_id, "Bash", Some(&input), None)
+                .unwrap();
+        assert!(
+            matches!(outcome, PermissionRequestOutcome::Pending { .. }),
+            "got {outcome:?}"
+        );
 
         // Judged Gated by the shim.
         let input = serde_json::json!({ "command": "git push" }).to_string();
-        let outcome =
-            process_inbound_permission_request(&mut conn, &run_id, "Bash", Some(&input), Some("force-push")).unwrap();
-        assert!(matches!(outcome, PermissionRequestOutcome::Pending { .. }), "got {outcome:?}");
+        let outcome = process_inbound_permission_request(
+            &mut conn,
+            &run_id,
+            "Bash",
+            Some(&input),
+            Some("force-push"),
+        )
+        .unwrap();
+        assert!(
+            matches!(outcome, PermissionRequestOutcome::Pending { .. }),
+            "got {outcome:?}"
+        );
 
         let auto: i64 = conn
-            .query_row("SELECT COUNT(*) FROM events WHERE event_type = 'permission_request.auto_resolved'", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM events WHERE event_type = 'permission_request.auto_resolved'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(auto, 0, "no rule approved a Gated action");
     }
 
     #[test]
-    fn answering_an_already_answered_request_returns_the_already_answered_error_with_nothing_left_to_relay() {
+    fn answering_an_already_answered_request_returns_the_already_answered_error_with_nothing_left_to_relay(
+    ) {
         let (mut conn, run_id, _story_id, _project_id) = seeded_conn_with_running_session();
         let outcome = process_inbound_permission_request(&mut conn, &run_id, "Bash", None, None)
             .expect("should succeed");
@@ -2648,7 +3199,10 @@ pub(crate) mod tests {
         // (`session_answer_permission`) would call `sidecar.relay_permission_answer` exactly
         // once for this Ok result.
         let first = answer_permission_request(&mut conn, &db_request_id, "allow", None, &actor_id);
-        assert!(first.is_ok(), "the first answer must succeed and produce one relay instruction");
+        assert!(
+            first.is_ok(),
+            "the first answer must succeed and produce one relay instruction"
+        );
 
         // Second answer to the SAME request id: must be an Err, meaning the caller's own
         // `if let Some(sidecar) = ...` relay branch is never reached a second time — this IS the
@@ -2657,7 +3211,10 @@ pub(crate) mod tests {
         // `session_answer_permission`'s own body, which returns via `?` before reaching the
         // relay on an `Err`).
         let second = answer_permission_request(&mut conn, &db_request_id, "deny", None, &actor_id);
-        assert!(second.is_err(), "answering an already-answered request must be refused");
+        assert!(
+            second.is_err(),
+            "answering an already-answered request must be refused"
+        );
 
         let answered_status: String = conn
             .query_row(
@@ -2666,7 +3223,10 @@ pub(crate) mod tests {
                 |row| row.get(0),
             )
             .expect("permission_requests row should exist");
-        assert_eq!(answered_status, "allowed", "the second (denying) answer must never overwrite the first");
+        assert_eq!(
+            answered_status, "allowed",
+            "the second (denying) answer must never overwrite the first"
+        );
     }
 
     /// A fresh migrated database with one project, one Story, one worktree row and one `running`
@@ -2677,9 +3237,11 @@ pub(crate) mod tests {
     fn seeded_conn_with_running_run() -> (Connection, String, String) {
         let (conn, story_id) = seeded_conn_with_story();
         let project_id: String = conn
-            .query_row("SELECT project_id FROM stories WHERE id = ?1", rusqlite::params![story_id], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT project_id FROM stories WHERE id = ?1",
+                rusqlite::params![story_id],
+                |row| row.get(0),
+            )
             .expect("story's project_id should be readable");
         let human_actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn)
             .expect("seeded human actor should exist");
@@ -2709,7 +3271,14 @@ pub(crate) mod tests {
                 ?1, ?2, ?3, ?4, ?5, 'running', 'acceptEdits',
                 '/tmp/does-not-need-to-exist-for-this-test.jsonl', ?6
             )",
-            rusqlite::params![run_id, worktree_id, story_id, project_id, agent_actor_id, now],
+            rusqlite::params![
+                run_id,
+                worktree_id,
+                story_id,
+                project_id,
+                agent_actor_id,
+                now
+            ],
         )
         .expect("failed to insert fixture sessions row");
 
@@ -2732,18 +3301,25 @@ pub(crate) mod tests {
         let human_actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn)
             .expect("seeded human actor should exist");
 
-        let tx = conn.transaction().expect("opening a transaction should succeed");
+        let tx = conn
+            .transaction()
+            .expect("opening a transaction should succeed");
         let status = stop_session_in_tx(&tx, &run_id, &human_actor_id)
             .expect("stop_session_in_tx should succeed inside an open transaction");
-        assert_eq!(status, "interrupted", "the in-tx write must still report the terminal status it wrote");
+        assert_eq!(
+            status, "interrupted",
+            "the in-tx write must still report the terminal status it wrote"
+        );
 
         // Roll back instead of committing — simulates a crash between the write and the commit.
         drop(tx);
 
         let status_after_rollback: String = conn
-            .query_row("SELECT status FROM sessions WHERE id = ?1", rusqlite::params![run_id], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT status FROM sessions WHERE id = ?1",
+                rusqlite::params![run_id],
+                |row| row.get(0),
+            )
             .expect("sessions row should exist");
         assert_eq!(
             status_after_rollback, "running",
@@ -2751,11 +3327,16 @@ pub(crate) mod tests {
         );
 
         let ended_at: Option<String> = conn
-            .query_row("SELECT ended_at FROM sessions WHERE id = ?1", rusqlite::params![run_id], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT ended_at FROM sessions WHERE id = ?1",
+                rusqlite::params![run_id],
+                |row| row.get(0),
+            )
             .expect("sessions row should exist");
-        assert!(ended_at.is_none(), "a rolled-back termination unit must leave ended_at NULL");
+        assert!(
+            ended_at.is_none(),
+            "a rolled-back termination unit must leave ended_at NULL"
+        );
 
         let summary_count: i64 = conn
             .query_row(
@@ -2764,7 +3345,10 @@ pub(crate) mod tests {
                 |row| row.get(0),
             )
             .expect("count query should succeed");
-        assert_eq!(summary_count, 0, "a rolled-back termination unit must leave zero session_summaries rows");
+        assert_eq!(
+            summary_count, 0,
+            "a rolled-back termination unit must leave zero session_summaries rows"
+        );
 
         let terminal_event_count: i64 = conn
             .query_row(
@@ -2789,29 +3373,43 @@ pub(crate) mod tests {
         let dto = stop_session_recording_first(&mut conn, &run_id, || {
             Err("sidecar did not acknowledge the interrupt request within 30s".to_string())
         })
-        .expect("stop_session_recording_first should succeed even when the interrupt closure fails");
+        .expect(
+            "stop_session_recording_first should succeed even when the interrupt closure fails",
+        );
 
         assert_eq!(dto.status, "interrupted");
         assert_eq!(dto.session_id, run_id);
-        let warning = dto.sidecar_warning.expect("a failed interrupt must produce a sidecar_warning");
+        let warning = dto
+            .sidecar_warning
+            .expect("a failed interrupt must produce a sidecar_warning");
         assert!(
             warning.contains("could not confirm the agent process stopped"),
             "the warning must bind to the user-facing promise, not an incidental format, got: {warning}"
         );
 
         let status: String = conn
-            .query_row("SELECT status FROM sessions WHERE id = ?1", rusqlite::params![run_id], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT status FROM sessions WHERE id = ?1",
+                rusqlite::params![run_id],
+                |row| row.get(0),
+            )
             .expect("sessions row should exist");
-        assert_eq!(status, "interrupted", "the run must reach a terminal status regardless of the sidecar outcome");
+        assert_eq!(
+            status, "interrupted",
+            "the run must reach a terminal status regardless of the sidecar outcome"
+        );
 
         let ended_at: Option<String> = conn
-            .query_row("SELECT ended_at FROM sessions WHERE id = ?1", rusqlite::params![run_id], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT ended_at FROM sessions WHERE id = ?1",
+                rusqlite::params![run_id],
+                |row| row.get(0),
+            )
             .expect("sessions row should exist");
-        assert!(ended_at.is_some(), "ended_at must be set after an interrupt");
+        assert!(
+            ended_at.is_some(),
+            "ended_at must be set after an interrupt"
+        );
     }
 
     /// A second stop against the same dead sidecar must be safe (D-35 idempotence): no second
@@ -2835,14 +3433,22 @@ pub(crate) mod tests {
                 |row| row.get(0),
             )
             .expect("count query should succeed");
-        assert_eq!(event_count, 1, "a second stop must append no second session.interrupted event");
+        assert_eq!(
+            event_count, 1,
+            "a second stop must append no second session.interrupted event"
+        );
 
         let status: String = conn
-            .query_row("SELECT status FROM sessions WHERE id = ?1", rusqlite::params![run_id], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT status FROM sessions WHERE id = ?1",
+                rusqlite::params![run_id],
+                |row| row.get(0),
+            )
             .expect("sessions row should exist");
-        assert_eq!(status, "interrupted", "the status must remain interrupted, not overwritten");
+        assert_eq!(
+            status, "interrupted",
+            "the status must remain interrupted, not overwritten"
+        );
     }
 
     /// The shared scratch worktree root (`super::scratch_root`, which holds the process-wide lock),
@@ -2867,13 +3473,16 @@ pub(crate) mod tests {
     /// creates a real worktree (`ensure_worktree`) and therefore needs a real repository to clone
     /// from. Returns the connection, the human actor id, the project id, the Story id, and the
     /// repository's own `TempDir` (kept alive by the caller for the test's duration).
-    pub(crate) fn seeded_git_conn_with_story() -> (Connection, String, String, String, tempfile::TempDir) {
+    pub(crate) fn seeded_git_conn_with_story(
+    ) -> (Connection, String, String, String, tempfile::TempDir) {
         seeded_git_conn_with_story_at("")
     }
 
     /// [`seeded_git_conn_with_story`] for a project registered at `subdir` of the repository
     /// (cymarechal/highknow-mvp#551); '' is the repository's root.
-    pub(crate) fn seeded_git_conn_with_story_at(subdir: &str) -> (Connection, String, String, String, tempfile::TempDir) {
+    pub(crate) fn seeded_git_conn_with_story_at(
+        subdir: &str,
+    ) -> (Connection, String, String, String, tempfile::TempDir) {
         let repo_dir = tempfile::tempdir().expect("failed to create scratch repo dir");
         let repo_path = repo_dir.path();
 
@@ -2891,9 +3500,14 @@ pub(crate) mod tests {
         run(&["config", "user.name", "Fixture"]);
         std::fs::write(repo_path.join("README.md"), "fixture repo\n")
             .expect("failed to write README");
-        let project_path = if subdir.is_empty() { repo_path.to_path_buf() } else { repo_path.join(subdir) };
+        let project_path = if subdir.is_empty() {
+            repo_path.to_path_buf()
+        } else {
+            repo_path.join(subdir)
+        };
         std::fs::create_dir_all(&project_path).expect("failed to create the project's directory");
-        std::fs::write(project_path.join("PROJECT.md"), "the project\n").expect("failed to write PROJECT.md");
+        std::fs::write(project_path.join("PROJECT.md"), "the project\n")
+            .expect("failed to write PROJECT.md");
         run(&["add", "-A"]);
         run(&["commit", "-m", "initial commit"]);
 
@@ -2927,9 +3541,15 @@ pub(crate) mod tests {
     /// `(sessions rows for the Story, all events rows)` — a refusal must change neither.
     fn launch_footprint(conn: &Connection, story_id: &str) -> (i64, i64) {
         let runs = conn
-            .query_row("SELECT COUNT(*) FROM sessions WHERE story_id = ?1", rusqlite::params![story_id], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM sessions WHERE story_id = ?1",
+                rusqlite::params![story_id],
+                |r| r.get(0),
+            )
             .unwrap();
-        let events = conn.query_row("SELECT COUNT(*) FROM events", [], |r| r.get(0)).unwrap();
+        let events = conn
+            .query_row("SELECT COUNT(*) FROM events", [], |r| r.get(0))
+            .unwrap();
         (runs, events)
     }
 
@@ -2940,16 +3560,25 @@ pub(crate) mod tests {
         for status in ["running", "blocked"] {
             with_scratch_dirs(|| {
                 let (mut conn, actor, _p, story, _repo) = seeded_git_conn_with_story();
-                let first = start_session_recording_first(&mut conn, &story, "acceptEdits", "", &actor).unwrap();
-                conn.execute("UPDATE sessions SET status = ?1 WHERE id = ?2", rusqlite::params![status, first.run_id])
-                    .unwrap();
+                let first =
+                    start_session_recording_first(&mut conn, &story, "acceptEdits", "", &actor)
+                        .unwrap();
+                conn.execute(
+                    "UPDATE sessions SET status = ?1 WHERE id = ?2",
+                    rusqlite::params![status, first.run_id],
+                )
+                .unwrap();
                 let before = launch_footprint(&conn, &story);
                 let err = match launch(&mut conn, &story) {
                     Ok(_) => panic!("{status}: two agents in one worktree must be refused"),
                     Err(e) => e,
                 };
                 assert!(err.contains("already has"), "{status}: {err}");
-                assert_eq!(launch_footprint(&conn, &story), before, "{status}: a refusal creates nothing");
+                assert_eq!(
+                    launch_footprint(&conn, &story),
+                    before,
+                    "{status}: a refusal creates nothing"
+                );
             });
         }
     }
@@ -2959,11 +3588,17 @@ pub(crate) mod tests {
         with_scratch_dirs(|| {
             let (mut conn, _actor, _p, story, _repo) = seeded_git_conn_with_story();
             let prepared = launch(&mut conn, &story).expect("nothing live: the launch proceeds");
-            assert_eq!(launch_footprint(&conn, &story).0, 1, "the session row exists");
+            assert_eq!(
+                launch_footprint(&conn, &story).0,
+                1,
+                "the session row exists"
+            );
             let status: String = conn
-                .query_row("SELECT status FROM sessions WHERE id = ?1", rusqlite::params![prepared.outcome.run_id], |r| {
-                    r.get(0)
-                })
+                .query_row(
+                    "SELECT status FROM sessions WHERE id = ?1",
+                    rusqlite::params![prepared.outcome.run_id],
+                    |r| r.get(0),
+                )
                 .unwrap();
             assert_eq!(status, "running");
         });
@@ -2972,14 +3607,22 @@ pub(crate) mod tests {
     // --- D-REV-46: a launch that fails after its session row exists leaves no `running` row -----------
 
     fn live_run_count(conn: &Connection) -> i64 {
-        conn.query_row("SELECT COUNT(*) FROM sessions WHERE status IN ('running', 'blocked')", [], |r| r.get(0))
-            .unwrap()
+        conn.query_row(
+            "SELECT COUNT(*) FROM sessions WHERE status IN ('running', 'blocked')",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap()
     }
 
     /// The facts every failed-launch path must leave: the session is `failed` (not `running`), the
     /// live count is back where it was, and the Story is relaunchable without a restart (the
     /// own-live-session refusal does not fire).
-    fn assert_failed_launch_left_nothing_running(conn: &mut Connection, story_id: &str, live_before: i64) {
+    fn assert_failed_launch_left_nothing_running(
+        conn: &mut Connection,
+        story_id: &str,
+        live_before: i64,
+    ) {
         let (status, run_id): (String, String) = conn
             .query_row(
                 "SELECT status, id FROM sessions WHERE story_id = ?1 ORDER BY started_at DESC, rowid DESC LIMIT 1",
@@ -2987,8 +3630,15 @@ pub(crate) mod tests {
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .unwrap();
-        assert_eq!(status, "failed", "session {run_id} must be closed, not left running");
-        assert_eq!(live_run_count(conn), live_before, "no live session is left behind");
+        assert_eq!(
+            status, "failed",
+            "session {run_id} must be closed, not left running"
+        );
+        assert_eq!(
+            live_run_count(conn),
+            live_before,
+            "no live session is left behind"
+        );
         if let Err(err) = launch(conn, story_id) {
             panic!("the Story must be relaunchable without a restart: {err}");
         }
@@ -2997,15 +3647,30 @@ pub(crate) mod tests {
     /// Drive `prepare_launch` then `spawn_prepared_run` with the given shim and send, returning the
     /// error and the database for the assertions.
     fn spawn_with(
-        merge_shim: impl FnOnce(&mut std::collections::HashMap<String, String>, &str) -> anyhow::Result<()>,
+        merge_shim: impl FnOnce(
+            &mut std::collections::HashMap<String, String>,
+            &str,
+        ) -> anyhow::Result<()>,
         send: impl FnOnce(&serde_json::Value) -> Result<(), String>,
-    ) -> (String, std::sync::Mutex<Connection>, String, tempfile::TempDir) {
+    ) -> (
+        String,
+        std::sync::Mutex<Connection>,
+        String,
+        tempfile::TempDir,
+    ) {
         let (conn, _actor, _p, story, repo) = seeded_git_conn_with_story();
         let db = std::sync::Mutex::new(conn);
         let mut guard = db.lock().unwrap();
         let prepared = launch(&mut guard, &story).expect("the session row is inserted");
-        let err = spawn_prepared_run(&mut guard, &prepared.outcome, prepared.env, SessionKind::Story, merge_shim, send)
-            .expect_err("the injected step fails");
+        let err = spawn_prepared_run(
+            &mut guard,
+            &prepared.outcome,
+            prepared.env,
+            SessionKind::Story,
+            merge_shim,
+            send,
+        )
+        .expect_err("the injected step fails");
         drop(guard);
         (err, db, story, repo)
     }
@@ -3013,7 +3678,8 @@ pub(crate) mod tests {
     #[test]
     fn a_shim_install_failure_closes_the_run_failed() {
         with_scratch_dirs(|| {
-            let (err, db, story, _repo) = spawn_with(|_, _| Err(anyhow::anyhow!("shim boom")), |_| Ok(()));
+            let (err, db, story, _repo) =
+                spawn_with(|_, _| Err(anyhow::anyhow!("shim boom")), |_| Ok(()));
             assert!(err.contains("shim boom"), "{err}");
             assert_failed_launch_left_nothing_running(&mut db.lock().unwrap(), &story, 0);
         });
@@ -3022,7 +3688,8 @@ pub(crate) mod tests {
     #[test]
     fn a_failed_gated_spawn_closes_the_run_failed() {
         with_scratch_dirs(|| {
-            let (err, db, story, _repo) = spawn_with(|_, _| Ok(()), |_| Err("spawn boom".to_string()));
+            let (err, db, story, _repo) =
+                spawn_with(|_, _| Ok(()), |_| Err("spawn boom".to_string()));
             assert!(err.contains("spawn boom"), "{err}");
             assert_failed_launch_left_nothing_running(&mut db.lock().unwrap(), &story, 0);
         });
@@ -3031,12 +3698,21 @@ pub(crate) mod tests {
     // --- story_start (issue #50): Ready → Running, with a worktree, a branch and a session ---------
 
     pub(crate) fn story_state(conn: &Connection, story_id: &str) -> String {
-        conn.query_row("SELECT state FROM stories WHERE id = ?1", rusqlite::params![story_id], |r| r.get(0)).unwrap()
+        conn.query_row(
+            "SELECT state FROM stories WHERE id = ?1",
+            rusqlite::params![story_id],
+            |r| r.get(0),
+        )
+        .unwrap()
     }
 
     fn worktree_count(conn: &Connection, story_id: &str) -> i64 {
-        conn.query_row("SELECT COUNT(*) FROM worktrees WHERE story_id = ?1", rusqlite::params![story_id], |r| r.get(0))
-            .unwrap()
+        conn.query_row(
+            "SELECT COUNT(*) FROM worktrees WHERE story_id = ?1",
+            rusqlite::params![story_id],
+            |r| r.get(0),
+        )
+        .unwrap()
     }
 
     /// A Story moved to Ready the way the hand-written form leaves one.
@@ -3053,14 +3729,22 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn start_creates_the_worktree_and_branch_launches_the_session_in_it_and_moves_the_story_to_running() {
+    fn start_creates_the_worktree_and_branch_launches_the_session_in_it_and_moves_the_story_to_running(
+    ) {
         with_scratch_dirs(|| {
             let (db, story, repo) = ready_story();
             let mut sent = None;
-            let outcome = start_ready_story(&db, &story, "", found_claude, |_, _| Ok(()), |_repo, request| {
-                sent = Some(request.clone());
-                Ok(())
-            })
+            let outcome = start_ready_story(
+                &db,
+                &story,
+                "",
+                found_claude,
+                |_, _| Ok(()),
+                |_repo, request| {
+                    sent = Some(request.clone());
+                    Ok(())
+                },
+            )
             .expect("a Ready Story starts");
 
             let conn = db.lock().unwrap();
@@ -3073,23 +3757,40 @@ pub(crate) mod tests {
                 )
                 .unwrap();
             assert_eq!(status, "active");
-            assert!(std::path::Path::new(&path).is_dir(), "the worktree exists on disk at {path}");
-            let branches = flywheel_core::git::git_at(repo.path(), &["branch", "--list", &branch]).unwrap();
-            assert!(String::from_utf8_lossy(&branches.stdout).contains(&branch), "branch {branch} exists");
+            assert!(
+                std::path::Path::new(&path).is_dir(),
+                "the worktree exists on disk at {path}"
+            );
+            let branches =
+                flywheel_core::git::git_at(repo.path(), &["branch", "--list", &branch]).unwrap();
+            assert!(
+                String::from_utf8_lossy(&branches.stdout).contains(&branch),
+                "branch {branch} exists"
+            );
             let session_status: String = conn
-                .query_row("SELECT status FROM sessions WHERE id = ?1", rusqlite::params![outcome.run_id], |r| r.get(0))
+                .query_row(
+                    "SELECT status FROM sessions WHERE id = ?1",
+                    rusqlite::params![outcome.run_id],
+                    |r| r.get(0),
+                )
                 .unwrap();
             assert_eq!(session_status, "running");
             let sent = sent.expect("one spawn request was sent");
-            assert_eq!(sent["worktreePath"], serde_json::Value::String(path), "the session runs in the Story's worktree");
+            assert_eq!(
+                sent["worktreePath"],
+                serde_json::Value::String(path),
+                "the session runs in the Story's worktree"
+            );
             // The session kind, not the developer, decides the mode: Start takes none, and the
             // request and the session row both carry the Story kind's.
             assert_eq!(sent["permissionMode"], "acceptEdits");
             assert_eq!(sent["allowedTools"][0], "Bash");
             let recorded: String = conn
-                .query_row("SELECT permission_mode FROM sessions WHERE id = ?1", rusqlite::params![outcome.run_id], |r| {
-                    r.get(0)
-                })
+                .query_row(
+                    "SELECT permission_mode FROM sessions WHERE id = ?1",
+                    rusqlite::params![outcome.run_id],
+                    |r| r.get(0),
+                )
                 .unwrap();
             assert_eq!(recorded, "acceptEdits");
         });
@@ -3111,18 +3812,33 @@ pub(crate) mod tests {
             .unwrap();
             let db = std::sync::Mutex::new(conn);
             let mut sent = None;
-            start_ready_story(&db, &story, "", found_claude, |_, _| Ok(()), |_repo, request| {
-                sent = Some(request.clone());
-                Ok(())
-            })
+            start_ready_story(
+                &db,
+                &story,
+                "",
+                found_claude,
+                |_, _| Ok(()),
+                |_repo, request| {
+                    sent = Some(request.clone());
+                    Ok(())
+                },
+            )
             .expect("a Ready Story in a subdirectory starts");
 
             let conn = db.lock().unwrap();
-            let worktree = flywheel_core::domain::worktree::worktree_for_story(&conn, &story).unwrap().unwrap();
+            let worktree = flywheel_core::domain::worktree::worktree_for_story(&conn, &story)
+                .unwrap()
+                .unwrap();
             let root = std::path::Path::new(&worktree.path);
-            assert!(root.join("README.md").is_file(), "the worktree is the whole repository's");
+            assert!(
+                root.join("README.md").is_file(),
+                "the worktree is the whole repository's"
+            );
             let project_dir = root.join("flywheel");
-            assert!(project_dir.join("PROJECT.md").is_file(), "the project sits at the same subdirectory");
+            assert!(
+                project_dir.join("PROJECT.md").is_file(),
+                "the project sits at the same subdirectory"
+            );
             let sent = sent.expect("one spawn request was sent");
             assert_eq!(
                 sent["worktreePath"],
@@ -3143,11 +3859,22 @@ pub(crate) mod tests {
             let (conn, _actor, _p, story, _repo) = seeded_git_conn_with_story();
             let db = std::sync::Mutex::new(conn);
             let before = launch_footprint(&db.lock().unwrap(), &story);
-            let err = start_ready_story(&db, &story, "", found_claude, |_, _| Ok(()), |_, _| panic!("nothing may be spawned"))
-                .expect_err("a Shaping Story cannot start");
+            let err = start_ready_story(
+                &db,
+                &story,
+                "",
+                found_claude,
+                |_, _| Ok(()),
+                |_, _| panic!("nothing may be spawned"),
+            )
+            .expect_err("a Shaping Story cannot start");
             assert!(err.contains("Ready"), "{err}");
             let conn = db.lock().unwrap();
-            assert_eq!(launch_footprint(&conn, &story), before, "a refusal writes nothing");
+            assert_eq!(
+                launch_footprint(&conn, &story),
+                before,
+                "a refusal writes nothing"
+            );
             assert_eq!(worktree_count(&conn, &story), 0, "and creates no worktree");
             assert_eq!(story_state(&conn, &story), "shaping");
         });
@@ -3178,7 +3905,11 @@ pub(crate) mod tests {
             assert!(err.contains(&searched), "{err}");
             let conn = db.lock().unwrap();
             assert_eq!(story_state(&conn, &story), "ready");
-            assert_eq!(launch_footprint(&conn, &story), before, "a refused Start writes nothing");
+            assert_eq!(
+                launch_footprint(&conn, &story),
+                before,
+                "a refused Start writes nothing"
+            );
             assert_eq!(worktree_count(&conn, &story), 0, "and creates no worktree");
         });
     }
@@ -3187,11 +3918,19 @@ pub(crate) mod tests {
     fn a_start_whose_spawn_fails_leaves_the_story_ready_to_start_again() {
         with_scratch_dirs(|| {
             let (db, story, _repo) = ready_story();
-            let err = start_ready_story(&db, &story, "", found_claude, |_, _| Ok(()), |_, _| Err("spawn boom".to_string()))
-                .expect_err("the spawn fails");
+            let err = start_ready_story(
+                &db,
+                &story,
+                "",
+                found_claude,
+                |_, _| Ok(()),
+                |_, _| Err("spawn boom".to_string()),
+            )
+            .expect_err("the spawn fails");
             assert!(err.contains("spawn boom"), "{err}");
             assert_eq!(story_state(&db.lock().unwrap(), &story), "ready");
-            start_ready_story(&db, &story, "", found_claude, |_, _| Ok(()), |_, _| Ok(())).expect("Start works again");
+            start_ready_story(&db, &story, "", found_claude, |_, _| Ok(()), |_, _| Ok(()))
+                .expect("Start works again");
             assert_eq!(story_state(&db.lock().unwrap(), &story), "running");
         });
     }
@@ -3199,9 +3938,15 @@ pub(crate) mod tests {
     // --- Resume (issue #54): a fresh session in the same worktree, from the Context packet ---------
 
     /// A Running Story whose one session the developer stopped: Stopped.
-    fn stopped_story() -> (std::sync::Mutex<Connection>, String, StartRunOutcome, tempfile::TempDir) {
+    fn stopped_story() -> (
+        std::sync::Mutex<Connection>,
+        String,
+        StartRunOutcome,
+        tempfile::TempDir,
+    ) {
         let (db, story, repo) = ready_story();
-        let first = start_ready_story(&db, &story, "", found_claude, |_, _| Ok(()), |_, _| Ok(())).unwrap();
+        let first =
+            start_ready_story(&db, &story, "", found_claude, |_, _| Ok(()), |_, _| Ok(())).unwrap();
         stop_session_recording_first(&mut db.lock().unwrap(), &first.run_id, || Ok(())).unwrap();
         (db, story, first, repo)
     }
@@ -3211,25 +3956,57 @@ pub(crate) mod tests {
         with_scratch_dirs(|| {
             let (db, story, first, _repo) = stopped_story();
             let mut sent = None;
-            let outcome = resume_stopped_story(&db, &story, " Pick the parser back up ", found_claude, |_, _| Ok(()), |_repo, request| {
-                sent = Some(request.clone());
-                Ok(())
-            })
+            let outcome = resume_stopped_story(
+                &db,
+                &story,
+                " Pick the parser back up ",
+                found_claude,
+                |_, _| Ok(()),
+                |_repo, request| {
+                    sent = Some(request.clone());
+                    Ok(())
+                },
+            )
             .expect("a Stopped Story resumes");
 
-            assert_ne!(outcome.run_id, first.run_id, "Resume is a new session, never a continuation");
-            assert_eq!(outcome.worktree_path, first.worktree_path, "in the same worktree");
+            assert_ne!(
+                outcome.run_id, first.run_id,
+                "Resume is a new session, never a continuation"
+            );
+            assert_eq!(
+                outcome.worktree_path, first.worktree_path,
+                "in the same worktree"
+            );
             let sent = sent.expect("one spawn request was sent");
-            assert_eq!(sent["worktreePath"], serde_json::Value::String(first.worktree_path.clone()));
+            assert_eq!(
+                sent["worktreePath"],
+                serde_json::Value::String(first.worktree_path.clone())
+            );
             let prompt = sent["prompt"].as_str().unwrap();
-            assert!(prompt.starts_with("# Context packet:"), "the prompt is the Context packet");
-            assert!(prompt.contains("Resume note: Pick the parser back up"), "the note is in section 7");
-            assert!(prompt.contains("stub: the session ended without handing off"), "the stub is in section 8");
-            assert!(!sent.to_string().contains("--resume"), "never `claude --resume`");
+            assert!(
+                prompt.starts_with("# Context packet:"),
+                "the prompt is the Context packet"
+            );
+            assert!(
+                prompt.contains("Resume note: Pick the parser back up"),
+                "the note is in section 7"
+            );
+            assert!(
+                prompt.contains("stub: the session ended without handing off"),
+                "the stub is in section 8"
+            );
+            assert!(
+                !sent.to_string().contains("--resume"),
+                "never `claude --resume`"
+            );
 
             let conn = db.lock().unwrap();
             assert_eq!(story_state(&conn, &story), "running");
-            assert!(flywheel_core::query::sessions::stopped_session_for_story(&conn, &story).unwrap().is_none());
+            assert!(
+                flywheel_core::query::sessions::stopped_session_for_story(&conn, &story)
+                    .unwrap()
+                    .is_none()
+            );
         });
     }
 
@@ -3237,18 +4014,40 @@ pub(crate) mod tests {
     fn resume_refuses_a_story_that_is_not_stopped_or_a_note_longer_than_one_line() {
         with_scratch_dirs(|| {
             let (db, story, _repo) = ready_story();
-            let err = resume_stopped_story(&db, &story, "", found_claude, |_, _| Ok(()), |_, _| panic!("nothing may be spawned"))
-                .expect_err("a Ready Story is not Stopped");
+            let err = resume_stopped_story(
+                &db,
+                &story,
+                "",
+                found_claude,
+                |_, _| Ok(()),
+                |_, _| panic!("nothing may be spawned"),
+            )
+            .expect_err("a Ready Story is not Stopped");
             assert!(err.contains("Stopped"), "{err}");
 
             let (db, story, _first, _repo) = stopped_story();
-            let err = resume_stopped_story(&db, &story, "one\ntwo", found_claude, |_, _| Ok(()), |_, _| panic!("nothing may be spawned"))
-                .expect_err("the note is one line");
+            let err = resume_stopped_story(
+                &db,
+                &story,
+                "one\ntwo",
+                found_claude,
+                |_, _| Ok(()),
+                |_, _| panic!("nothing may be spawned"),
+            )
+            .expect_err("the note is one line");
             assert!(err.contains("one line"), "{err}");
 
-            resume_stopped_story(&db, &story, "", found_claude, |_, _| Ok(()), |_, _| Ok(())).expect("an empty note is no note");
-            let err = resume_stopped_story(&db, &story, "", found_claude, |_, _| Ok(()), |_, _| panic!("nothing may be spawned"))
-                .expect_err("a live session is not Stopped");
+            resume_stopped_story(&db, &story, "", found_claude, |_, _| Ok(()), |_, _| Ok(()))
+                .expect("an empty note is no note");
+            let err = resume_stopped_story(
+                &db,
+                &story,
+                "",
+                found_claude,
+                |_, _| Ok(()),
+                |_, _| panic!("nothing may be spawned"),
+            )
+            .expect_err("a live session is not Stopped");
             assert!(err.contains("Stopped"), "{err}");
         });
     }
@@ -3273,9 +4072,18 @@ pub(crate) mod tests {
             .expect_err("Resume is refused without claude");
             assert!(err.contains(&searched), "{err}");
             let conn = db.lock().unwrap();
-            assert_eq!(launch_footprint(&conn, &story), before, "a refused Resume writes nothing");
-            let stopped = flywheel_core::query::sessions::stopped_session_for_story(&conn, &story).unwrap();
-            assert_eq!(stopped.map(|s| s.session_id), Some(first.run_id), "the Story is still Stopped");
+            assert_eq!(
+                launch_footprint(&conn, &story),
+                before,
+                "a refused Resume writes nothing"
+            );
+            let stopped =
+                flywheel_core::query::sessions::stopped_session_for_story(&conn, &story).unwrap();
+            assert_eq!(
+                stopped.map(|s| s.session_id),
+                Some(first.run_id),
+                "the Story is still Stopped"
+            );
         });
     }
 
@@ -3287,21 +4095,41 @@ pub(crate) mod tests {
             let (db, story, _repo) = ready_story();
             let process_path = std::env::var("PATH").unwrap();
             let after_shim = |request: &serde_json::Value| {
-                let path = request["env"]["PATH"].as_str().expect("the spawn env carries PATH").to_string();
-                path.split_once(':').map(|(_, rest)| rest.to_string()).unwrap_or_default()
+                let path = request["env"]["PATH"]
+                    .as_str()
+                    .expect("the spawn env carries PATH")
+                    .to_string();
+                path.split_once(':')
+                    .map(|(_, rest)| rest.to_string())
+                    .unwrap_or_default()
             };
             let mut start_path = None;
-            let first = start_ready_story(&db, &story, "", found_claude, crate::sidecar::merge_shim_env_for_run, |_, request| {
-                start_path = Some(after_shim(request));
-                Ok(())
-            })
+            let first = start_ready_story(
+                &db,
+                &story,
+                "",
+                found_claude,
+                crate::sidecar::merge_shim_env_for_run,
+                |_, request| {
+                    start_path = Some(after_shim(request));
+                    Ok(())
+                },
+            )
             .expect("Start");
-            stop_session_recording_first(&mut db.lock().unwrap(), &first.run_id, || Ok(())).unwrap();
+            stop_session_recording_first(&mut db.lock().unwrap(), &first.run_id, || Ok(()))
+                .unwrap();
             let mut resume_path = None;
-            resume_stopped_story(&db, &story, "", found_claude, crate::sidecar::merge_shim_env_for_run, |_, request| {
-                resume_path = Some(after_shim(request));
-                Ok(())
-            })
+            resume_stopped_story(
+                &db,
+                &story,
+                "",
+                found_claude,
+                crate::sidecar::merge_shim_env_for_run,
+                |_, request| {
+                    resume_path = Some(after_shim(request));
+                    Ok(())
+                },
+            )
             .expect("Resume");
             assert_eq!(start_path.as_deref(), Some(process_path.as_str()));
             assert_eq!(resume_path, start_path);
@@ -3316,23 +4144,48 @@ pub(crate) mod tests {
             let timeouts = |request: &serde_json::Value| -> Vec<String> {
                 ["CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT", "MCP_TOOL_TIMEOUT"]
                     .iter()
-                    .map(|name| request["env"][*name].as_str().unwrap_or_else(|| panic!("{name} is set")).to_string())
+                    .map(|name| {
+                        request["env"][*name]
+                            .as_str()
+                            .unwrap_or_else(|| panic!("{name} is set"))
+                            .to_string()
+                    })
                     .collect()
             };
             let mut start = None;
-            let first = start_ready_story(&db, &story, "", found_claude, crate::sidecar::merge_shim_env_for_run, |_, request| {
-                start = Some(timeouts(request));
-                Ok(())
-            })
+            let first = start_ready_story(
+                &db,
+                &story,
+                "",
+                found_claude,
+                crate::sidecar::merge_shim_env_for_run,
+                |_, request| {
+                    start = Some(timeouts(request));
+                    Ok(())
+                },
+            )
             .expect("Start");
-            stop_session_recording_first(&mut db.lock().unwrap(), &first.run_id, || Ok(())).unwrap();
+            stop_session_recording_first(&mut db.lock().unwrap(), &first.run_id, || Ok(()))
+                .unwrap();
             let mut resume = None;
-            resume_stopped_story(&db, &story, "", found_claude, crate::sidecar::merge_shim_env_for_run, |_, request| {
-                resume = Some(timeouts(request));
-                Ok(())
-            })
+            resume_stopped_story(
+                &db,
+                &story,
+                "",
+                found_claude,
+                crate::sidecar::merge_shim_env_for_run,
+                |_, request| {
+                    resume = Some(timeouts(request));
+                    Ok(())
+                },
+            )
             .expect("Resume");
-            let expected: Vec<String> = SessionKind::Story.launch_policy().env.into_iter().map(|(_, v)| v).collect();
+            let expected: Vec<String> = SessionKind::Story
+                .launch_policy()
+                .env
+                .into_iter()
+                .map(|(_, v)| v)
+                .collect();
             assert_eq!(start, Some(expected));
             assert_eq!(resume, start);
         });
@@ -3343,10 +4196,17 @@ pub(crate) mod tests {
         with_scratch_dirs(|| {
             let (db, _story, first, _repo) = stopped_story();
             let conn = db.lock().unwrap();
-            let stub = flywheel_core::domain::session_summary::latest_summary_for_run(&conn, &first.run_id)
-                .unwrap()
-                .expect("a stub");
-            assert!(stub.next_session_must_know.contains("stopped by you"), "{}", stub.next_session_must_know);
+            let stub = flywheel_core::domain::session_summary::latest_summary_for_run(
+                &conn,
+                &first.run_id,
+            )
+            .unwrap()
+            .expect("a stub");
+            assert!(
+                stub.next_session_must_know.contains("stopped by you"),
+                "{}",
+                stub.next_session_must_know
+            );
         });
     }
 }

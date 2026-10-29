@@ -13,14 +13,18 @@ use std::process::Command;
 use common::with_scratch_worktree_root;
 use flywheel_core::context_packet::build_context_packet;
 use flywheel_core::db::open_and_migrate;
-use flywheel_core::domain::acceptance_criterion::{accept_criterion, create_criterion, criteria_for_story};
+use flywheel_core::domain::acceptance_criterion::{
+    accept_criterion, create_criterion, criteria_for_story,
+};
 use flywheel_core::domain::actor::local_human_actor_id;
 use flywheel_core::domain::check::{set_check, CheckResult};
 use flywheel_core::domain::handoff::{hand_off_with, HandoffSummary};
 use flywheel_core::domain::project::{list_projects, register_project};
 use flywheel_core::domain::proposal_apply::AdrBarLines;
 use flywheel_core::domain::review::review_file_patch;
-use flywheel_core::domain::review_decisions::{review_decisions, BarLinesSource, DecisionFlag, DecisionKind};
+use flywheel_core::domain::review_decisions::{
+    review_decisions, BarLinesSource, DecisionFlag, DecisionKind,
+};
 use flywheel_core::domain::session::{agent_actor_id, close_session, start_session, SessionStatus};
 use flywheel_core::domain::story::{get_story, set_story_state, StoryState};
 use flywheel_core::domain::story_merge::{merge_story, MergeOptions};
@@ -36,7 +40,11 @@ fn git(dir: &Path, args: &[&str]) -> String {
         .args(args)
         .output()
         .expect("git should spawn");
-    assert!(out.status.success(), "git {args:?} failed: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     String::from_utf8_lossy(&out.stdout).trim().to_string()
 }
 
@@ -52,7 +60,11 @@ fn monorepo() -> tempfile::TempDir {
     let repo = tempfile::tempdir().unwrap();
     git(repo.path(), &["init", "-q", "--initial-branch=main"]);
     write(repo.path(), "README.md", "the larger repository\n");
-    write(repo.path(), "flywheel/docs/adr/0001-first-decision.md", "# First decision\n");
+    write(
+        repo.path(),
+        "flywheel/docs/adr/0001-first-decision.md",
+        "# First decision\n",
+    );
     write(repo.path(), "flywheel/GLOSSARY.md", "# Glossary\n");
     write(repo.path(), "flywheel/only-in-the-project.txt", "here\n");
     git(repo.path(), &["add", "-A"]);
@@ -72,31 +84,52 @@ fn a_project_in_a_subdirectory_creates_worktrees_runs_a_story_and_keeps_its_boar
         let project_dir = root.join("flywheel");
 
         let db = tempfile::tempdir().unwrap();
-        let mut conn = open_and_migrate(&db.path().join("flywheel.db"), &db.path().join("backups")).unwrap();
+        let mut conn =
+            open_and_migrate(&db.path().join("flywheel.db"), &db.path().join("backups")).unwrap();
         let human = local_human_actor_id(&conn).unwrap();
 
         // The board: registered at the subdirectory, its marker there, committed like any other file.
         let project = register_project(&mut conn, &human, &project_dir, "Flywheel", "FLY").unwrap();
         assert_eq!(Path::new(&project.repo_path), project_dir);
-        let marker = read_marker(&project_dir).unwrap().expect("the marker is written in the subdirectory");
+        let marker = read_marker(&project_dir)
+            .unwrap()
+            .expect("the marker is written in the subdirectory");
         assert_eq!(marker.project_id, project.id);
-        assert!(!root.join(".flywheel").exists(), "nothing is written at the repository's root");
+        assert!(
+            !root.join(".flywheel").exists(),
+            "nothing is written at the repository's root"
+        );
         git(&root, &["add", "flywheel/.flywheel/project.json"]);
         git(&root, &["commit", "-q", "-m", "register the project"]);
 
         let story = common::new_story(&mut conn, &project.id, &human, "Write the second decision");
-        let criterion = create_criterion(&mut conn, &human, &story.id, "The project's file is there").unwrap();
+        let criterion =
+            create_criterion(&mut conn, &human, &story.id, "The project's file is there").unwrap();
         // Passes only when run from the project's directory, not from the worktree's root.
-        set_check(&mut conn, &human, &criterion.id, "test -f only-in-the-project.txt && test -d docs/adr", None).unwrap();
+        set_check(
+            &mut conn,
+            &human,
+            &criterion.id,
+            "test -f only-in-the-project.txt && test -d docs/adr",
+            None,
+        )
+        .unwrap();
         set_story_state(&mut conn, &human, &story.id, StoryState::Ready).unwrap();
         set_story_state(&mut conn, &human, &story.id, StoryState::Running).unwrap();
 
         // The worktree is the whole repository's; the project sits at the same subdirectory in it.
         let wt = ensure_worktree(&mut conn, &story.id, &human).unwrap();
         let wt_root = PathBuf::from(&wt.path);
-        assert!(wt_root.join("README.md").is_file(), "the worktree is a worktree of the whole repository");
+        assert!(
+            wt_root.join("README.md").is_file(),
+            "the worktree is a worktree of the whole repository"
+        );
         let wt_project = wt.project_dir();
-        assert_eq!(wt_project, wt_root.join("flywheel"), "the agent works in the project's directory");
+        assert_eq!(
+            wt_project,
+            wt_root.join("flywheel"),
+            "the agent works in the project's directory"
+        );
         assert_eq!(
             read_marker(&wt_project).unwrap().map(|m| m.project_id),
             Some(project.id.clone()),
@@ -105,20 +138,37 @@ fn a_project_in_a_subdirectory_creates_worktrees_runs_a_story_and_keeps_its_boar
 
         // The editor and the terminal open where the agent works.
         let argv = resolve_open_argv(&conn, &story.id, OpenSurface::Editor).unwrap();
-        assert_eq!(argv.last().map(String::as_str), Some(wt_project.to_str().unwrap()));
+        assert_eq!(
+            argv.last().map(String::as_str),
+            Some(wt_project.to_str().unwrap())
+        );
 
         // The Context packet reads the project's ADRs and glossary, not the repository root's.
         let packet = build_context_packet(&conn, &story.id, "").unwrap();
-        assert!(packet.contains("docs/adr/0001-first-decision.md"), "the project's ADR is listed:\n{packet}");
-        assert!(packet.contains("Glossary: `GLOSSARY.md`"), "the project's glossary is found:\n{packet}");
+        assert!(
+            packet.contains("docs/adr/0001-first-decision.md"),
+            "the project's ADR is listed:\n{packet}"
+        );
+        assert!(
+            packet.contains("Glossary: `GLOSSARY.md`"),
+            "the project's glossary is found:\n{packet}"
+        );
 
         // The agent's session: it writes an ADR and code in the project's directory and hands off.
         let session = start_session(&mut conn, &story.id, "acceptEdits", &human).unwrap();
         let agent = agent_actor_id(&conn).unwrap();
         let task = add_task(&mut conn, &agent, &story.id, "Write it").unwrap();
         set_task_state(&mut conn, &agent, &task.id, TaskState::Done, None).unwrap();
-        write(&wt_project, "docs/adr/0002-second-decision.md", "# Second decision\n");
-        write(&wt_project, "docs/adr/0001-first-decision.md", "# First decision\n\nReworded.\n");
+        write(
+            &wt_project,
+            "docs/adr/0002-second-decision.md",
+            "# Second decision\n",
+        );
+        write(
+            &wt_project,
+            "docs/adr/0001-first-decision.md",
+            "# First decision\n\nReworded.\n",
+        );
         write(&wt_project, "src/lib.rs", "pub fn second() {}\n");
         git(&wt_project, &["add", "-A", "."]);
         git(&wt_project, &["commit", "-q", "-m", "second decision"]);
@@ -146,8 +196,11 @@ fn a_project_in_a_subdirectory_creates_worktrees_runs_a_story_and_keeps_its_boar
 
         // The review's Decisions section reads the project's `docs/adr/`, with project-relative paths.
         let decisions = review_decisions(&conn, &story.id).unwrap();
-        let changes: Vec<(&str, DecisionKind, &str)> =
-            decisions.changes.iter().map(|c| (c.path.as_str(), c.kind, c.status.as_str())).collect();
+        let changes: Vec<(&str, DecisionKind, &str)> = decisions
+            .changes
+            .iter()
+            .map(|c| (c.path.as_str(), c.kind, c.status.as_str()))
+            .collect();
         assert_eq!(
             changes,
             [
@@ -171,14 +224,42 @@ fn a_project_in_a_subdirectory_creates_worktrees_runs_a_story_and_keeps_its_boar
         assert!(patch.contains("pub fn second"), "{patch}");
 
         // Merge lands the work on the base branch, under the subdirectory.
-        close_session(&mut conn, &session.id, SessionStatus::Completed, None, None, None).unwrap();
+        close_session(
+            &mut conn,
+            &session.id,
+            SessionStatus::Completed,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         for c in criteria_for_story(&conn, &story.id).unwrap() {
             accept_criterion(&mut conn, &human, &c.id).unwrap();
         }
-        let merged = merge_story(&mut conn, &human, &story.id, MergeOptions { with_failing_checks: false }).unwrap();
-        assert_eq!(merged.adrs_linked, ["docs/adr/0002-second-decision.md"], "the new ADR is linked by its project path");
-        assert_eq!(get_story(&conn, &story.id).unwrap().unwrap().state, "merged");
-        assert!(project_dir.join("docs/adr/0002-second-decision.md").is_file(), "merged into the checkout");
+        let merged = merge_story(
+            &mut conn,
+            &human,
+            &story.id,
+            MergeOptions {
+                with_failing_checks: false,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            merged.adrs_linked,
+            ["docs/adr/0002-second-decision.md"],
+            "the new ADR is linked by its project path"
+        );
+        assert_eq!(
+            get_story(&conn, &story.id).unwrap().unwrap().state,
+            "merged"
+        );
+        assert!(
+            project_dir
+                .join("docs/adr/0002-second-decision.md")
+                .is_file(),
+            "merged into the checkout"
+        );
         assert!(!wt_root.exists(), "the worktree is removed");
 
         // Still one board, at the subdirectory.

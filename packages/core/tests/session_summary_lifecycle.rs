@@ -8,11 +8,11 @@ mod common;
 
 use common::with_scratch_worktree_root;
 
-use flywheel_core::domain::session::{
-    apply_session_closed, close_session, start_session, Session, SessionStatus,
-    SessionClosedOutcome,
-};
 use flywheel_core::domain::project::Project;
+use flywheel_core::domain::session::{
+    apply_session_closed, close_session, start_session, Session, SessionClosedOutcome,
+    SessionStatus,
+};
 use flywheel_core::domain::session_summary::{
     create_summary, latest_summary_for_run, list_summaries_for_story, synthesize_fallback_summary,
 };
@@ -52,17 +52,28 @@ fn two_summaries_for_one_run_append_rather_than_replace() {
         let second = create_summary(&mut conn, &run.id, "second pass", "chose B")
             .expect("second create_summary should succeed");
 
-        assert_eq!(summary_count(&conn, &run.id), 2, "two create_summary calls must leave two rows, not one");
+        assert_eq!(
+            summary_count(&conn, &run.id),
+            2,
+            "two create_summary calls must leave two rows, not one"
+        );
 
         let latest = latest_summary_for_run(&conn, &run.id)
             .expect("latest_summary_for_run should succeed")
             .expect("a summary should exist");
-        assert_eq!(latest.id, second.id, "latest_summary_for_run must name the second (most recent) summary");
+        assert_eq!(
+            latest.id, second.id,
+            "latest_summary_for_run must name the second (most recent) summary"
+        );
 
         // The first row's own content fields must still be byte-identical to what was written —
         // proving the second insert never rewrote it.
-        let all = list_summaries_for_story(&conn, &story.id).expect("list_summaries_for_story should succeed");
-        let stored_first = all.iter().find(|s| s.id == first.id).expect("first row must still exist");
+        let all = list_summaries_for_story(&conn, &story.id)
+            .expect("list_summaries_for_story should succeed");
+        let stored_first = all
+            .iter()
+            .find(|s| s.id == first.id)
+            .expect("first row must still exist");
         assert_eq!(stored_first, &first);
         assert_eq!(stored_first.next_session_must_know, "first pass");
         assert_eq!(stored_first.decisions, "chose A");
@@ -79,8 +90,14 @@ fn create_summary_resolves_the_story_and_the_actor_from_the_session_row() {
             .expect("create_summary should succeed");
 
         assert_eq!(summary.session_id, run.id);
-        assert_eq!(summary.story_id, story.id, "the Story must come from the session row");
-        assert_eq!(summary.created_by, run.actor_id, "the actor must be the session's own agent actor");
+        assert_eq!(
+            summary.story_id, story.id,
+            "the Story must come from the session row"
+        );
+        assert_eq!(
+            summary.created_by, run.actor_id,
+            "the actor must be the session's own agent actor"
+        );
         assert_ne!(summary.created_by, human_actor_id);
 
         assert!(
@@ -95,9 +112,12 @@ fn ordering_is_stable_under_a_tied_created_at_timestamp() {
     with_scratch_worktree_root(|_| {
         let (mut conn, _actor_id, _project, _repo_dir, story, run) = seeded_story_and_run();
 
-        let s1 = create_summary(&mut conn, &run.id, "one", "").expect("create_summary 1 should succeed");
-        let s2 = create_summary(&mut conn, &run.id, "two", "").expect("create_summary 2 should succeed");
-        let s3 = create_summary(&mut conn, &run.id, "three", "").expect("create_summary 3 should succeed");
+        let s1 =
+            create_summary(&mut conn, &run.id, "one", "").expect("create_summary 1 should succeed");
+        let s2 =
+            create_summary(&mut conn, &run.id, "two", "").expect("create_summary 2 should succeed");
+        let s3 = create_summary(&mut conn, &run.id, "three", "")
+            .expect("create_summary 3 should succeed");
 
         // Force s1 and s2 to share a created_at value directly in the test's own SQL — production
         // code never issues an UPDATE against session_summaries; this is the test harness
@@ -109,16 +129,30 @@ fn ordering_is_stable_under_a_tied_created_at_timestamp() {
         )
         .expect("test-only tie-forcing update should succeed");
 
-        let (lesser_id, greater_id) = if s1.id < s2.id { (&s1.id, &s2.id) } else { (&s2.id, &s1.id) };
+        let (lesser_id, greater_id) = if s1.id < s2.id {
+            (&s1.id, &s2.id)
+        } else {
+            (&s2.id, &s1.id)
+        };
 
-        let first_call = list_summaries_for_story(&conn, &story.id).expect("list_summaries_for_story should succeed");
+        let first_call = list_summaries_for_story(&conn, &story.id)
+            .expect("list_summaries_for_story should succeed");
         assert_eq!(first_call.len(), 3);
-        assert_eq!(&first_call[0].id, lesser_id, "the lesser ULID must sort first within the tie");
-        assert_eq!(&first_call[1].id, greater_id, "the greater ULID must sort second within the tie");
-        assert_eq!(first_call[2].id, s3.id, "the untied third row must still sort last");
+        assert_eq!(
+            &first_call[0].id, lesser_id,
+            "the lesser ULID must sort first within the tie"
+        );
+        assert_eq!(
+            &first_call[1].id, greater_id,
+            "the greater ULID must sort second within the tie"
+        );
+        assert_eq!(
+            first_call[2].id, s3.id,
+            "the untied third row must still sort last"
+        );
 
-        let second_call =
-            list_summaries_for_story(&conn, &story.id).expect("second list_summaries_for_story call should succeed");
+        let second_call = list_summaries_for_story(&conn, &story.id)
+            .expect("second list_summaries_for_story call should succeed");
         assert_eq!(
             first_call.iter().map(|s| s.id.clone()).collect::<Vec<_>>(),
             second_call.iter().map(|s| s.id.clone()).collect::<Vec<_>>(),
@@ -136,10 +170,14 @@ fn ordering_is_stable_under_a_tied_created_at_timestamp() {
 fn fallback_summary_names_the_close_reason_and_the_task_it_was_doing() {
     with_scratch_worktree_root(|_| {
         let (mut conn, _actor_id, _project, _repo_dir, story, run) = seeded_story_and_run();
-        let task = add_task(&mut conn, &run.actor_id, &story.id, "Wire the parser").expect("add_task should succeed");
-        set_task_state(&mut conn, &run.actor_id, &task.id, TaskState::Doing, None).expect("set_task_state should succeed");
+        let task = add_task(&mut conn, &run.actor_id, &story.id, "Wire the parser")
+            .expect("add_task should succeed");
+        set_task_state(&mut conn, &run.actor_id, &task.id, TaskState::Doing, None)
+            .expect("set_task_state should succeed");
 
-        let tx = conn.transaction().expect("failed to open tx for synthesize");
+        let tx = conn
+            .transaction()
+            .expect("failed to open tx for synthesize");
         let summary_id = synthesize_fallback_summary(&tx, &run.id, "interrupted")
             .expect("synthesize_fallback_summary should succeed");
         tx.commit().expect("failed to commit synthesize tx");
@@ -148,10 +186,19 @@ fn fallback_summary_names_the_close_reason_and_the_task_it_was_doing() {
             .expect("latest_summary_for_run should succeed")
             .expect("a summary row must exist");
         assert_eq!(summary.id, summary_id);
-        assert!(summary.is_stub, "the synthesized row must be flagged a stub");
+        assert!(
+            summary.is_stub,
+            "the synthesized row must be flagged a stub"
+        );
         let note = &summary.next_session_must_know;
-        assert!(note.contains("interrupted"), "the stub must name the close reason: {note}");
-        assert!(note.contains("Wire the parser"), "the stub must name the Task it was doing: {note}");
+        assert!(
+            note.contains("interrupted"),
+            "the stub must name the close reason: {note}"
+        );
+        assert!(
+            note.contains("Wire the parser"),
+            "the stub must name the Task it was doing: {note}"
+        );
         assert!(summary.decisions.is_empty(), "decisions must be empty");
     });
 }
@@ -161,7 +208,9 @@ fn fallback_summary_with_no_task_doing_still_yields_one_honest_row() {
     with_scratch_worktree_root(|_| {
         let (mut conn, _actor_id, _project, _repo_dir, _story, run) = seeded_story_and_run();
 
-        let tx = conn.transaction().expect("failed to open tx for synthesize");
+        let tx = conn
+            .transaction()
+            .expect("failed to open tx for synthesize");
         synthesize_fallback_summary(&tx, &run.id, "failed")
             .expect("synthesize_fallback_summary should succeed with no Task doing");
         tx.commit().expect("failed to commit synthesize tx");
@@ -172,13 +221,26 @@ fn fallback_summary_with_no_task_doing_still_yields_one_honest_row() {
 
         let note = &summary.next_session_must_know;
         assert!(!note.is_empty(), "the stub's note must be non-empty");
-        assert!(note.contains("failed"), "the stub must name the close reason: {note}");
-        assert!(note.contains("without handing off"), "the stub must state that no summary was handed off: {note}");
-        assert!(note.contains("No Task was marked doing"), "the stub must not invent a Task: {note}");
+        assert!(
+            note.contains("failed"),
+            "the stub must name the close reason: {note}"
+        );
+        assert!(
+            note.contains("without handing off"),
+            "the stub must state that no summary was handed off: {note}"
+        );
+        assert!(
+            note.contains("No Task was marked doing"),
+            "the stub must not invent a Task: {note}"
+        );
         assert!(summary.decisions.is_empty(), "decisions must be empty");
         assert!(summary.is_stub);
 
-        assert_eq!(summary_count(&conn, &run.id), 1, "the stub must be exactly one summary row");
+        assert_eq!(
+            summary_count(&conn, &run.id),
+            1,
+            "the stub must be exactly one summary row"
+        );
     });
 }
 
@@ -187,18 +249,33 @@ fn fallback_summary_is_attributed_to_the_agent_actor_not_a_human() {
     with_scratch_worktree_root(|_| {
         let (mut conn, human_actor_id, _project, _repo_dir, story, run) = seeded_story_and_run();
 
-        let tx = conn.transaction().expect("failed to open tx for synthesize");
-        synthesize_fallback_summary(&tx, &run.id, "completed").expect("synthesize_fallback_summary should succeed");
+        let tx = conn
+            .transaction()
+            .expect("failed to open tx for synthesize");
+        synthesize_fallback_summary(&tx, &run.id, "completed")
+            .expect("synthesize_fallback_summary should succeed");
         tx.commit().expect("failed to commit synthesize tx");
 
         let summary = latest_summary_for_run(&conn, &run.id)
             .expect("latest_summary_for_run should succeed")
             .expect("a summary row must exist");
 
-        assert!(summary.is_stub, "the synthesized row must be flagged a stub");
-        assert_eq!(summary.story_id, story.id, "the stub's Story must come from the session row");
-        assert_eq!(summary.created_by, run.actor_id, "a stub must be attributed to the session's own agent actor");
-        assert_ne!(summary.created_by, human_actor_id, "a stub must never be attributed to the local human actor");
+        assert!(
+            summary.is_stub,
+            "the synthesized row must be flagged a stub"
+        );
+        assert_eq!(
+            summary.story_id, story.id,
+            "the stub's Story must come from the session row"
+        );
+        assert_eq!(
+            summary.created_by, run.actor_id,
+            "a stub must be attributed to the session's own agent actor"
+        );
+        assert_ne!(
+            summary.created_by, human_actor_id,
+            "a stub must never be attributed to the local human actor"
+        );
     });
 }
 
@@ -208,16 +285,22 @@ fn calling_the_synthesizer_twice_for_the_same_run_writes_two_rows() {
         let (mut conn, _actor_id, _project, _repo_dir, _story, run) = seeded_story_and_run();
 
         {
-            let tx = conn.transaction().expect("failed to open tx for the first synthesize call");
+            let tx = conn
+                .transaction()
+                .expect("failed to open tx for the first synthesize call");
             synthesize_fallback_summary(&tx, &run.id, "completed")
                 .expect("first synthesize_fallback_summary call should succeed");
-            tx.commit().expect("failed to commit the first synthesize tx");
+            tx.commit()
+                .expect("failed to commit the first synthesize tx");
         }
         {
-            let tx = conn.transaction().expect("failed to open tx for the second synthesize call");
+            let tx = conn
+                .transaction()
+                .expect("failed to open tx for the second synthesize call");
             synthesize_fallback_summary(&tx, &run.id, "completed")
                 .expect("second synthesize_fallback_summary call should succeed");
-            tx.commit().expect("failed to commit the second synthesize tx");
+            tx.commit()
+                .expect("failed to commit the second synthesize tx");
         }
 
         assert_eq!(
@@ -233,20 +316,39 @@ fn create_summary_and_synthesize_fallback_summary_share_one_insert_site_and_stay
     with_scratch_worktree_root(|_| {
         let (mut conn, _actor_id, _project, _repo_dir, story, run) = seeded_story_and_run();
 
-        let agent_written =
-            create_summary(&mut conn, &run.id, "agent's own words", "").expect("create_summary should succeed");
+        let agent_written = create_summary(&mut conn, &run.id, "agent's own words", "")
+            .expect("create_summary should succeed");
 
-        let tx = conn.transaction().expect("failed to open tx for synthesize");
-        let fallback_id =
-            synthesize_fallback_summary(&tx, &run.id, "failed").expect("synthesize_fallback_summary should succeed");
+        let tx = conn
+            .transaction()
+            .expect("failed to open tx for synthesize");
+        let fallback_id = synthesize_fallback_summary(&tx, &run.id, "failed")
+            .expect("synthesize_fallback_summary should succeed");
         tx.commit().expect("failed to commit synthesize tx");
 
-        let all = list_summaries_for_story(&conn, &story.id).expect("list_summaries_for_story should succeed");
-        assert_eq!(all.len(), 2, "both the agent-authored and the stub row must exist");
-        let agent_row = all.iter().find(|s| s.id == agent_written.id).expect("agent row must exist");
-        let fallback_row = all.iter().find(|s| s.id == fallback_id).expect("stub row must exist");
-        assert!(!agent_row.is_stub, "the agent-authored row must read back as not a stub");
-        assert!(fallback_row.is_stub, "the stub row must read back as a stub");
+        let all = list_summaries_for_story(&conn, &story.id)
+            .expect("list_summaries_for_story should succeed");
+        assert_eq!(
+            all.len(),
+            2,
+            "both the agent-authored and the stub row must exist"
+        );
+        let agent_row = all
+            .iter()
+            .find(|s| s.id == agent_written.id)
+            .expect("agent row must exist");
+        let fallback_row = all
+            .iter()
+            .find(|s| s.id == fallback_id)
+            .expect("stub row must exist");
+        assert!(
+            !agent_row.is_stub,
+            "the agent-authored row must read back as not a stub"
+        );
+        assert!(
+            fallback_row.is_stub,
+            "the stub row must read back as a stub"
+        );
     });
 }
 
@@ -264,8 +366,12 @@ fn apply_session_closed_interrupted_writes_a_stub_summary() {
             "runId": run.id,
             "reason": "interrupted",
         });
-        let outcome = apply_session_closed(&mut conn, &event).expect("apply_session_closed should succeed");
-        assert_eq!(outcome, SessionClosedOutcome::Closed(SessionStatus::Interrupted));
+        let outcome =
+            apply_session_closed(&mut conn, &event).expect("apply_session_closed should succeed");
+        assert_eq!(
+            outcome,
+            SessionClosedOutcome::Closed(SessionStatus::Interrupted)
+        );
 
         assert_eq!(
             summary_count(&conn, &run.id),
@@ -296,15 +402,22 @@ fn apply_session_closed_behaves_identically_for_completed_and_failed() {
                 "runId": run.id,
                 "reason": reason,
             });
-            let outcome = apply_session_closed(&mut conn, &event).expect("apply_session_closed should succeed");
+            let outcome = apply_session_closed(&mut conn, &event)
+                .expect("apply_session_closed should succeed");
             assert!(matches!(outcome, SessionClosedOutcome::Closed(_)));
 
             let summary = latest_summary_for_run(&conn, &run.id)
                 .expect("latest_summary_for_run should succeed")
                 .expect("a summary row must exist");
-            assert!(summary.is_stub, "reason {reason} must still synthesize a stub summary");
+            assert!(
+                summary.is_stub,
+                "reason {reason} must still synthesize a stub summary"
+            );
             let note = &summary.next_session_must_know;
-            assert!(note.contains(label), "the stub must name the ending label {label}: {note}");
+            assert!(
+                note.contains(label),
+                "the stub must name the ending label {label}: {note}"
+            );
         });
     }
 }
@@ -324,13 +437,20 @@ fn apply_session_closed_never_synthesizes_a_second_summary_when_one_already_exis
         });
         apply_session_closed(&mut conn, &event).expect("apply_session_closed should succeed");
 
-        assert_eq!(summary_count(&conn, &run.id), 1, "an agent-recorded summary must never gain a stub sibling");
+        assert_eq!(
+            summary_count(&conn, &run.id),
+            1,
+            "an agent-recorded summary must never gain a stub sibling"
+        );
 
         let still = latest_summary_for_run(&conn, &run.id)
             .expect("latest_summary_for_run should succeed")
             .expect("the recorded summary must still exist");
         assert_eq!(still.id, recorded.id);
-        assert!(!still.is_stub, "the pre-existing agent-authored row must never flip to a stub");
+        assert!(
+            !still.is_stub,
+            "the pre-existing agent-authored row must never flip to a stub"
+        );
     });
 }
 
@@ -344,13 +464,19 @@ fn apply_session_closed_with_a_non_ulid_run_id_writes_no_summary() {
             "runId": "not-a-ulid",
             "reason": "completed",
         });
-        let outcome = apply_session_closed(&mut conn, &event).expect("a malformed run id must not error");
+        let outcome =
+            apply_session_closed(&mut conn, &event).expect("a malformed run id must not error");
         assert_eq!(outcome, SessionClosedOutcome::Ignored);
 
         let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM session_summaries", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM session_summaries", [], |row| {
+                row.get(0)
+            })
             .expect("count query should succeed");
-        assert_eq!(count, 0, "an ignored event must write no summary row at all");
+        assert_eq!(
+            count, 0,
+            "an ignored event must write no summary row at all"
+        );
     });
 }
 
@@ -359,8 +485,15 @@ fn close_session_still_works_directly_after_the_in_tx_refactor() {
     with_scratch_worktree_root(|_| {
         let (mut conn, _actor_id, _project, _repo_dir, _story, run) = seeded_story_and_run();
 
-        close_session(&mut conn, &run.id, SessionStatus::Completed, Some(0.01), Some(10), Some(2))
-            .expect("close_session should still succeed after the refactor");
+        close_session(
+            &mut conn,
+            &run.id,
+            SessionStatus::Completed,
+            Some(0.01),
+            Some(10),
+            Some(2),
+        )
+        .expect("close_session should still succeed after the refactor");
 
         let (status, cost_usd): (String, Option<f64>) = conn
             .query_row(
@@ -375,6 +508,10 @@ fn close_session_still_works_directly_after_the_in_tx_refactor() {
         // `close_session` alone (its lower-level statement body, called directly rather than
         // through `apply_session_closed`) must not synthesize a stub — that behavior belongs only
         // to `apply_session_closed`'s own call site (production's one caller).
-        assert_eq!(summary_count(&conn, &run.id), 0, "close_session alone must not synthesize a summary");
+        assert_eq!(
+            summary_count(&conn, &run.id),
+            0,
+            "close_session alone must not synthesize a summary"
+        );
     });
 }

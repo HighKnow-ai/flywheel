@@ -86,7 +86,9 @@ impl DestructiveCategory {
 
     /// Parse a persisted kebab-case name back into its category.
     pub fn from_str_name(name: &str) -> Option<DestructiveCategory> {
-        DestructiveCategory::all().into_iter().find(|c| c.as_str() == name)
+        DestructiveCategory::all()
+            .into_iter()
+            .find(|c| c.as_str() == name)
     }
 }
 
@@ -122,7 +124,10 @@ pub struct GateContext {
 /// Classify one invocation with no Story context beyond the default branch: every decision that
 /// depends on the Story's own branch or worktree gates.
 pub fn classify(program: &str, args: &[String], default_branch: Option<&str>) -> Verdict {
-    let ctx = GateContext { default_branch: default_branch.map(str::to_string), ..GateContext::default() };
+    let ctx = GateContext {
+        default_branch: default_branch.map(str::to_string),
+        ..GateContext::default()
+    };
     classify_in(program, args, &ctx)
 }
 
@@ -167,18 +172,30 @@ fn branch_name(name: &str) -> &str {
 }
 
 fn is_story_branch(name: &str, ctx: &GateContext) -> bool {
-    ctx.story_branch.as_deref().is_some_and(|story| branch_name(name) == story)
+    ctx.story_branch
+        .as_deref()
+        .is_some_and(|story| branch_name(name) == story)
 }
 
 // --- git ---
 
 /// git's global options that take their value as the next token.
-const GIT_GLOBAL_VALUE_OPTIONS: &[&str] =
-    &["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--super-prefix"];
+const GIT_GLOBAL_VALUE_OPTIONS: &[&str] = &[
+    "-C",
+    "-c",
+    "--git-dir",
+    "--work-tree",
+    "--namespace",
+    "--config-env",
+    "--super-prefix",
+];
 
 /// Skip git's global options. Returns the index of the subcommand (if any) and the effective
 /// directory after every `-C`.
-fn skip_git_global_options(args: &[String], cwd: Option<&Path>) -> (Option<usize>, Option<PathBuf>) {
+fn skip_git_global_options(
+    args: &[String],
+    cwd: Option<&Path>,
+) -> (Option<usize>, Option<PathBuf>) {
     let mut dir = cwd.map(Path::to_path_buf);
     let mut i = 0;
     while i < args.len() {
@@ -261,10 +278,12 @@ fn classify_push(rest: &[String], ctx: &GateContext) -> Verdict {
     if delete || positional.iter().any(|p| p.starts_with(':')) {
         return gated(DestructiveCategory::BranchDeletion);
     }
-    let targets_default = ctx
-        .default_branch
-        .as_deref()
-        .is_some_and(|branch| positional.iter().skip(1).any(|p| refspec_targets_branch(p, branch)));
+    let targets_default = ctx.default_branch.as_deref().is_some_and(|branch| {
+        positional
+            .iter()
+            .skip(1)
+            .any(|p| refspec_targets_branch(p, branch))
+    });
     if targets_default {
         return gated(DestructiveCategory::DefaultBranchPush);
     }
@@ -277,11 +296,17 @@ fn classify_push(rest: &[String], ctx: &GateContext) -> Verdict {
 
 /// `git branch -d/-D/--delete <names>` is gated unless every named branch is the Story's own.
 fn classify_branch(rest: &[String], ctx: &GateContext) -> Verdict {
-    let deletes = rest.iter().any(|arg| arg == "-d" || arg == "-D" || arg == "--delete");
+    let deletes = rest
+        .iter()
+        .any(|arg| arg == "-d" || arg == "-D" || arg == "--delete");
     if !deletes {
         return Verdict::Safe;
     }
-    let names: Vec<&str> = rest.iter().map(String::as_str).filter(|arg| !arg.starts_with('-')).collect();
+    let names: Vec<&str> = rest
+        .iter()
+        .map(String::as_str)
+        .filter(|arg| !arg.starts_with('-'))
+        .collect();
     if !names.is_empty() && names.iter().all(|name| is_story_branch(name, ctx)) {
         Verdict::Safe
     } else {
@@ -341,12 +366,27 @@ fn rewrites_story_branch(named: Option<&str>, ctx: &GateContext, dir: Option<&Pa
 }
 
 /// `git rebase` options that take their value as the next token.
-const REBASE_VALUE_OPTIONS: &[&str] = &["--onto", "-s", "--strategy", "-X", "--strategy-option", "-x", "--exec"];
+const REBASE_VALUE_OPTIONS: &[&str] = &[
+    "--onto",
+    "-s",
+    "--strategy",
+    "-X",
+    "--strategy-option",
+    "-x",
+    "--exec",
+];
 
 /// Rebasing the Story's own branch onto anything is allowed; rebasing any other branch is gated.
 /// `git rebase [<upstream> [<branch>]]` rewrites `<branch>` when named, else the checked-out one.
 fn classify_rebase(rest: &[String], ctx: &GateContext, dir: Option<&Path>) -> Verdict {
-    const FOLLOW_UPS: &[&str] = &["--continue", "--abort", "--skip", "--quit", "--edit-todo", "--show-current-patch"];
+    const FOLLOW_UPS: &[&str] = &[
+        "--continue",
+        "--abort",
+        "--skip",
+        "--quit",
+        "--edit-todo",
+        "--show-current-patch",
+    ];
     if rest.iter().any(|arg| FOLLOW_UPS.contains(&arg.as_str())) {
         return Verdict::Safe;
     }
@@ -367,7 +407,11 @@ fn classify_rebase(rest: &[String], ctx: &GateContext, dir: Option<&Path>) -> Ve
         i += 1;
     }
     // With `--root` there is no `<upstream>`, so the first positional is already `<branch>`.
-    let named = if root { positional.first() } else { positional.get(1) };
+    let named = if root {
+        positional.first()
+    } else {
+        positional.get(1)
+    };
     if rewrites_story_branch(named.copied(), ctx, dir) {
         Verdict::Safe
     } else {
@@ -452,7 +496,8 @@ fn classify_rm(args: &[String], ctx: &GateContext) -> Verdict {
     };
     let worktree = resolve_existing(worktree);
     let inside = targets.iter().all(|target| {
-        resolve_path(ctx.cwd.as_deref(), target).is_some_and(|path| path != worktree && path.starts_with(&worktree))
+        resolve_path(ctx.cwd.as_deref(), target)
+            .is_some_and(|path| path != worktree && path.starts_with(&worktree))
     });
     if inside {
         Verdict::Safe
@@ -533,7 +578,16 @@ fn first_command<'a>(args: &'a [String], value_options: &[&str]) -> Option<(usiz
 }
 
 fn classify_npm(args: &[String]) -> Verdict {
-    const VALUE_OPTIONS: &[&str] = &["-w", "--workspace", "--prefix", "--registry", "--userconfig", "--otp", "--tag", "--access"];
+    const VALUE_OPTIONS: &[&str] = &[
+        "-w",
+        "--workspace",
+        "--prefix",
+        "--registry",
+        "--userconfig",
+        "--otp",
+        "--tag",
+        "--access",
+    ];
     match first_command(args, VALUE_OPTIONS) {
         Some((_, "publish")) => gated(DestructiveCategory::Publish),
         _ => Verdict::Safe,
@@ -558,7 +612,9 @@ fn classify_gh(args: &[String]) -> Verdict {
         // Only the subcommands that publish or change a release; `list`, `view` and `download`
         // are read-only.
         "release" => match first_command(&args[idx + 1..], VALUE_OPTIONS) {
-            Some((_, "create" | "edit" | "delete" | "delete-asset" | "upload")) => gated(DestructiveCategory::Publish),
+            Some((_, "create" | "edit" | "delete" | "delete-asset" | "upload")) => {
+                gated(DestructiveCategory::Publish)
+            }
             _ => Verdict::Safe,
         },
         "pr" => match first_command(&args[idx + 1..], VALUE_OPTIONS) {

@@ -14,10 +14,14 @@ mod common;
 
 use flywheel_core::db::open_and_migrate;
 use flywheel_core::domain::actor::local_human_actor_id;
-use flywheel_core::domain::project::{create_project, hide_project, list_projects, register_project, restore_project, Project};
+use flywheel_core::domain::project::{
+    create_project, hide_project, list_projects, register_project, restore_project, Project,
+};
 use flywheel_core::git_identity::{resolve_identifier, GitIdentifier, ResolveOutcome};
 use flywheel_core::ids::new_id;
-use flywheel_core::query::fleet::{blocked_queue, fleet_rows, worktree_inventory_inputs, worktree_measure_targets};
+use flywheel_core::query::fleet::{
+    blocked_queue, fleet_rows, worktree_inventory_inputs, worktree_measure_targets,
+};
 use rusqlite::{params, Connection};
 
 struct Fixture {
@@ -31,12 +35,23 @@ fn fixture() -> Fixture {
     let conn = open_and_migrate(&dir.path().join("flywheel.db"), &dir.path().join("backups"))
         .expect("open_and_migrate should succeed");
     let actor_id = local_human_actor_id(&conn).expect("seeded human actor should exist");
-    Fixture { conn, actor_id, dir }
+    Fixture {
+        conn,
+        actor_id,
+        dir,
+    }
 }
 
 fn project(f: &mut Fixture, name: &str, prefix: &str) -> Project {
-    create_project(&mut f.conn, &f.actor_id, name, &format!("/repo/{prefix}"), prefix, "main")
-        .expect("create_project should succeed")
+    create_project(
+        &mut f.conn,
+        &f.actor_id,
+        name,
+        &format!("/repo/{prefix}"),
+        prefix,
+        "main",
+    )
+    .expect("create_project should succeed")
 }
 
 fn count(conn: &Connection, table: &str, project_id: &str) -> i64 {
@@ -52,10 +67,12 @@ fn events_of(conn: &Connection, project_id: &str, event_type: &str) -> Vec<Strin
     let mut stmt = conn
         .prepare("SELECT actor_id FROM events WHERE project_id = ?1 AND event_type = ?2")
         .expect("prepare");
-    stmt.query_map(params![project_id, event_type], |row| row.get::<_, String>(0))
-        .expect("query")
-        .collect::<Result<Vec<_>, _>>()
-        .expect("collect")
+    stmt.query_map(params![project_id, event_type], |row| {
+        row.get::<_, String>(0)
+    })
+    .expect("query")
+    .collect::<Result<Vec<_>, _>>()
+    .expect("collect")
 }
 
 /// Give a project one Milestone, one Epic, one Story, one worktree and one session: every table a
@@ -89,7 +106,11 @@ fn migration_adds_hidden_defaulting_to_shown() {
     let p = project(&mut f, "Alpha", "ALP");
     let hidden: i64 = f
         .conn
-        .query_row("SELECT hidden FROM projects WHERE id = ?1", params![p.id], |row| row.get(0))
+        .query_row(
+            "SELECT hidden FROM projects WHERE id = ?1",
+            params![p.id],
+            |row| row.get(0),
+        )
         .expect("the hidden column must exist");
     assert_eq!(hidden, 0, "a freshly created project is shown");
     assert_eq!(list_projects(&f.conn).unwrap().len(), 1);
@@ -104,10 +125,17 @@ fn hide_sets_the_flag_and_appends_one_event_with_the_actor() {
 
     let hidden: i64 = f
         .conn
-        .query_row("SELECT hidden FROM projects WHERE id = ?1", params![p.id], |row| row.get(0))
+        .query_row(
+            "SELECT hidden FROM projects WHERE id = ?1",
+            params![p.id],
+            |row| row.get(0),
+        )
         .unwrap();
     assert_eq!(hidden, 1);
-    assert_eq!(events_of(&f.conn, &p.id, "project.hidden"), vec![f.actor_id.clone()]);
+    assert_eq!(
+        events_of(&f.conn, &p.id, "project.hidden"),
+        vec![f.actor_id.clone()]
+    );
 }
 
 #[test]
@@ -134,12 +162,23 @@ fn a_hidden_project_is_absent_from_the_list_but_every_row_it_owns_survives_a_hid
     let tables = ["milestones", "epics", "stories", "worktrees", "sessions"];
     let before: Vec<i64> = tables.iter().map(|t| count(&f.conn, t, &gone.id)).collect();
     let events_before = count(&f.conn, "events", &gone.id);
-    assert!(before.iter().all(|n| *n >= 1), "the fixture must populate every table: {before:?}");
+    assert!(
+        before.iter().all(|n| *n >= 1),
+        "the fixture must populate every table: {before:?}"
+    );
 
     hide_project(&mut f.conn, &f.actor_id, &gone.id).unwrap();
 
-    let listed: Vec<String> = list_projects(&f.conn).unwrap().into_iter().map(|p| p.id).collect();
-    assert_eq!(listed, vec![keep.id.clone()], "the hidden project must not be listed");
+    let listed: Vec<String> = list_projects(&f.conn)
+        .unwrap()
+        .into_iter()
+        .map(|p| p.id)
+        .collect();
+    assert_eq!(
+        listed,
+        vec![keep.id.clone()],
+        "the hidden project must not be listed"
+    );
 
     let after: Vec<i64> = tables.iter().map(|t| count(&f.conn, t, &gone.id)).collect();
     assert_eq!(before, after, "hiding must not change a single row count");
@@ -148,7 +187,11 @@ fn a_hidden_project_is_absent_from_the_list_but_every_row_it_owns_survives_a_hid
     // A by-id lookup still resolves the hidden project: restore and history depend on it.
     let name: String = f
         .conn
-        .query_row("SELECT name FROM projects WHERE id = ?1", params![gone.id], |row| row.get(0))
+        .query_row(
+            "SELECT name FROM projects WHERE id = ?1",
+            params![gone.id],
+            |row| row.get(0),
+        )
         .expect("a hidden project must still resolve by id");
     assert_eq!(name, "Gone");
 }
@@ -178,11 +221,21 @@ fn registering_the_path_of_a_hidden_project_restores_it_instead_of_duplicating_i
 
     let again = register_project(&mut f.conn, &f.actor_id, &repo, "Hidden Repo", "HID").unwrap();
 
-    assert_eq!(again.id, first.id, "the marker must resolve to the hidden project, not a new one");
+    assert_eq!(
+        again.id, first.id,
+        "the marker must resolve to the hidden project, not a new one"
+    );
     let listed = list_projects(&f.conn).unwrap();
-    assert_eq!(listed.len(), 1, "exactly one project, and it is shown again");
+    assert_eq!(
+        listed.len(),
+        1,
+        "exactly one project, and it is shown again"
+    );
     assert_eq!(listed[0].id, first.id);
-    let rows: i64 = f.conn.query_row("SELECT COUNT(*) FROM projects", [], |r| r.get(0)).unwrap();
+    let rows: i64 = f
+        .conn
+        .query_row("SELECT COUNT(*) FROM projects", [], |r| r.get(0))
+        .unwrap();
     assert_eq!(rows, 1, "no duplicate row was created");
     assert_eq!(events_of(&f.conn, &first.id, "project.restored").len(), 1);
 }
@@ -190,18 +243,29 @@ fn registering_the_path_of_a_hidden_project_restores_it_instead_of_duplicating_i
 #[test]
 fn hiding_or_restoring_an_unknown_project_is_refused_and_writes_nothing() {
     let mut f = fixture();
-    let events_before: i64 = f.conn.query_row("SELECT COUNT(*) FROM events", [], |r| r.get(0)).unwrap();
+    let events_before: i64 = f
+        .conn
+        .query_row("SELECT COUNT(*) FROM events", [], |r| r.get(0))
+        .unwrap();
 
     assert!(hide_project(&mut f.conn, &f.actor_id, "01ARZ3NDEKTSV4RRFFQ69G5FAV").is_err());
     assert!(restore_project(&mut f.conn, &f.actor_id, "01ARZ3NDEKTSV4RRFFQ69G5FAV").is_err());
 
-    let events_after: i64 = f.conn.query_row("SELECT COUNT(*) FROM events", [], |r| r.get(0)).unwrap();
+    let events_after: i64 = f
+        .conn
+        .query_row("SELECT COUNT(*) FROM events", [], |r| r.get(0))
+        .unwrap();
     assert_eq!(events_before, events_after);
 }
 
 /// Make the seeded run wait on a pending permission request, so `blocked_queue` has a row for it.
 fn block_run(f: &Fixture, p: &Project, story_id: &str, run_id: &str) {
-    f.conn.execute("UPDATE sessions SET status = 'blocked' WHERE id = ?1", params![run_id]).unwrap();
+    f.conn
+        .execute(
+            "UPDATE sessions SET status = 'blocked' WHERE id = ?1",
+            params![run_id],
+        )
+        .unwrap();
     f.conn
         .execute(
             "INSERT INTO permission_requests (id, session_id, story_id, project_id, tool_name, status, created_by, created_at)
@@ -222,18 +286,35 @@ fn the_fleet_blocked_queue_and_worktree_reads_skip_a_hidden_project_and_restore_
     block_run(&f, &gone, &gone_story, &gone_run);
 
     let fleet_projects = |f: &Fixture| -> Vec<String> {
-        let mut ids: Vec<String> = fleet_rows(&f.conn, 50).unwrap().rows.into_iter().map(|r| r.project_id).collect();
+        let mut ids: Vec<String> = fleet_rows(&f.conn, 50)
+            .unwrap()
+            .rows
+            .into_iter()
+            .map(|r| r.project_id)
+            .collect();
         ids.sort();
         ids
     };
     let queue_projects = |f: &Fixture| -> Vec<String> {
-        blocked_queue(&f.conn, 50).unwrap().into_iter().map(|e| e.project_id).collect::<Vec<_>>()
+        blocked_queue(&f.conn, 50)
+            .unwrap()
+            .into_iter()
+            .map(|e| e.project_id)
+            .collect::<Vec<_>>()
     };
     let inventory_stories = |f: &Fixture| -> Vec<String> {
-        worktree_inventory_inputs(&f.conn, 50).unwrap().into_iter().map(|i| i.story_id).collect()
+        worktree_inventory_inputs(&f.conn, 50)
+            .unwrap()
+            .into_iter()
+            .map(|i| i.story_id)
+            .collect()
     };
     let measure_stories = |f: &Fixture| -> Vec<String> {
-        worktree_measure_targets(&f.conn, None, 50).unwrap().into_iter().map(|t| t.story_id).collect()
+        worktree_measure_targets(&f.conn, None, 50)
+            .unwrap()
+            .into_iter()
+            .map(|t| t.story_id)
+            .collect()
     };
 
     // Baseline: both projects are everywhere.
@@ -249,7 +330,11 @@ fn the_fleet_blocked_queue_and_worktree_reads_skip_a_hidden_project_and_restore_
     assert_eq!(inventory_stories(&f), vec![keep_story.clone()]);
     assert_eq!(measure_stories(&f), vec![keep_story.clone()]);
     // By-id: the hidden project's one worktree still resolves, so reclaim and history keep working.
-    assert!(flywheel_core::query::fleet::worktree_inventory_input_for_story(&f.conn, &gone_story).unwrap().is_some());
+    assert!(
+        flywheel_core::query::fleet::worktree_inventory_input_for_story(&f.conn, &gone_story)
+            .unwrap()
+            .is_some()
+    );
 
     restore_project(&mut f.conn, &f.actor_id, &gone.id).unwrap();
 
@@ -266,29 +351,76 @@ fn the_git_identity_sha_sweep_skips_a_hidden_project_and_restore_brings_it_back(
     // out to git and resolves only a commit that names a Story of that project.
     let repo = f.dir.path().join("repo");
     std::fs::create_dir_all(&repo).unwrap();
-    let p = create_project(&mut f.conn, &f.actor_id, "Real", repo.to_str().unwrap(), "REA", "main").unwrap();
+    let p = create_project(
+        &mut f.conn,
+        &f.actor_id,
+        "Real",
+        repo.to_str().unwrap(),
+        "REA",
+        "main",
+    )
+    .unwrap();
     let story = common::new_story(&mut f.conn, &p.id, &f.actor_id, "Stamped story");
-    let trailer = format!("{}: {}", flywheel_core::git_hooks::TRAILER_STORY_KEY, story.key.to_lowercase());
+    let trailer = format!(
+        "{}: {}",
+        flywheel_core::git_hooks::TRAILER_STORY_KEY,
+        story.key.to_lowercase()
+    );
     for args in [
         vec!["init", "-q", "-b", "main"],
-        vec!["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "first", "-m", &trailer],
+        vec![
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "first",
+            "-m",
+            &trailer,
+        ],
     ] {
-        let out = std::process::Command::new("git").arg("-C").arg(&repo).args(&args).output().unwrap();
-        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .args(&args)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
     }
     let sha = String::from_utf8(
-        std::process::Command::new("git").arg("-C").arg(&repo).args(["rev-parse", "HEAD"]).output().unwrap().stdout,
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .unwrap()
+            .stdout,
     )
     .unwrap()
     .trim()
     .to_string();
 
-    let by_sha = |f: &Fixture| resolve_identifier(&f.conn, &GitIdentifier::Sha(sha.clone())).unwrap();
+    let by_sha =
+        |f: &Fixture| resolve_identifier(&f.conn, &GitIdentifier::Sha(sha.clone())).unwrap();
 
-    assert!(matches!(by_sha(&f), ResolveOutcome::Resolved(_)), "the shown project's commit must resolve");
+    assert!(
+        matches!(by_sha(&f), ResolveOutcome::Resolved(_)),
+        "the shown project's commit must resolve"
+    );
 
     hide_project(&mut f.conn, &f.actor_id, &p.id).unwrap();
-    assert_eq!(by_sha(&f), ResolveOutcome::NotFound, "a hidden project is not swept for a sha");
+    assert_eq!(
+        by_sha(&f),
+        ResolveOutcome::NotFound,
+        "a hidden project is not swept for a sha"
+    );
 
     restore_project(&mut f.conn, &f.actor_id, &p.id).unwrap();
     assert!(matches!(by_sha(&f), ResolveOutcome::Resolved(_)));

@@ -122,7 +122,13 @@ pub fn set_notifications_enabled(
 ) -> anyhow::Result<()> {
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
-    upsert_setting(&tx, SETTING_NOTIFICATIONS_ENABLED, &value.to_string(), actor_id, &now)?;
+    upsert_setting(
+        &tx,
+        SETTING_NOTIFICATIONS_ENABLED,
+        &value.to_string(),
+        actor_id,
+        &now,
+    )?;
     tx.commit()
         .context("failed to commit set_notifications_enabled transaction")?;
     Ok(())
@@ -131,7 +137,10 @@ pub fn set_notifications_enabled(
 /// `project_id`'s credential-mode override, or `None` when the project has no override — the
 /// resolver (`credentials::resolve_credential`) falls back to [`global_credential_mode`] in that
 /// case.
-pub fn project_credential_mode(conn: &Connection, project_id: &str) -> anyhow::Result<Option<String>> {
+pub fn project_credential_mode(
+    conn: &Connection,
+    project_id: &str,
+) -> anyhow::Result<Option<String>> {
     conn.query_row(
         "SELECT credential_mode FROM projects WHERE id = ?1",
         params![project_id],
@@ -197,18 +206,8 @@ pub fn set_project_credential_mode(
     });
     let sequence = next_sequence(&tx, project_id, "local")?;
     append_event(
-        &tx,
-        project_id,
-        "local",
-        sequence,
-        "project",
-        project_id,
-        None,
-        None,
-        actor_id,
-        event_type,
-        &payload,
-        &now,
+        &tx, project_id, "local", sequence, "project", project_id, None, None, actor_id,
+        event_type, &payload, &now,
     )?;
 
     tx.commit()
@@ -231,15 +230,26 @@ pub fn board_visit(
     project_id: &str,
     limit: i64,
 ) -> anyhow::Result<crate::query::events::SinceLastLooked> {
-    use crate::query::events::{events_after, last_looked_key, last_looked_sequence, newest_sequence, SinceLastLooked};
+    use crate::query::events::{
+        events_after, last_looked_key, last_looked_sequence, newest_sequence, SinceLastLooked,
+    };
 
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     let newest = newest_sequence(&tx, project_id)?;
     let seen = match last_looked_sequence(&tx, project_id)? {
         Some(after) => events_after(&tx, project_id, after, limit)?,
-        None => SinceLastLooked { total: 0, events: Vec::new() },
+        None => SinceLastLooked {
+            total: 0,
+            events: Vec::new(),
+        },
     };
-    upsert_setting(&tx, &last_looked_key(project_id), &newest.to_string(), actor_id, &Utc::now().to_rfc3339())?;
+    upsert_setting(
+        &tx,
+        &last_looked_key(project_id),
+        &newest.to_string(),
+        actor_id,
+        &Utc::now().to_rfc3339(),
+    )?;
     tx.commit().context("failed to commit board_visit")?;
     Ok(seen)
 }
@@ -250,4 +260,3 @@ fn human_mode_name(mode: &str) -> &'static str {
         _ => "Local Claude Code credentials",
     }
 }
-

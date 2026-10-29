@@ -58,7 +58,10 @@ const ROADMAP_WAITING_SQL: &str = concat!(
 
 /// Every distinct Story id in `project_id` that is Waiting on you: a live session of it holds a
 /// pending request. A project with no sessions at all returns an empty vector, never an error.
-pub fn blocked_story_ids_for_project(conn: &Connection, project_id: &str) -> anyhow::Result<Vec<String>> {
+pub fn blocked_story_ids_for_project(
+    conn: &Connection,
+    project_id: &str,
+) -> anyhow::Result<Vec<String>> {
     let mut stmt = conn.prepare(BLOCKED_STORY_IDS_SQL)?;
     let rows = stmt
         .query_map(params![project_id], |row| row.get::<_, String>(0))?
@@ -68,7 +71,10 @@ pub fn blocked_story_ids_for_project(conn: &Connection, project_id: &str) -> any
 
 /// Every distinct Epic id in `project_id` that is Waiting on you (issue #124): a live shaping session
 /// is held on one of its open Rounds. Empty when nothing is, never an error.
-pub fn waiting_epic_ids_for_project(conn: &Connection, project_id: &str) -> anyhow::Result<Vec<String>> {
+pub fn waiting_epic_ids_for_project(
+    conn: &Connection,
+    project_id: &str,
+) -> anyhow::Result<Vec<String>> {
     let mut stmt = conn.prepare(WAITING_EPIC_IDS_SQL)?;
     let rows = stmt
         .query_map(params![project_id], |row| row.get::<_, String>(0))?
@@ -78,7 +84,10 @@ pub fn waiting_epic_ids_for_project(conn: &Connection, project_id: &str) -> anyh
 
 /// Every distinct Milestone id in `project_id` that is Waiting on you (issue #132): a live shaping
 /// session is held on an open Round of its Exit test. Empty when nothing is, never an error.
-pub fn waiting_milestone_ids_for_project(conn: &Connection, project_id: &str) -> anyhow::Result<Vec<String>> {
+pub fn waiting_milestone_ids_for_project(
+    conn: &Connection,
+    project_id: &str,
+) -> anyhow::Result<Vec<String>> {
     let mut stmt = conn.prepare(WAITING_MILESTONE_IDS_SQL)?;
     let rows = stmt
         .query_map(params![project_id], |row| row.get::<_, String>(0))?
@@ -125,7 +134,10 @@ const PENDING_REQUESTS_FOR_RUN_SQL: &str =
 /// Every pending `permission_requests` row for one session, oldest first. Ordinarily at most one
 /// row, but two concurrent held calls can each raise their own pending row for the SAME session —
 /// this reads ALL of them, never just the latest. Do not introduce a `LIMIT` here.
-pub fn pending_requests_for_run(conn: &Connection, session_id: &str) -> anyhow::Result<Vec<PendingPermissionRequest>> {
+pub fn pending_requests_for_run(
+    conn: &Connection,
+    session_id: &str,
+) -> anyhow::Result<Vec<PendingPermissionRequest>> {
     let mut stmt = conn.prepare(PENDING_REQUESTS_FOR_RUN_SQL)?;
     let rows = stmt
         .query_map(params![session_id], |row| {
@@ -146,8 +158,13 @@ const LATEST_RUN_ID_FOR_STORY_SQL: &str =
 
 /// The most recent session id for `story_id` (by `started_at`), or `None` if the Story has never
 /// had a session.
-pub fn latest_run_id_for_story(conn: &Connection, story_id: &str) -> anyhow::Result<Option<String>> {
-    conn.query_row(LATEST_RUN_ID_FOR_STORY_SQL, params![story_id], |row| row.get(0))
-        .optional()
-        .context("failed to resolve the latest session for the Story")
+pub fn latest_run_id_for_story(
+    conn: &Connection,
+    story_id: &str,
+) -> anyhow::Result<Option<String>> {
+    conn.query_row(LATEST_RUN_ID_FOR_STORY_SQL, params![story_id], |row| {
+        row.get(0)
+    })
+    .optional()
+    .context("failed to resolve the latest session for the Story")
 }

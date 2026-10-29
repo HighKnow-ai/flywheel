@@ -52,7 +52,9 @@ pub const TRAILER_RUN_KEY: &str = "Flywheel-Run";
 /// inside the developer's own repository: `core.hooksPath` accepts an absolute path, and nothing
 /// this module generates belongs in the developer's working tree.
 pub fn hooks_dir_for_repo(project_id: &str) -> anyhow::Result<PathBuf> {
-    Ok(runtime_protocol::runtime_dir()?.join("git-hooks").join(project_id))
+    Ok(runtime_protocol::runtime_dir()?
+        .join("git-hooks")
+        .join(project_id))
 }
 
 /// Single-quote a path for inclusion in the generated POSIX `sh` script, escaping any literal
@@ -243,7 +245,11 @@ fn current_hooks_path(repo_path: &Path) -> Option<String> {
     match crate::git::git_at(repo_path, &["config", "--get", "core.hooksPath"]) {
         Ok(output) => {
             let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if value.is_empty() { None } else { Some(value) }
+            if value.is_empty() {
+                None
+            } else {
+                Some(value)
+            }
         }
         Err(_) => None,
     }
@@ -257,9 +263,15 @@ fn current_hooks_path(repo_path: &Path) -> Option<String> {
 /// order can never make one hook refuse the other's directory.
 fn is_flywheel_hooks_dir(repo_path: &Path, hooks_path: &str) -> bool {
     let candidate = Path::new(hooks_path);
-    let resolved = if candidate.is_absolute() { candidate.to_path_buf() } else { repo_path.join(candidate) };
+    let resolved = if candidate.is_absolute() {
+        candidate.to_path_buf()
+    } else {
+        repo_path.join(candidate)
+    };
     let carries_marker = |name: &str, marker: &str| {
-        fs::read_to_string(resolved.join(name)).map(|contents| contents.contains(marker)).unwrap_or(false)
+        fs::read_to_string(resolved.join(name))
+            .map(|contents| contents.contains(marker))
+            .unwrap_or(false)
     };
     carries_marker("pre-push", PRE_PUSH_MARKER) || carries_marker("commit-msg", COMMIT_MSG_MARKER)
 }
@@ -274,9 +286,15 @@ fn is_flywheel_hooks_dir(repo_path: &Path, hooks_path: &str) -> bool {
 /// execute-bit implementation rather than two copies.
 fn default_hooks_entry(repo_path: &Path, hook_name: &str) -> anyhow::Result<Option<PathBuf>> {
     let output = crate::git::git_at(repo_path, &["rev-parse", "--git-path", "hooks"])
-        .with_context(|| format!("failed to resolve the default hooks directory for {repo_path:?}"))?;
+        .with_context(|| {
+            format!("failed to resolve the default hooks directory for {repo_path:?}")
+        })?;
     let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let hooks_dir = if Path::new(&raw).is_absolute() { PathBuf::from(raw) } else { repo_path.join(raw) };
+    let hooks_dir = if Path::new(&raw).is_absolute() {
+        PathBuf::from(raw)
+    } else {
+        repo_path.join(raw)
+    };
 
     let candidate = hooks_dir.join(hook_name);
     if !candidate.is_file() {
@@ -305,7 +323,13 @@ fn default_hooks_entry(repo_path: &Path, hook_name: &str) -> anyhow::Result<Opti
 /// `shim.rs`'s own Layer-0 verification idiom and D-60's loud-failure obligation. Generalised
 /// (phase 7, plan 07-02) from a pre-push-only implementation so both install functions share one
 /// verification routine rather than two copies.
-fn verify_install(repo_path: &Path, hook_path: &Path, hooks_dir: &Path, marker: &str, hook_label: &str) -> anyhow::Result<()> {
+fn verify_install(
+    repo_path: &Path,
+    hook_path: &Path,
+    hooks_dir: &Path,
+    marker: &str,
+    hook_label: &str,
+) -> anyhow::Result<()> {
     if !hook_path.is_file() {
         bail!("{hook_label} gate install verification failed: {hook_path:?} does not exist or is not a regular file");
     }
@@ -315,8 +339,9 @@ fn verify_install(repo_path: &Path, hook_path: &Path, hooks_dir: &Path, marker: 
     if metadata.len() == 0 {
         bail!("{hook_label} gate install verification failed: {hook_path:?} is zero bytes");
     }
-    let contents = fs::read_to_string(hook_path)
-        .with_context(|| format!("{hook_label} gate install verification failed: could not read {hook_path:?}"))?;
+    let contents = fs::read_to_string(hook_path).with_context(|| {
+        format!("{hook_label} gate install verification failed: could not read {hook_path:?}")
+    })?;
     if !contents.contains(marker) {
         bail!("{hook_label} gate install verification failed: {hook_path:?} does not carry the {marker} marker");
     }
@@ -363,7 +388,9 @@ pub fn install_pre_push_hook(repo_path: &Path, project_id: &str) -> anyhow::Resu
     // upgrade path if this refusal is ever hit in practice (see docs/destructive-gate-trust-
     // boundary.md's "## Named residuals" — "a repository where the pre-push install is REFUSED").
     if let Some(existing_pre_push) = default_hooks_entry(repo_path, "pre-push")? {
-        return Ok(PrePushInstall::RefusedPreexistingPrePush { path: existing_pre_push });
+        return Ok(PrePushInstall::RefusedPreexistingPrePush {
+            path: existing_pre_push,
+        });
     }
 
     // Step 3: resolve the three baked absolute paths. A failure to resolve any of them is an
@@ -413,13 +440,21 @@ pub fn install_pre_push_hook(repo_path: &Path, project_id: &str) -> anyhow::Resu
     }
 
     // Step 5: write the config.
-    let hooks_dir_str =
-        hooks_dir.to_str().ok_or_else(|| anyhow!("hooks directory {hooks_dir:?} is not valid UTF-8"))?;
-    crate::git::git_at(repo_path, &["config", "core.hooksPath", hooks_dir_str])
-        .with_context(|| format!("failed to set core.hooksPath to {hooks_dir_str:?} in {repo_path:?}"))?;
+    let hooks_dir_str = hooks_dir
+        .to_str()
+        .ok_or_else(|| anyhow!("hooks directory {hooks_dir:?} is not valid UTF-8"))?;
+    crate::git::git_at(repo_path, &["config", "core.hooksPath", hooks_dir_str]).with_context(
+        || format!("failed to set core.hooksPath to {hooks_dir_str:?} in {repo_path:?}"),
+    )?;
 
     // Step 6: verify before returning Installed.
-    verify_install(repo_path, &hook_path, &hooks_dir, PRE_PUSH_MARKER, "pre-push")?;
+    verify_install(
+        repo_path,
+        &hook_path,
+        &hooks_dir,
+        PRE_PUSH_MARKER,
+        "pre-push",
+    )?;
 
     Ok(PrePushInstall::Installed { hooks_dir })
 }
@@ -430,7 +465,10 @@ pub fn install_pre_push_hook(repo_path: &Path, project_id: &str) -> anyhow::Resu
 /// other. See [`CommitMsgInstall`] for the three possible outcomes; a refusal is never an `Err` —
 /// only a genuine failure to resolve a baked path, write the script, set the git config, or pass
 /// verification is.
-pub fn install_commit_msg_hook(repo_path: &Path, project_id: &str) -> anyhow::Result<CommitMsgInstall> {
+pub fn install_commit_msg_hook(
+    repo_path: &Path,
+    project_id: &str,
+) -> anyhow::Result<CommitMsgInstall> {
     // Step 1: refuse a pre-existing core.hooksPath that is not a Flywheel-marked directory —
     // never displace a developer's own hook chain. is_flywheel_hooks_dir recognises a directory
     // holding EITHER marked hook, so a directory install_pre_push_hook already wrote is accepted
@@ -444,7 +482,9 @@ pub fn install_commit_msg_hook(repo_path: &Path, project_id: &str) -> anyhow::Re
     // Step 2: refuse a pre-existing non-sample executable `commit-msg` in the repository's
     // DEFAULT hooks directory — setting core.hooksPath REPLACES that directory outright.
     if let Some(existing_commit_msg) = default_hooks_entry(repo_path, "commit-msg")? {
-        return Ok(CommitMsgInstall::RefusedPreexistingCommitMsg { path: existing_commit_msg });
+        return Ok(CommitMsgInstall::RefusedPreexistingCommitMsg {
+            path: existing_commit_msg,
+        });
     }
 
     // Step 3: resolve the baked absolute real-git path. A failure to resolve it is an Err — never
@@ -475,13 +515,21 @@ pub fn install_commit_msg_hook(repo_path: &Path, project_id: &str) -> anyhow::Re
     }
 
     // Step 5: write the config.
-    let hooks_dir_str =
-        hooks_dir.to_str().ok_or_else(|| anyhow!("hooks directory {hooks_dir:?} is not valid UTF-8"))?;
-    crate::git::git_at(repo_path, &["config", "core.hooksPath", hooks_dir_str])
-        .with_context(|| format!("failed to set core.hooksPath to {hooks_dir_str:?} in {repo_path:?}"))?;
+    let hooks_dir_str = hooks_dir
+        .to_str()
+        .ok_or_else(|| anyhow!("hooks directory {hooks_dir:?} is not valid UTF-8"))?;
+    crate::git::git_at(repo_path, &["config", "core.hooksPath", hooks_dir_str]).with_context(
+        || format!("failed to set core.hooksPath to {hooks_dir_str:?} in {repo_path:?}"),
+    )?;
 
     // Step 6: verify before returning Installed.
-    verify_install(repo_path, &hook_path, &hooks_dir, COMMIT_MSG_MARKER, "commit-msg")?;
+    verify_install(
+        repo_path,
+        &hook_path,
+        &hooks_dir,
+        COMMIT_MSG_MARKER,
+        "commit-msg",
+    )?;
 
     Ok(CommitMsgInstall::Installed { hooks_dir })
 }
@@ -504,7 +552,11 @@ pub fn uninstall_pre_push_hook(repo_path: &Path) -> anyhow::Result<()> {
     }
 
     let candidate = Path::new(&existing);
-    let resolved = if candidate.is_absolute() { candidate.to_path_buf() } else { repo_path.join(candidate) };
+    let resolved = if candidate.is_absolute() {
+        candidate.to_path_buf()
+    } else {
+        repo_path.join(candidate)
+    };
 
     let pre_push_path = resolved.join("pre-push");
     if pre_push_path.is_file() {
@@ -538,7 +590,11 @@ pub fn uninstall_commit_msg_hook(repo_path: &Path) -> anyhow::Result<()> {
     }
 
     let candidate = Path::new(&existing);
-    let resolved = if candidate.is_absolute() { candidate.to_path_buf() } else { repo_path.join(candidate) };
+    let resolved = if candidate.is_absolute() {
+        candidate.to_path_buf()
+    } else {
+        repo_path.join(candidate)
+    };
 
     let commit_msg_path = resolved.join("commit-msg");
     if commit_msg_path.is_file() {

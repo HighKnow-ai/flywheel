@@ -6,8 +6,8 @@
 use std::sync::Mutex;
 
 use flywheel_core::domain::handoff::{
-    batch_as_tool_result, complete_handoff, handoff_as_tool_result, plan_feedback_run, plan_handoff, run_checks,
-    HandoffToolCall,
+    batch_as_tool_result, complete_handoff, handoff_as_tool_result, plan_feedback_run,
+    plan_handoff, run_checks, HandoffToolCall,
 };
 use rusqlite::Connection;
 use serde_json::{json, Value};
@@ -19,7 +19,12 @@ use crate::state::AppState;
 
 /// Run one hand-off tool call against `db`: `{result}` or `{error}` for the agent, and the project
 /// whose board changed (a hand-off only; a feedback run records nothing).
-pub fn answer_handoff_tool_call(db: &Mutex<Connection>, run_id: &str, tool: &str, args: &Value) -> (Value, Option<String>) {
+pub fn answer_handoff_tool_call(
+    db: &Mutex<Connection>,
+    run_id: &str,
+    tool: &str,
+    args: &Value,
+) -> (Value, Option<String>) {
     match run_call(db, run_id, tool, args) {
         Ok(answer) => answer,
         // The reason goes to the agent so it can correct its call.
@@ -27,8 +32,16 @@ pub fn answer_handoff_tool_call(db: &Mutex<Connection>, run_id: &str, tool: &str
     }
 }
 
-fn run_call(db: &Mutex<Connection>, run_id: &str, tool: &str, args: &Value) -> anyhow::Result<(Value, Option<String>)> {
-    let lock = || db.lock().map_err(|_| anyhow::anyhow!("the board database is unavailable"));
+fn run_call(
+    db: &Mutex<Connection>,
+    run_id: &str,
+    tool: &str,
+    args: &Value,
+) -> anyhow::Result<(Value, Option<String>)> {
+    let lock = || {
+        db.lock()
+            .map_err(|_| anyhow::anyhow!("the board database is unavailable"))
+    };
     match HandoffToolCall::parse(tool, args)? {
         HandoffToolCall::ChecksRun => {
             let plan = plan_feedback_run(&*lock()?, run_id)?;
@@ -41,15 +54,26 @@ fn run_call(db: &Mutex<Connection>, run_id: &str, tool: &str, args: &Value) -> a
             let plan = plan_handoff(&*lock()?, run_id, &summary.check_objections)?;
             let batch = run_checks(&plan)?;
             let outcome = complete_handoff(&mut *lock()?, &plan, &summary, batch)?;
-            Ok((json!({ "result": handoff_as_tool_result(&outcome) }), Some(outcome.project_id)))
+            Ok((
+                json!({ "result": handoff_as_tool_result(&outcome) }),
+                Some(outcome.project_id),
+            ))
         }
     }
 }
 
 /// Answer a hand-off tool call on its own thread, then emit `board:changed` when the Story moved.
-pub fn spawn_handoff_tool_call(app: AppHandle, run_id: String, request_id: String, tool: String, args: Value) {
+pub fn spawn_handoff_tool_call(
+    app: AppHandle,
+    run_id: String,
+    request_id: String,
+    tool: String,
+    args: Value,
+) {
     std::thread::spawn(move || {
-        let Some(state) = tauri::Manager::try_state::<AppState>(&app) else { return };
+        let Some(state) = tauri::Manager::try_state::<AppState>(&app) else {
+            return;
+        };
         let (answer, changed) = answer_handoff_tool_call(&state.db, &run_id, &tool, &args);
         send_board_tool_answer(&app, &run_id, &request_id, &answer);
         if let Some(project_id) = changed {
@@ -68,25 +92,54 @@ mod tests {
 
     /// A Running Story in a real git repository, with a `true` and a `false` Check, a done Task and a
     /// live session. Returns the database, the run id, the project id and the Check ids.
-    fn running_story(repo: &std::path::Path, db_dir: &std::path::Path) -> (Mutex<Connection>, String, String, Vec<String>) {
+    fn running_story(
+        repo: &std::path::Path,
+        db_dir: &std::path::Path,
+    ) -> (Mutex<Connection>, String, String, Vec<String>) {
         let git = |args: &[&str]| {
             flywheel_core::git::git_at(repo, args).unwrap();
         };
         git(&["init", "--initial-branch=main"]);
         std::fs::write(repo.join("README.md"), "fixture\n").unwrap();
         git(&["add", "README.md"]);
-        git(&["-c", "user.name=F", "-c", "user.email=f@flywheel.test", "commit", "-m", "initial"]);
+        git(&[
+            "-c",
+            "user.name=F",
+            "-c",
+            "user.email=f@flywheel.test",
+            "commit",
+            "-m",
+            "initial",
+        ]);
 
-        let mut conn = flywheel_core::db::open_and_migrate(&db_dir.join("flywheel.db"), &db_dir.join("backups")).unwrap();
+        let mut conn = flywheel_core::db::open_and_migrate(
+            &db_dir.join("flywheel.db"),
+            &db_dir.join("backups"),
+        )
+        .unwrap();
         let human = actor::local_human_actor_id(&conn).unwrap();
-        let p = project::create_project(&mut conn, &human, "P", &repo.to_string_lossy(), "FLY", "main").unwrap();
+        let p = project::create_project(
+            &mut conn,
+            &human,
+            "P",
+            &repo.to_string_lossy(),
+            "FLY",
+            "main",
+        )
+        .unwrap();
         let m = milestone::create_milestone(&mut conn, &p.id, &human, "M", None).unwrap();
         let e = epic::create_epic(&mut conn, &human, &m.id, "E").unwrap();
         // Written the way the developer writes a Story by hand, Checks included.
-        let criteria = ["true", "false"]
-            .map(|command| story::HandWrittenCriterion { statement: command, check_command: Some(command) });
+        let criteria = ["true", "false"].map(|command| story::HandWrittenCriterion {
+            statement: command,
+            check_command: Some(command),
+        });
         let s = story::write_story_by_hand(&mut conn, &human, &e.id, "S", None, &criteria).unwrap();
-        let checks = check::checks_for_story(&conn, &s.id).unwrap().into_iter().map(|c| c.id).collect();
+        let checks = check::checks_for_story(&conn, &s.id)
+            .unwrap()
+            .into_iter()
+            .map(|c| c.id)
+            .collect();
         story::set_story_state(&mut conn, &human, &s.id, story::StoryState::Running).unwrap();
         let run = session::start_session(&mut conn, &s.id, "acceptEdits", &human).unwrap();
         let agent = session::agent_actor_id(&conn).unwrap();
@@ -101,11 +154,16 @@ mod tests {
             let (repo, db_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
             let (db, run_id, project_id, checks) = running_story(repo.path(), db_dir.path());
 
-            let (answer, changed) = answer_handoff_tool_call(&db, &run_id, "checks_run", &json!({}));
+            let (answer, changed) =
+                answer_handoff_tool_call(&db, &run_id, "checks_run", &json!({}));
             assert_eq!(changed, None, "a feedback run changes nothing on the board");
             assert_eq!(answer["result"]["recorded"], false);
-            let results: Vec<&str> =
-                answer["result"]["checks"].as_array().unwrap().iter().map(|c| c["result"].as_str().unwrap()).collect();
+            let results: Vec<&str> = answer["result"]["checks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|c| c["result"].as_str().unwrap())
+                .collect();
             assert_eq!(results, ["passed", "failed"]);
             let current = check::current_result(&db.lock().unwrap(), &checks[0]).unwrap();
             assert_eq!(current.result, check::CheckResult::NotRun);
@@ -123,23 +181,49 @@ mod tests {
             assert_eq!(changed.as_deref(), Some(project_id.as_str()), "{answer}");
             assert_eq!(answer["result"]["story_state"], "in_review");
             let conn = db.lock().unwrap();
-            assert_eq!(check::current_result(&conn, &checks[1]).unwrap().result, check::CheckResult::Failed);
-            let story_id: String =
-                conn.query_row("SELECT story_id FROM sessions WHERE id = ?1", [&run_id], |r| r.get(0)).unwrap();
-            let review = flywheel_core::domain::review::open_review(&conn, &story_id).unwrap().unwrap();
-            assert_eq!(review.check_objections[0]["check_id"], checks[1].as_str(), "the objection reaches the review");
+            assert_eq!(
+                check::current_result(&conn, &checks[1]).unwrap().result,
+                check::CheckResult::Failed
+            );
+            let story_id: String = conn
+                .query_row(
+                    "SELECT story_id FROM sessions WHERE id = ?1",
+                    [&run_id],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            let review = flywheel_core::domain::review::open_review(&conn, &story_id)
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                review.check_objections[0]["check_id"],
+                checks[1].as_str(),
+                "the objection reaches the review"
+            );
         });
     }
 
     #[test]
     fn a_refused_call_answers_the_reason() {
         let db_dir = tempfile::tempdir().unwrap();
-        let conn = flywheel_core::db::open_and_migrate(&db_dir.path().join("f.db"), &db_dir.path().join("b")).unwrap();
+        let conn = flywheel_core::db::open_and_migrate(
+            &db_dir.path().join("f.db"),
+            &db_dir.path().join("b"),
+        )
+        .unwrap();
         let db = Mutex::new(conn);
-        let (answer, changed) = answer_handoff_tool_call(&db, "01NOSUCHSESSION00000000000", "checks_run", &json!({}));
+        let (answer, changed) =
+            answer_handoff_tool_call(&db, "01NOSUCHSESSION00000000000", "checks_run", &json!({}));
         assert!(answer["error"].as_str().is_some(), "{answer}");
         assert_eq!(changed, None);
-        let (answer, _) = answer_handoff_tool_call(&db, "x", "handoff", &json!({ "decisions": "" }));
-        assert!(answer["error"].as_str().unwrap().contains("next_session_must_know"), "{answer}");
+        let (answer, _) =
+            answer_handoff_tool_call(&db, "x", "handoff", &json!({ "decisions": "" }));
+        assert!(
+            answer["error"]
+                .as_str()
+                .unwrap()
+                .contains("next_session_must_know"),
+            "{answer}"
+        );
     }
 }

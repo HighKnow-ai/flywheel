@@ -60,16 +60,23 @@
 
 use flywheel_core::domain::adr_link::{adr_links_for_project, AdrLinkTarget};
 use flywheel_core::domain::handoff::{
-    batch_as_tool_result, hand_off_with, handoff_as_tool_result, plan_feedback_run, run_checks, HandoffToolCall, HANDOFF_TOOL_NAMES,
+    batch_as_tool_result, hand_off_with, handoff_as_tool_result, plan_feedback_run, run_checks,
+    HandoffToolCall, HANDOFF_TOOL_NAMES,
 };
-use flywheel_core::domain::proposal::{accept_proposal, proposals_filed_by_story, proposals_for_triage, reject_proposal};
+use flywheel_core::domain::proposal::{
+    accept_proposal, proposals_filed_by_story, proposals_for_triage, reject_proposal,
+};
 use flywheel_core::domain::review_decisions::{review_decisions, set_adr_decision, AdrDecision};
 use flywheel_core::domain::session::{close_session, start_session, SessionStatus};
 use flywheel_core::domain::session_kind::SessionKind;
 use flywheel_core::domain::story::{self, HandWrittenCriterion, StoryState};
 use flywheel_core::domain::story_merge::{merge_story, MergeOptions};
-use flywheel_core::domain::story_proposal_tool::{apply_story_proposal_call, StoryProposalCall, STORY_PROPOSAL_TOOL_NAMES};
-use flywheel_core::domain::task_tool::{apply_task_tool_call, tasks_as_tool_result, TaskToolCall, TASK_TOOL_NAMES};
+use flywheel_core::domain::story_proposal_tool::{
+    apply_story_proposal_call, StoryProposalCall, STORY_PROPOSAL_TOOL_NAMES,
+};
+use flywheel_core::domain::task_tool::{
+    apply_task_tool_call, tasks_as_tool_result, TaskToolCall, TASK_TOOL_NAMES,
+};
 use flywheel_core::domain::{acceptance_criterion, actor, epic, milestone, project};
 use rusqlite::Connection;
 use serde_json::{json, Value};
@@ -86,10 +93,16 @@ fn require_env(name: &str, why: &str) {
 }
 
 fn open_conn() -> Connection {
-    require_env("FLYWHEEL_APP_DATA_DIR", "refusing to touch the real fleet database. Point it at a scratch directory.");
-    let db_path = flywheel_core::db::default_db_path().unwrap_or_else(|e| fail(&format!("db path: {e:#}")));
-    let backups = flywheel_core::db::default_backups_dir().unwrap_or_else(|e| fail(&format!("backups dir: {e:#}")));
-    flywheel_core::db::open_and_migrate(&db_path, &backups).unwrap_or_else(|e| fail(&format!("open: {e:#}")))
+    require_env(
+        "FLYWHEEL_APP_DATA_DIR",
+        "refusing to touch the real fleet database. Point it at a scratch directory.",
+    );
+    let db_path =
+        flywheel_core::db::default_db_path().unwrap_or_else(|e| fail(&format!("db path: {e:#}")));
+    let backups = flywheel_core::db::default_backups_dir()
+        .unwrap_or_else(|e| fail(&format!("backups dir: {e:#}")));
+    flywheel_core::db::open_and_migrate(&db_path, &backups)
+        .unwrap_or_else(|e| fail(&format!("open: {e:#}")))
 }
 
 fn human(conn: &Connection) -> String {
@@ -106,19 +119,44 @@ fn ok<T>(what: &str, r: anyhow::Result<T>) -> T {
 fn seed(repo: &str) -> Value {
     let mut conn = open_conn();
     let h = human(&conn);
-    let p = ok("create_project", project::create_project(&mut conn, &h, "Threadfin", repo, "FLY", "main"));
-    let m = ok("create_milestone", milestone::create_milestone(&mut conn, &p.id, &h, "Board and review", None));
-    let next = ok("create_milestone", milestone::create_milestone(&mut conn, &p.id, &h, "Relay", None));
-    let e = ok("create_epic", epic::create_epic(&mut conn, &h, &m.id, "Parsing"));
+    let p = ok(
+        "create_project",
+        project::create_project(&mut conn, &h, "Threadfin", repo, "FLY", "main"),
+    );
+    let m = ok(
+        "create_milestone",
+        milestone::create_milestone(&mut conn, &p.id, &h, "Board and review", None),
+    );
+    let next = ok(
+        "create_milestone",
+        milestone::create_milestone(&mut conn, &p.id, &h, "Relay", None),
+    );
+    let e = ok(
+        "create_epic",
+        epic::create_epic(&mut conn, &h, &m.id, "Parsing"),
+    );
     let mut stories = Vec::new();
-    for (title, state) in [("Parser", Some(StoryState::Ready)), ("Lexer", None), ("Printer", Some(StoryState::Ready))] {
-        let s = ok("create_story", story::create_story(&mut conn, &h, &e.id, title));
+    for (title, state) in [
+        ("Parser", Some(StoryState::Ready)),
+        ("Lexer", None),
+        ("Printer", Some(StoryState::Ready)),
+    ] {
+        let s = ok(
+            "create_story",
+            story::create_story(&mut conn, &h, &e.id, title),
+        );
         if let Some(state) = state {
-            ok("set_story_state", story::set_story_state(&mut conn, &h, &s.id, state));
+            ok(
+                "set_story_state",
+                story::set_story_state(&mut conn, &h, &s.id, state),
+            );
         }
         stories.push(json!({ "id": s.id, "key": s.key, "title": title }));
     }
-    ok("set_epic_state", epic::set_epic_state(&mut conn, &h, &e.id, epic::EpicState::Ready));
+    ok(
+        "set_epic_state",
+        epic::set_epic_state(&mut conn, &h, &e.id, epic::EpicState::Ready),
+    );
     json!({ "projectId": p.id, "epicId": e.id, "nextMilestoneId": next.id, "stories": stories })
 }
 
@@ -129,26 +167,53 @@ fn seed(repo: &str) -> Value {
 fn seed_review(repo: &str) -> Value {
     let mut conn = open_conn();
     let h = human(&conn);
-    let p = ok("create_project", project::create_project(&mut conn, &h, "Threadfin", repo, "FLY", "main"));
-    let m = ok("create_milestone", milestone::create_milestone(&mut conn, &p.id, &h, "Board and review", None));
-    let e = ok("create_epic", epic::create_epic(&mut conn, &h, &m.id, "Parsing"));
+    let p = ok(
+        "create_project",
+        project::create_project(&mut conn, &h, "Threadfin", repo, "FLY", "main"),
+    );
+    let m = ok(
+        "create_milestone",
+        milestone::create_milestone(&mut conn, &p.id, &h, "Board and review", None),
+    );
+    let e = ok(
+        "create_epic",
+        epic::create_epic(&mut conn, &h, &m.id, "Parsing"),
+    );
     let spec = epic::EpicSpec {
         problem: Some("One bad line stops the parse".into()),
         scope: Some("The parser".into()),
         out_of_scope: None,
         exit_test: Some("A file with a bad line parses, and the error names the line".into()),
     };
-    ok("update_epic", epic::update_epic(&mut conn, &h, &e.id, "Parsing", &spec));
-    ok("set_epic_state", epic::set_epic_state(&mut conn, &h, &e.id, epic::EpicState::Ready));
+    ok(
+        "update_epic",
+        epic::update_epic(&mut conn, &h, &e.id, "Parsing", &spec),
+    );
+    ok(
+        "set_epic_state",
+        epic::set_epic_state(&mut conn, &h, &e.id, epic::EpicState::Ready),
+    );
     let criteria = [
-        HandWrittenCriterion { statement: "The parser lives in src/parser.rs", check_command: Some("test -f src/parser.rs") },
-        HandWrittenCriterion { statement: "A parse error names the line", check_command: None },
+        HandWrittenCriterion {
+            statement: "The parser lives in src/parser.rs",
+            check_command: Some("test -f src/parser.rs"),
+        },
+        HandWrittenCriterion {
+            statement: "A parse error names the line",
+            check_command: None,
+        },
     ];
-    let s = ok("write_story_by_hand", story::write_story_by_hand(&mut conn, &h, &e.id, "Parser", None, &criteria));
-    let criteria: Vec<Value> = ok("criteria_for_story", acceptance_criterion::criteria_for_story(&conn, &s.id))
-        .into_iter()
-        .map(|c| json!({ "id": c.id, "statement": c.statement }))
-        .collect();
+    let s = ok(
+        "write_story_by_hand",
+        story::write_story_by_hand(&mut conn, &h, &e.id, "Parser", None, &criteria),
+    );
+    let criteria: Vec<Value> = ok(
+        "criteria_for_story",
+        acceptance_criterion::criteria_for_story(&conn, &s.id),
+    )
+    .into_iter()
+    .map(|c| json!({ "id": c.id, "statement": c.statement }))
+    .collect();
     json!({
         "projectId": p.id,
         "epicId": e.id,
@@ -161,10 +226,16 @@ fn seed_review(repo: &str) -> Value {
 /// Start the Story as the desktop's Start does: Ready to Running, its session and worktree, and the
 /// spawn request the desktop would send the sidecar (its `env` is the caller's to supply).
 fn start_story(story_id: &str) -> Value {
-    require_env("FLYWHEEL_WORKTREE_ROOT", "start_session would create a worktree under ~/Flywheel/");
+    require_env(
+        "FLYWHEEL_WORKTREE_ROOT",
+        "start_session would create a worktree under ~/Flywheel/",
+    );
     let mut conn = open_conn();
     let h = human(&conn);
-    ok("set_story_state", story::set_story_state(&mut conn, &h, story_id, StoryState::Running));
+    ok(
+        "set_story_state",
+        story::set_story_state(&mut conn, &h, story_id, StoryState::Running),
+    );
     launch(&mut conn, &h, story_id)
 }
 
@@ -174,14 +245,28 @@ fn start_story(story_id: &str) -> Value {
 fn launch(conn: &mut Connection, h: &str, story_id: &str) -> Value {
     let kind = SessionKind::Story;
     let policy = kind.launch_policy();
-    let session = ok("start_session", start_session(conn, story_id, policy.permission_mode, h));
+    let session = ok(
+        "start_session",
+        start_session(conn, story_id, policy.permission_mode, h),
+    );
     let (path, branch): (String, String) = ok(
         "worktree",
-        conn.query_row("SELECT path, branch FROM worktrees WHERE story_id = ?1", [story_id], |r| Ok((r.get(0)?, r.get(1)?)))
-            .map_err(anyhow::Error::from),
+        conn.query_row(
+            "SELECT path, branch FROM worktrees WHERE story_id = ?1",
+            [story_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map_err(anyhow::Error::from),
     );
-    let prompt = ok("build_context_packet", flywheel_core::context_packet::build_context_packet(conn, story_id, ""));
-    let policy_env: serde_json::Map<String, Value> = policy.env.iter().map(|(k, v)| (k.to_string(), json!(v))).collect();
+    let prompt = ok(
+        "build_context_packet",
+        flywheel_core::context_packet::build_context_packet(conn, story_id, ""),
+    );
+    let policy_env: serde_json::Map<String, Value> = policy
+        .env
+        .iter()
+        .map(|(k, v)| (k.to_string(), json!(v)))
+        .collect();
     json!({
         "spawn": {
             "op": "spawn",
@@ -207,7 +292,9 @@ fn tool_call(run_id: &str, tool: &str, args: &str) -> Value {
     let mut conn = open_conn();
     let args: Value = serde_json::from_str(args).unwrap_or_else(|e| fail(&format!("args: {e}")));
     let result: anyhow::Result<Value> = if STORY_PROPOSAL_TOOL_NAMES.contains(&tool) {
-        StoryProposalCall::parse(tool, &args).and_then(|call| apply_story_proposal_call(&mut conn, run_id, &call)).map(|o| o.result)
+        StoryProposalCall::parse(tool, &args)
+            .and_then(|call| apply_story_proposal_call(&mut conn, run_id, &call))
+            .map(|o| o.result)
     } else if TASK_TOOL_NAMES.contains(&tool) {
         TaskToolCall::parse(tool, &args)
             .and_then(|call| apply_task_tool_call(&mut conn, run_id, &call))
@@ -220,10 +307,14 @@ fn tool_call(run_id: &str, tool: &str, args: &str) -> Value {
                 result["recorded"] = Value::Bool(false);
                 Ok(result)
             }
-            HandoffToolCall::Handoff(summary) => hand_off_with(&mut conn, run_id, &summary).map(|o| handoff_as_tool_result(&o)),
+            HandoffToolCall::Handoff(summary) => {
+                hand_off_with(&mut conn, run_id, &summary).map(|o| handoff_as_tool_result(&o))
+            }
         })
     } else {
-        fail(&format!("{tool} is not a Task, Proposal or hand-off tool; the UAT's agent calls only those"));
+        fail(&format!(
+            "{tool} is not a Task, Proposal or hand-off tool; the UAT's agent calls only those"
+        ));
     };
     let answer = match result {
         Ok(result) => json!({ "result": result }),
@@ -273,35 +364,44 @@ fn needs_you(project_id: &str) -> Value {
 /// The triage drawer's list.
 fn triage(project_id: &str) -> Value {
     let conn = open_conn();
-    let rows: Vec<Value> = ok("proposals_for_triage", proposals_for_triage(&conn, project_id))
-        .into_iter()
-        .map(|t| {
-            json!({
-                "id": t.proposal.id,
-                "verb": t.proposal.verb,
-                "targetType": t.proposal.target_type,
-                "payload": t.proposal.payload,
-                "storyKey": t.story_key,
-                "epicKey": t.epic_key,
-                "evidence": t.proposal.evidence,
-                "duplicateOf": t.duplicate.map(|d| d.proposal_id),
-            })
+    let rows: Vec<Value> = ok(
+        "proposals_for_triage",
+        proposals_for_triage(&conn, project_id),
+    )
+    .into_iter()
+    .map(|t| {
+        json!({
+            "id": t.proposal.id,
+            "verb": t.proposal.verb,
+            "targetType": t.proposal.target_type,
+            "payload": t.proposal.payload,
+            "storyKey": t.story_key,
+            "epicKey": t.epic_key,
+            "evidence": t.proposal.evidence,
+            "duplicateOf": t.duplicate.map(|d| d.proposal_id),
         })
-        .collect();
+    })
+    .collect();
     json!({ "proposals": rows })
 }
 
 fn accept(proposal_id: &str) -> Value {
     let mut conn = open_conn();
     let h = human(&conn);
-    let applied = ok("accept_proposal", accept_proposal(&mut conn, &h, proposal_id));
+    let applied = ok(
+        "accept_proposal",
+        accept_proposal(&mut conn, &h, proposal_id),
+    );
     json!({ "applied": format!("{applied:?}") })
 }
 
 fn reject(proposal_id: &str, reason: &str) -> Value {
     let mut conn = open_conn();
     let h = human(&conn);
-    ok("reject_proposal", reject_proposal(&mut conn, &h, proposal_id, Some(reason)));
+    ok(
+        "reject_proposal",
+        reject_proposal(&mut conn, &h, proposal_id, Some(reason)),
+    );
     json!({ "rejected": proposal_id })
 }
 
@@ -310,8 +410,12 @@ fn make_ready(story_id: &str) -> Value {
     let mut conn = open_conn();
     let h = human(&conn);
     ok("make_ready", story::make_ready(&mut conn, &h, story_id));
-    let s = ok("get_story", story::get_story(&conn, story_id)).unwrap_or_else(|| fail("the Story is gone"));
-    let criteria = ok("criteria_for_story", acceptance_criterion::criteria_for_story(&conn, story_id));
+    let s = ok("get_story", story::get_story(&conn, story_id))
+        .unwrap_or_else(|| fail("the Story is gone"));
+    let criteria = ok(
+        "criteria_for_story",
+        acceptance_criterion::criteria_for_story(&conn, story_id),
+    );
     let checks: i64 = ok(
         "count checks",
         conn.query_row(
@@ -327,10 +431,16 @@ fn make_ready(story_id: &str) -> Value {
 /// The developer's Request changes: the comments close the review, the Story moves to Running, and a
 /// fresh session starts in the same worktree from a packet that carries them.
 fn request_changes(story_id: &str, comments: &str) -> Value {
-    require_env("FLYWHEEL_WORKTREE_ROOT", "start_session would create a worktree under ~/Flywheel/");
+    require_env(
+        "FLYWHEEL_WORKTREE_ROOT",
+        "start_session would create a worktree under ~/Flywheel/",
+    );
     let mut conn = open_conn();
     let h = human(&conn);
-    ok("request_changes", flywheel_core::domain::request_changes::request_changes(&mut conn, &h, story_id, comments));
+    ok(
+        "request_changes",
+        flywheel_core::domain::request_changes::request_changes(&mut conn, &h, story_id, comments),
+    );
     launch(&mut conn, &h, story_id)
 }
 
@@ -338,7 +448,10 @@ fn request_changes(story_id: &str, comments: &str) -> Value {
 /// the Decisions section.
 fn review(story_id: &str) -> Value {
     let conn = open_conn();
-    let r = ok("review_for_story", flywheel_core::domain::review::review_for_story(&conn, story_id));
+    let r = ok(
+        "review_for_story",
+        flywheel_core::domain::review::review_for_story(&conn, story_id),
+    );
     let d = ok("review_decisions", review_decisions(&conn, story_id));
     let criteria: Vec<Value> = r
         .criteria
@@ -387,7 +500,10 @@ fn review(story_id: &str) -> Value {
 fn accept_criterion(criterion_id: &str) -> Value {
     let mut conn = open_conn();
     let h = human(&conn);
-    ok("accept_criterion", acceptance_criterion::accept_criterion(&mut conn, &h, criterion_id));
+    ok(
+        "accept_criterion",
+        acceptance_criterion::accept_criterion(&mut conn, &h, criterion_id),
+    );
     json!({ "accepted": criterion_id })
 }
 
@@ -395,11 +511,16 @@ fn adr_decide(story_id: &str, path: &str, decision: &str) -> Value {
     let decision = match decision {
         "keep" => AdrDecision::Keep,
         "not_an_adr" => AdrDecision::NotAnAdr,
-        other => fail(&format!("unknown ADR decision {other:?}; this bridge takes keep or not_an_adr")),
+        other => fail(&format!(
+            "unknown ADR decision {other:?}; this bridge takes keep or not_an_adr"
+        )),
     };
     let mut conn = open_conn();
     let h = human(&conn);
-    ok("set_adr_decision", set_adr_decision(&mut conn, &h, story_id, path, &decision));
+    ok(
+        "set_adr_decision",
+        set_adr_decision(&mut conn, &h, story_id, path, &decision),
+    );
     json!({ "path": path, "decision": decision.as_str() })
 }
 
@@ -407,8 +528,12 @@ fn adr_decide(story_id: &str, path: &str, decision: &str) -> Value {
 fn merge(story_id: &str) -> Value {
     let mut conn = open_conn();
     let h = human(&conn);
-    let o = ok("merge_story", merge_story(&mut conn, &h, story_id, MergeOptions::default()));
-    let s = ok("get_story", story::get_story(&conn, story_id)).unwrap_or_else(|| fail("the Story is gone"));
+    let o = ok(
+        "merge_story",
+        merge_story(&mut conn, &h, story_id, MergeOptions::default()),
+    );
+    let s = ok("get_story", story::get_story(&conn, story_id))
+        .unwrap_or_else(|| fail("the Story is gone"));
     json!({
         "mergeCommit": o.merge_commit,
         "baseBranch": o.base_branch,
@@ -421,29 +546,46 @@ fn merge(story_id: &str) -> Value {
 
 fn adr_links(project_id: &str) -> Value {
     let conn = open_conn();
-    let links: Vec<Value> = ok("adr_links_for_project", adr_links_for_project(&conn, project_id))
-        .into_iter()
-        .map(|l| {
-            let (kind, id) = match l.target {
-                AdrLinkTarget::Milestone(id) => ("milestone", id),
-                AdrLinkTarget::Epic(id) => ("epic", id),
-                AdrLinkTarget::Story(id) => ("story", id),
-            };
-            json!({ "path": l.path, "kind": kind, "id": id })
-        })
-        .collect();
+    let links: Vec<Value> = ok(
+        "adr_links_for_project",
+        adr_links_for_project(&conn, project_id),
+    )
+    .into_iter()
+    .map(|l| {
+        let (kind, id) = match l.target {
+            AdrLinkTarget::Milestone(id) => ("milestone", id),
+            AdrLinkTarget::Epic(id) => ("epic", id),
+            AdrLinkTarget::Story(id) => ("story", id),
+        };
+        json!({ "path": l.path, "kind": kind, "id": id })
+    })
+    .collect();
     json!({ "links": links })
 }
 
 fn session_closed(run_id: &str) -> Value {
     let mut conn = open_conn();
-    ok("close_session", close_session(&mut conn, run_id, SessionStatus::Completed, None, None, None));
+    ok(
+        "close_session",
+        close_session(
+            &mut conn,
+            run_id,
+            SessionStatus::Completed,
+            None,
+            None,
+            None,
+        ),
+    );
     json!({ "closed": run_id })
 }
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let arg = |i: usize| args.get(i).map(String::as_str).unwrap_or_else(|| fail("missing argument; see the usage in this file's header"));
+    let arg = |i: usize| {
+        args.get(i)
+            .map(String::as_str)
+            .unwrap_or_else(|| fail("missing argument; see the usage in this file's header"))
+    };
     let out = match arg(0) {
         "seed" => seed(arg(1)),
         "seed-review" => seed_review(arg(1)),

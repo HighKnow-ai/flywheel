@@ -28,7 +28,9 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde_json::{json, Value};
 
 use crate::domain::actor::assert_human_actor_in_tx;
-use crate::domain::proposal::{accept_proposal_in_tx, file_proposal_in_tx, NewProposal, ProposalTarget, ProposalVerb};
+use crate::domain::proposal::{
+    accept_proposal_in_tx, file_proposal_in_tx, NewProposal, ProposalTarget, ProposalVerb,
+};
 pub use crate::domain::proposal_apply::AdrDraft;
 use crate::domain::session::{agent_actor_id, session_kind, ShapingSubject};
 use crate::domain::session_kind::SessionKind;
@@ -69,7 +71,10 @@ pub struct NewRound {
 
 fn text_field(name: &str, value: &str, max: usize) -> anyhow::Result<()> {
     anyhow::ensure!(!value.trim().is_empty(), "`{name}` is empty");
-    anyhow::ensure!(value.chars().count() <= max, "`{name}` is at most {max} characters");
+    anyhow::ensure!(
+        value.chars().count() <= max,
+        "`{name}` is at most {max} characters"
+    );
     Ok(())
 }
 
@@ -77,7 +82,10 @@ impl NewRound {
     /// Refuse a Round that is empty, too wide, or has a blank or overlong field, naming the field.
     pub fn validate(&self) -> anyhow::Result<()> {
         text_field("note", &self.note, MAX_ROUND_TEXT_LEN)?;
-        anyhow::ensure!(!self.questions.is_empty(), "a Round asks at least one question");
+        anyhow::ensure!(
+            !self.questions.is_empty(),
+            "a Round asks at least one question"
+        );
         anyhow::ensure!(
             self.questions.len() <= MAX_QUESTIONS_PER_ROUND,
             "a Round asks at most {MAX_QUESTIONS_PER_ROUND} questions; ask the rest in the next Round"
@@ -87,7 +95,11 @@ impl NewRound {
             text_field(&at("title"), &q.title, MAX_QUESTION_TITLE_LEN)?;
             text_field(&at("question"), &q.question, MAX_ROUND_TEXT_LEN)?;
             text_field(&at("grounding"), &q.grounding, MAX_ROUND_TEXT_LEN)?;
-            text_field(&at("recommended_answer"), &q.recommended_answer, MAX_ROUND_TEXT_LEN)?;
+            text_field(
+                &at("recommended_answer"),
+                &q.recommended_answer,
+                MAX_ROUND_TEXT_LEN,
+            )?;
             text_field(&at("because"), &q.because, MAX_ROUND_TEXT_LEN)?;
             if let Some(adr) = &q.adr {
                 AdrDraft::from_payload_at(&adr.to_payload(), &format!("questions[{i}].adr."))?;
@@ -105,7 +117,12 @@ impl NewRound {
 /// An ADR question's answer read as Yes (`true`) or No (`false`): the word alone, any case, with
 /// trailing punctuation. Anything else is `None`.
 pub fn yes_or_no(answer: &str) -> Option<bool> {
-    match answer.trim().trim_end_matches(['.', '!']).to_ascii_lowercase().as_str() {
+    match answer
+        .trim()
+        .trim_end_matches(['.', '!'])
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "yes" => Some(true),
         "no" => Some(false),
         _ => None,
@@ -238,7 +255,9 @@ fn questions_of(conn: &Connection, round_id: &str) -> anyhow::Result<Vec<RoundQu
              FROM round_questions WHERE round_id = ?1 ORDER BY number"
         ),
     )?;
-    let rows = stmt.query_map(params![round_id], question_from_row)?.collect::<Result<Vec<_>, _>>();
+    let rows = stmt
+        .query_map(params![round_id], question_from_row)?
+        .collect::<Result<Vec<_>, _>>();
     rows.context("failed to read the Round's questions")
 }
 
@@ -280,7 +299,9 @@ pub fn get_round(conn: &Connection, round_id: &str) -> anyhow::Result<Option<Rou
 
 /// Every Round of an Epic, Stage by Stage and oldest first, each with its questions.
 pub fn rounds_for_epic(conn: &Connection, epic_id: &str) -> anyhow::Result<Vec<Round>> {
-    let mut stmt = conn.prepare(&format!("{ROUND_SELECT} WHERE s.epic_id = ?1 ORDER BY s.rank, r.number"))?;
+    let mut stmt = conn.prepare(&format!(
+        "{ROUND_SELECT} WHERE s.epic_id = ?1 ORDER BY s.rank, r.number"
+    ))?;
     let mut rows = stmt.query(params![epic_id])?;
     let mut rounds = Vec::new();
     while let Some(row) = rows.next()? {
@@ -292,7 +313,9 @@ pub fn rounds_for_epic(conn: &Connection, epic_id: &str) -> anyhow::Result<Vec<R
 /// Every Round of a Milestone (issue #132), oldest first, each with its questions: its one Stage,
 /// Exit test, holds them all.
 pub fn rounds_for_milestone(conn: &Connection, milestone_id: &str) -> anyhow::Result<Vec<Round>> {
-    let mut stmt = conn.prepare(&format!("{ROUND_SELECT} WHERE s.milestone_id = ?1 ORDER BY s.rank, r.number"))?;
+    let mut stmt = conn.prepare(&format!(
+        "{ROUND_SELECT} WHERE s.milestone_id = ?1 ORDER BY s.rank, r.number"
+    ))?;
     let mut rows = stmt.query(params![milestone_id])?;
     let mut rounds = Vec::new();
     while let Some(row) = rows.next()? {
@@ -363,7 +386,11 @@ pub fn post_round(
         "an ADR is offered while shaping an Epic, and attached to it; this session shapes a Milestone"
     );
     let open: Option<i64> = tx
-        .query_row("SELECT number FROM rounds WHERE stage_id = ?1 AND state = 'open'", params![stage.id], |r| r.get(0))
+        .query_row(
+            "SELECT number FROM rounds WHERE stage_id = ?1 AND state = 'open'",
+            params![stage.id],
+            |r| r.get(0),
+        )
         .optional()?;
     if let Some(n) = open {
         bail!(
@@ -372,8 +399,11 @@ pub fn post_round(
             stage.kind.label()
         );
     }
-    let number: i64 =
-        tx.query_row("SELECT COALESCE(MAX(number), 0) + 1 FROM rounds WHERE stage_id = ?1", params![stage.id], |r| r.get(0))?;
+    let number: i64 = tx.query_row(
+        "SELECT COALESCE(MAX(number), 0) + 1 FROM rounds WHERE stage_id = ?1",
+        params![stage.id],
+        |r| r.get(0),
+    )?;
 
     let round_id = new_id();
     tx.execute(
@@ -385,7 +415,11 @@ pub fn post_round(
     for (i, q) in round.questions.iter().enumerate() {
         // An ADR question's draft is stored as `AdrDraft` reads it back: trimmed, "none" as NULL, and
         // its recommendation as the bare Yes or No.
-        let adr = q.adr.as_ref().map(|a| AdrDraft::from_payload(&a.to_payload())).transpose()?;
+        let adr = q
+            .adr
+            .as_ref()
+            .map(|a| AdrDraft::from_payload(&a.to_payload()))
+            .transpose()?;
         let recommended = match (&adr, yes_or_no(&q.recommended_answer)) {
             (Some(_), Some(yes)) => yes_no_word(yes).to_string(),
             _ => q.recommended_answer.trim().to_string(),
@@ -422,7 +456,10 @@ pub fn post_round(
         &stage.project_id,
         "round",
         &round_id,
-        EventScope { story_id: None, epic_id: epic_id.as_deref() },
+        EventScope {
+            story_id: None,
+            epic_id: epic_id.as_deref(),
+        },
         &agent,
         "round.posted",
         &json!({
@@ -461,7 +498,10 @@ fn live_shaping_stage(
         params![session_id],
         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
     )?;
-    anyhow::ensure!(status == "running" || status == "blocked", "this session has ended ({status}); it can no longer {act}");
+    anyhow::ensure!(
+        status == "running" || status == "blocked",
+        "this session has ended ({status}); it can no longer {act}"
+    );
     let subject = match (epic_id.clone(), milestone_id) {
         (Some(id), _) => ShapingSubject::Epic(id),
         (None, Some(id)) => ShapingSubject::Milestone(id),
@@ -489,14 +529,22 @@ pub enum RoundWait {
 /// finished it while no session was live), nothing is written and the call is answered at once.
 /// Refused like `post_round` for a Story session, an ended session or a record with no open Stage,
 /// when the Stage has no Round yet, and while another live session is held on the Round.
-pub fn wait_round(conn: &mut Connection, session_id: &str, held_request_id: &str) -> anyhow::Result<RoundWait> {
+pub fn wait_round(
+    conn: &mut Connection,
+    session_id: &str,
+    held_request_id: &str,
+) -> anyhow::Result<RoundWait> {
     let agent = agent_actor_id(conn)?;
     let at = now();
     let tx = conn.transaction()?;
     let (stage, epic_id) = live_shaping_stage(&tx, session_id, "round_wait", "wait on a Round")?;
 
     let open: Option<String> = tx
-        .query_row("SELECT id FROM rounds WHERE stage_id = ?1 AND state = 'open'", params![stage.id], |r| r.get(0))
+        .query_row(
+            "SELECT id FROM rounds WHERE stage_id = ?1 AND state = 'open'",
+            params![stage.id],
+            |r| r.get(0),
+        )
         .optional()?;
     let Some(round_id) = open else {
         let latest: Option<String> = tx
@@ -525,13 +573,20 @@ pub fn wait_round(conn: &mut Connection, session_id: &str, held_request_id: &str
         params![session_id, held_request_id, round_id],
     )
     .context("failed to take the open Round over")?;
-    let answered = round.questions.iter().filter(|q| q.answer.is_some()).count();
+    let answered = round
+        .questions
+        .iter()
+        .filter(|q| q.answer.is_some())
+        .count();
     record_event(
         &tx,
         &stage.project_id,
         "round",
         &round_id,
-        EventScope { story_id: None, epic_id: epic_id.as_deref() },
+        EventScope {
+            story_id: None,
+            epic_id: epic_id.as_deref(),
+        },
         &agent,
         "round.resumed",
         &json!({
@@ -605,7 +660,10 @@ fn write_answer(
         RoundAnswer::Own(own) => {
             let own = own.trim();
             anyhow::ensure!(!own.is_empty(), "an answer of your own needs some text");
-            anyhow::ensure!(own.chars().count() <= MAX_ROUND_TEXT_LEN, "an answer is at most {MAX_ROUND_TEXT_LEN} characters");
+            anyhow::ensure!(
+                own.chars().count() <= MAX_ROUND_TEXT_LEN,
+                "an answer is at most {MAX_ROUND_TEXT_LEN} characters"
+            );
             (own.to_string(), "own")
         }
     };
@@ -620,7 +678,11 @@ fn write_answer(
         }
         let yes = yes_or_no(&text).context("an ADR question is answered Yes or No")?;
         text = yes_no_word(yes).to_string();
-        with = if yes_or_no(&place.recommended_answer) == Some(yes) { "recommended" } else { "own" };
+        with = if yes_or_no(&place.recommended_answer) == Some(yes) {
+            "recommended"
+        } else {
+            "own"
+        };
         if yes {
             adr_proposal_id = Some(accept_adr_in_tx(tx, actor_id, place, draft, at)?);
         }
@@ -636,7 +698,10 @@ fn write_answer(
         &place.project_id,
         "round_question",
         question_id,
-        EventScope { story_id: None, epic_id: place.epic_id.as_deref() },
+        EventScope {
+            story_id: None,
+            epic_id: place.epic_id.as_deref(),
+        },
         actor_id,
         "round_question.answered",
         &json!({
@@ -654,9 +719,21 @@ fn write_answer(
 /// "Yes" to an ADR question: file the draft as an ADR Proposal on the Epic, then accept it, both as
 /// the developer and inside the answer's transaction, through `proposal`'s own filing and deciding.
 /// Returns the Proposal's id.
-fn accept_adr_in_tx(tx: &Transaction, actor_id: &str, place: &QuestionPlace, draft: &AdrDraft, at: &str) -> anyhow::Result<String> {
-    let epic_id = place.epic_id.as_deref().context("an ADR is attached to the Epic being shaped; this Round shapes no Epic")?;
-    let rationale = format!("Offered as question {} of Round {} and accepted there", place.number, place.round_number);
+fn accept_adr_in_tx(
+    tx: &Transaction,
+    actor_id: &str,
+    place: &QuestionPlace,
+    draft: &AdrDraft,
+    at: &str,
+) -> anyhow::Result<String> {
+    let epic_id = place
+        .epic_id
+        .as_deref()
+        .context("an ADR is attached to the Epic being shaped; this Round shapes no Epic")?;
+    let rationale = format!(
+        "Offered as question {} of Round {} and accepted there",
+        place.number, place.round_number
+    );
     let id = file_proposal_in_tx(
         tx,
         actor_id,
@@ -679,9 +756,17 @@ fn accept_adr_in_tx(tx: &Transaction, actor_id: &str, place: &QuestionPlace, dra
 /// Close the Round once no question in it is unanswered, inside the caller's transaction: mark it
 /// answered, clear its held call and append `round.answered`. Returns the call to answer when one was
 /// held by a session that is still live.
-fn complete_if_answered(tx: &Transaction, round_id: &str, actor_id: &str, at: &str) -> anyhow::Result<Option<RoundRelease>> {
-    let open: i64 =
-        tx.query_row("SELECT COUNT(*) FROM round_questions WHERE round_id = ?1 AND answer IS NULL", params![round_id], |r| r.get(0))?;
+fn complete_if_answered(
+    tx: &Transaction,
+    round_id: &str,
+    actor_id: &str,
+    at: &str,
+) -> anyhow::Result<Option<RoundRelease>> {
+    let open: i64 = tx.query_row(
+        "SELECT COUNT(*) FROM round_questions WHERE round_id = ?1 AND answer IS NULL",
+        params![round_id],
+        |r| r.get(0),
+    )?;
     if open > 0 {
         return Ok(None);
     }
@@ -691,14 +776,20 @@ fn complete_if_answered(tx: &Transaction, round_id: &str, actor_id: &str, at: &s
         params![at, round_id],
     )
     .context("failed to close the answered Round")?;
-    let (project_id, epic_id): (String, Option<String>) =
-        tx.query_row("SELECT project_id, epic_id FROM stages WHERE id = ?1", params![round.stage_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    let (project_id, epic_id): (String, Option<String>) = tx.query_row(
+        "SELECT project_id, epic_id FROM stages WHERE id = ?1",
+        params![round.stage_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
     record_event(
         tx,
         &project_id,
         "round",
         round_id,
-        EventScope { story_id: None, epic_id: epic_id.as_deref() },
+        EventScope {
+            story_id: None,
+            epic_id: epic_id.as_deref(),
+        },
         actor_id,
         "round.answered",
         &json!({
@@ -710,18 +801,28 @@ fn complete_if_answered(tx: &Transaction, round_id: &str, actor_id: &str, at: &s
         at,
     )?;
 
-    let (Some(session_id), Some(request_id)) = (round.session_id.clone(), round.held_request_id.clone()) else {
+    let (Some(session_id), Some(request_id)) =
+        (round.session_id.clone(), round.held_request_id.clone())
+    else {
         return Ok(None);
     };
     let live: bool = tx
-        .query_row("SELECT status IN ('running', 'blocked') FROM sessions WHERE id = ?1", params![session_id], |r| r.get(0))
+        .query_row(
+            "SELECT status IN ('running', 'blocked') FROM sessions WHERE id = ?1",
+            params![session_id],
+            |r| r.get(0),
+        )
         .optional()?
         .unwrap_or(false);
     if !live {
         return Ok(None);
     }
     let answered = get_round(tx, round_id)?.context("the Round just answered")?;
-    Ok(Some(RoundRelease { session_id, request_id, result: round_result(&answered) }))
+    Ok(Some(RoundRelease {
+        session_id,
+        request_id,
+        result: round_result(&answered),
+    }))
 }
 
 /// Answer one question of an open Round, as the developer. One transaction: refuse any actor but a
@@ -738,24 +839,40 @@ pub fn answer_round_question(
     assert_human_actor_in_tx(&tx, actor_id)?;
     let place = question_place(&tx, question_id)?;
     if place.round_state != "open" {
-        bail!("Round {} is answered; its answers are settled", place.round_number);
+        bail!(
+            "Round {} is answered; its answers are settled",
+            place.round_number
+        );
     }
     write_answer(&tx, actor_id, question_id, &place, answer, &at)?;
     let release = complete_if_answered(&tx, &place.round_id, actor_id, &at)?;
-    tx.commit().context("failed to commit answer_round_question")?;
-    Ok(AnswerOutcome { round_id: place.round_id, project_id: place.project_id, release })
+    tx.commit()
+        .context("failed to commit answer_round_question")?;
+    Ok(AnswerOutcome {
+        round_id: place.round_id,
+        project_id: place.project_id,
+        release,
+    })
 }
 
 /// Answer every still-open question of an open Round with its recommended answer, as the developer,
 /// in one transaction, and close the Round once nothing in it is left open. Questions only: no
 /// Proposal is decided here, so an ADR question, whose Yes accepts a Proposal, stays open for its own
 /// Yes or No. Refused when only ADR questions are left open.
-pub fn accept_all_recommended(conn: &mut Connection, actor_id: &str, round_id: &str) -> anyhow::Result<AnswerOutcome> {
+pub fn accept_all_recommended(
+    conn: &mut Connection,
+    actor_id: &str,
+    round_id: &str,
+) -> anyhow::Result<AnswerOutcome> {
     let at = now();
     let tx = conn.transaction()?;
     assert_human_actor_in_tx(&tx, actor_id)?;
     let (number, state): (i64, String) = tx
-        .query_row("SELECT number, state FROM rounds WHERE id = ?1", params![round_id], |r| Ok((r.get(0)?, r.get(1)?)))
+        .query_row(
+            "SELECT number, state FROM rounds WHERE id = ?1",
+            params![round_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
         .optional()?
         .with_context(|| format!("Round {round_id:?} not found"))?;
     if state != "open" {
@@ -765,7 +882,9 @@ pub fn accept_all_recommended(conn: &mut Connection, actor_id: &str, round_id: &
         let mut stmt = tx.prepare(
             "SELECT id FROM round_questions WHERE round_id = ?1 AND answer IS NULL AND kind = 'question' ORDER BY number",
         )?;
-        let ids = stmt.query_map(params![round_id], |r| r.get(0))?.collect::<Result<Vec<_>, _>>()?;
+        let ids = stmt
+            .query_map(params![round_id], |r| r.get(0))?
+            .collect::<Result<Vec<_>, _>>()?;
         ids
     };
     if open.is_empty() {
@@ -774,16 +893,31 @@ pub fn accept_all_recommended(conn: &mut Connection, actor_id: &str, round_id: &
             params![round_id],
             |r| r.get(0),
         )?;
-        anyhow::ensure!(open_adrs == 0, "only ADR questions are left open in Round {number}: answer each one Yes or No");
+        anyhow::ensure!(
+            open_adrs == 0,
+            "only ADR questions are left open in Round {number}: answer each one Yes or No"
+        );
         bail!("no question in Round {number} is left open");
     }
     let mut project_id = String::new();
     for question_id in &open {
         let place = question_place(&tx, question_id)?;
-        write_answer(&tx, actor_id, question_id, &place, &RoundAnswer::Recommended, &at)?;
+        write_answer(
+            &tx,
+            actor_id,
+            question_id,
+            &place,
+            &RoundAnswer::Recommended,
+            &at,
+        )?;
         project_id = place.project_id;
     }
     let release = complete_if_answered(&tx, round_id, actor_id, &at)?;
-    tx.commit().context("failed to commit accept_all_recommended")?;
-    Ok(AnswerOutcome { round_id: round_id.to_string(), project_id, release })
+    tx.commit()
+        .context("failed to commit accept_all_recommended")?;
+    Ok(AnswerOutcome {
+        round_id: round_id.to_string(),
+        project_id,
+        release,
+    })
 }

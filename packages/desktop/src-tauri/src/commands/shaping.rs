@@ -50,7 +50,10 @@ pub struct ShapingSessionDto {
 #[tauri::command]
 ///
 /// Generic over the runtime so `tests/command_threads.rs` can drive it on Tauri's mock runtime.
-pub async fn epic_shape<R: tauri::Runtime>(app: AppHandle<R>, epic_id: String) -> Result<ShapingSessionDto, String> {
+pub async fn epic_shape<R: tauri::Runtime>(
+    app: AppHandle<R>,
+    epic_id: String,
+) -> Result<ShapingSessionDto, String> {
     // Waits on the sidecar (the spawn floor, an acknowledgement or a probe): on the blocking
     // pool, never the thread IPC dispatches on (issue #235).
     tauri::async_runtime::spawn_blocking(move || {
@@ -62,25 +65,39 @@ pub async fn epic_shape<R: tauri::Runtime>(app: AppHandle<R>, epic_id: String) -
 }
 
 /// [`epic_shape`]'s body, on the blocking pool.
-fn epic_shape_blocking<R: tauri::Runtime>(state: &AppState, app: &AppHandle<R>, epic_id: String) -> Result<ShapingSessionDto, String> {
-    let run_id = shape_epic(&state.db, &epic_id, flywheel_core::login_path::claude_bin, |repo_path, request| {
-        send_gated_spawn(state, repo_path, request)
-    })?;
+fn epic_shape_blocking<R: tauri::Runtime>(
+    state: &AppState,
+    app: &AppHandle<R>,
+    epic_id: String,
+) -> Result<ShapingSessionDto, String> {
+    let run_id = shape_epic(
+        &state.db,
+        &epic_id,
+        flywheel_core::login_path::claude_bin,
+        |repo_path, request| send_gated_spawn(state, repo_path, request),
+    )?;
     let project_id = project_of_locked(&state.db, "epics", &epic_id);
     emit_board_changed(app, project_id.as_deref(), "session", Some(&run_id));
     Ok(ShapingSessionDto {
         id: run_id,
         epic_id,
         status: "running".to_string(),
-        permission_mode: SessionKind::Shaping.launch_policy().permission_mode.to_string(),
+        permission_mode: SessionKind::Shaping
+            .launch_policy()
+            .permission_mode
+            .to_string(),
     })
 }
 
 /// The Epic's live shaping session, if any: what the card's Open session control opens.
 #[tauri::command]
-pub fn epic_shaping_session(state: State<AppState>, epic_id: String) -> Result<Option<String>, String> {
+pub fn epic_shaping_session(
+    state: State<AppState>,
+    epic_id: String,
+) -> Result<Option<String>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    flywheel_core::domain::session::live_shaping_session(&conn, &ShapingSubject::Epic(epic_id)).map_err(|e| e.to_string())
+    flywheel_core::domain::session::live_shaping_session(&conn, &ShapingSubject::Epic(epic_id))
+        .map_err(|e| e.to_string())
 }
 
 /// A Stage as the Epic's shaping view reads it.
@@ -221,18 +238,56 @@ impl From<flywheel_core::domain::stage::StageStatus> for StageStatusDto {
                 .iter()
                 .map(|item| {
                     let (kind, id, round, number, title, story_key) = match item {
-                        OpenItem::Question { question_id, round, number, title, .. } => {
-                            ("question", question_id.clone(), Some(*round), Some(*number), title.clone(), None)
+                        OpenItem::Question {
+                            question_id,
+                            round,
+                            number,
+                            title,
+                            ..
+                        } => (
+                            "question",
+                            question_id.clone(),
+                            Some(*round),
+                            Some(*number),
+                            title.clone(),
+                            None,
+                        ),
+                        OpenItem::Proposal {
+                            proposal_id,
+                            summary,
+                        } => (
+                            "proposal",
+                            proposal_id.clone(),
+                            None,
+                            None,
+                            summary.clone(),
+                            None,
+                        ),
+                        OpenItem::StoryWithoutCriterion {
+                            story_id,
+                            key,
+                            title,
+                        } => (
+                            "story_without_criterion",
+                            story_id.clone(),
+                            None,
+                            None,
+                            title.clone(),
+                            Some(key.clone()),
+                        ),
+                        OpenItem::NoStory => {
+                            ("no_story", String::new(), None, None, item.label(), None)
                         }
-                        OpenItem::Proposal { proposal_id, summary } => {
-                            ("proposal", proposal_id.clone(), None, None, summary.clone(), None)
-                        }
-                        OpenItem::StoryWithoutCriterion { story_id, key, title } => {
-                            ("story_without_criterion", story_id.clone(), None, None, title.clone(), Some(key.clone()))
-                        }
-                        OpenItem::NoStory => ("no_story", String::new(), None, None, item.label(), None),
                     };
-                    OpenItemDto { kind: kind.to_string(), id, label: item.label(), round, number, title, story_key }
+                    OpenItemDto {
+                        kind: kind.to_string(),
+                        id,
+                        label: item.label(),
+                        round,
+                        number,
+                        title,
+                        story_key,
+                    }
                 })
                 .collect(),
             warnings: s.warnings,
@@ -285,31 +340,46 @@ impl From<flywheel_core::domain::round::Round> for RoundDto {
 
 /// The Epic's Stages and Rounds (issue #123): what the dock shows.
 #[tauri::command]
-pub fn epic_shaping_rounds(state: State<AppState>, epic_id: String) -> Result<EpicShapingDto, String> {
+pub fn epic_shaping_rounds(
+    state: State<AppState>,
+    epic_id: String,
+) -> Result<EpicShapingDto, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     read_epic_shaping(&conn, &epic_id)
 }
 
-pub(crate) fn read_epic_shaping(conn: &Connection, epic_id: &str) -> Result<EpicShapingDto, String> {
+pub(crate) fn read_epic_shaping(
+    conn: &Connection,
+    epic_id: &str,
+) -> Result<EpicShapingDto, String> {
     let epic = flywheel_core::domain::epic::get_epic(conn, epic_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Epic {epic_id:?} not found"))?;
     let epic = super::epic::to_dto(conn, epic)?;
-    let stages = flywheel_core::domain::stage::stages_for_epic(conn, epic_id).map_err(|e| e.to_string())?;
-    let rounds = flywheel_core::domain::round::rounds_for_epic(conn, epic_id).map_err(|e| e.to_string())?;
-    let proposals = flywheel_core::domain::proposal::proposals_on_epic(conn, epic_id).map_err(|e| e.to_string())?;
+    let stages =
+        flywheel_core::domain::stage::stages_for_epic(conn, epic_id).map_err(|e| e.to_string())?;
+    let rounds =
+        flywheel_core::domain::round::rounds_for_epic(conn, epic_id).map_err(|e| e.to_string())?;
+    let proposals = flywheel_core::domain::proposal::proposals_on_epic(conn, epic_id)
+        .map_err(|e| e.to_string())?;
     let open_stage_status = match stages.iter().find(|s| s.state == "open") {
-        Some(open) => Some(flywheel_core::domain::stage::stage_status(conn, &open.id).map_err(|e| e.to_string())?.into()),
+        Some(open) => Some(
+            flywheel_core::domain::stage::stage_status(conn, &open.id)
+                .map_err(|e| e.to_string())?
+                .into(),
+        ),
         None => None,
     };
-    let (accepted, proposals): (Vec<_>, Vec<_>) = proposals.into_iter().partition(|p| p.state == "accepted");
+    let (accepted, proposals): (Vec<_>, Vec<_>) =
+        proposals.into_iter().partition(|p| p.state == "accepted");
     let adr_links = flywheel_core::domain::adr_link::adr_links_for_project(conn, &epic.project_id)
         .map_err(|e| e.to_string())?
         .into_iter()
         .filter(|l| matches!(&l.target, flywheel_core::domain::adr_link::AdrLinkTarget::Epic(id) if id == epic_id))
         .map(|l| l.path)
         .collect();
-    let stories = flywheel_core::domain::story::stories_in_epic(conn, epic_id).map_err(|e| e.to_string())?;
+    let stories =
+        flywheel_core::domain::story::stories_in_epic(conn, epic_id).map_err(|e| e.to_string())?;
     Ok(EpicShapingDto {
         open_stage_status,
         stories: stories.into_iter().map(Into::into).collect(),
@@ -323,7 +393,12 @@ pub(crate) fn read_epic_shaping(conn: &Connection, epic_id: &str) -> Result<Epic
         epic,
         stages: stages
             .into_iter()
-            .map(|s| StageDto { id: s.id, kind: s.kind.as_str().to_string(), state: s.state, rank: s.rank })
+            .map(|s| StageDto {
+                id: s.id,
+                kind: s.kind.as_str().to_string(),
+                state: s.state,
+                rank: s.rank,
+            })
             .collect(),
         rounds: rounds.into_iter().map(RoundDto::from).collect(),
     })
@@ -331,9 +406,18 @@ pub(crate) fn read_epic_shaping(conn: &Connection, epic_id: &str) -> Result<Epic
 
 /// Accept a question's recommended answer as it is (issue #123). Human-only.
 #[tauri::command]
-pub fn round_accept(state: State<AppState>, app: AppHandle, question_id: String) -> Result<(), String> {
+pub fn round_accept(
+    state: State<AppState>,
+    app: AppHandle,
+    question_id: String,
+) -> Result<(), String> {
     let outcome = answer_and_release(&state.db, |conn, human| {
-        flywheel_core::domain::round::answer_round_question(conn, human, &question_id, &RoundAnswer::Recommended)
+        flywheel_core::domain::round::answer_round_question(
+            conn,
+            human,
+            &question_id,
+            &RoundAnswer::Recommended,
+        )
     })?;
     settle(&app, outcome);
     Ok(())
@@ -341,10 +425,24 @@ pub fn round_accept(state: State<AppState>, app: AppHandle, question_id: String)
 
 /// Answer a question in the developer's own words (issue #123). Human-only.
 #[tauri::command]
-pub fn round_answer(state: State<AppState>, app: AppHandle, question_id: String, answer: String) -> Result<(), String> {
-    validate_text("answer", &answer, flywheel_core::domain::round::MAX_ROUND_TEXT_LEN)?;
+pub fn round_answer(
+    state: State<AppState>,
+    app: AppHandle,
+    question_id: String,
+    answer: String,
+) -> Result<(), String> {
+    validate_text(
+        "answer",
+        &answer,
+        flywheel_core::domain::round::MAX_ROUND_TEXT_LEN,
+    )?;
     let outcome = answer_and_release(&state.db, |conn, human| {
-        flywheel_core::domain::round::answer_round_question(conn, human, &question_id, &RoundAnswer::Own(answer.clone()))
+        flywheel_core::domain::round::answer_round_question(
+            conn,
+            human,
+            &question_id,
+            &RoundAnswer::Own(answer.clone()),
+        )
     })?;
     settle(&app, outcome);
     Ok(())
@@ -353,7 +451,11 @@ pub fn round_answer(state: State<AppState>, app: AppHandle, question_id: String,
 /// Accept the recommended answer of every question still open in a Round (issue #123). Questions
 /// only: no Proposal is decided here. Human-only.
 #[tauri::command]
-pub fn round_accept_all(state: State<AppState>, app: AppHandle, round_id: String) -> Result<(), String> {
+pub fn round_accept_all(
+    state: State<AppState>,
+    app: AppHandle,
+    round_id: String,
+) -> Result<(), String> {
     let outcome = answer_and_release(&state.db, |conn, human| {
         flywheel_core::domain::round::accept_all_recommended(conn, human, &round_id)
     })?;
@@ -367,7 +469,8 @@ pub(crate) fn answer_and_release(
     answer: impl FnOnce(&mut Connection, &str) -> anyhow::Result<AnswerOutcome>,
 ) -> Result<AnswerOutcome, String> {
     let mut conn = db.lock().map_err(|e| e.to_string())?;
-    let human = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    let human =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     answer(&mut conn, &human).map_err(|e| format!("{e:#}"))
 }
 
@@ -375,9 +478,19 @@ pub(crate) fn answer_and_release(
 /// tell the renderer the board changed.
 fn settle(app: &AppHandle, outcome: AnswerOutcome) {
     if let Some(release) = &outcome.release {
-        send_board_tool_answer(app, &release.session_id, &release.request_id, &release_answer(release));
+        send_board_tool_answer(
+            app,
+            &release.session_id,
+            &release.request_id,
+            &release_answer(release),
+        );
     }
-    emit_board_changed(app, Some(&outcome.project_id), "round", Some(&outcome.round_id));
+    emit_board_changed(
+        app,
+        Some(&outcome.project_id),
+        "round",
+        Some(&outcome.round_id),
+    );
 }
 
 /// The `board_tool_answer` body that settles a held `round_post`: `{result}` with every answer.
@@ -397,11 +510,18 @@ pub(crate) fn answer_shaping_tool_call(
     tool: &str,
     args: &serde_json::Value,
 ) -> (Option<serde_json::Value>, Option<String>) {
-    use flywheel_core::domain::shaping_tool::{apply_shaping_tool_call, ShapingToolCall, ShapingToolOutcome};
-    match ShapingToolCall::parse(tool, args).and_then(|call| apply_shaping_tool_call(conn, run_id, request_id, &call)) {
+    use flywheel_core::domain::shaping_tool::{
+        apply_shaping_tool_call, ShapingToolCall, ShapingToolOutcome,
+    };
+    match ShapingToolCall::parse(tool, args)
+        .and_then(|call| apply_shaping_tool_call(conn, run_id, request_id, &call))
+    {
         Ok(ShapingToolOutcome::Held { project_id, .. }) => (None, Some(project_id)),
         // Issue #125: a Proposal never holds the agent. Issue #124: nor does a round_wait on an answered Round.
-        Ok(ShapingToolOutcome::Answered { result, project_id }) => (Some(serde_json::json!({ "result": result })), Some(project_id)),
+        Ok(ShapingToolOutcome::Answered { result, project_id }) => (
+            Some(serde_json::json!({ "result": result })),
+            Some(project_id),
+        ),
         // The reason goes to the agent so it can correct its call.
         Err(e) => (Some(serde_json::json!({ "error": format!("{e:#}") })), None),
     }
@@ -411,17 +531,36 @@ pub(crate) fn answer_shaping_tool_call(
 /// call, answer it at once only when it was refused, and emit `board:changed` when a Round landed.
 /// A held call is answered later, by [`settle`], once its Round's last question is answered. Must
 /// never panic: a poisoned lock is a silent no-op, and the agent's call then ends with its session.
-pub(crate) fn handle_shaping_tool_request(app: &AppHandle, run_id: &str, request_id: &str, tool: &str, args: &serde_json::Value) {
-    let Some(state) = tauri::Manager::try_state::<AppState>(app) else { return };
+pub(crate) fn handle_shaping_tool_request(
+    app: &AppHandle,
+    run_id: &str,
+    request_id: &str,
+    tool: &str,
+    args: &serde_json::Value,
+) {
+    let Some(state) = tauri::Manager::try_state::<AppState>(app) else {
+        return;
+    };
     let (answer, changed) = {
-        let Ok(mut conn) = state.db.lock() else { return };
+        let Ok(mut conn) = state.db.lock() else {
+            return;
+        };
         answer_shaping_tool_call(&mut conn, run_id, request_id, tool, args)
     };
     if let Some(answer) = answer {
         send_board_tool_answer(app, run_id, request_id, &answer);
     }
     if let Some(project_id) = changed {
-        emit_board_changed(app, Some(&project_id), if tool == "round_post" { "round" } else { "proposal" }, None);
+        emit_board_changed(
+            app,
+            Some(&project_id),
+            if tool == "round_post" {
+                "round"
+            } else {
+                "proposal"
+            },
+            None,
+        );
     }
 }
 
@@ -430,7 +569,10 @@ pub(crate) fn handle_shaping_tool_request(app: &AppHandle, run_id: &str, request
 /// Round with its answers and tells the agent to call `round_wait` on the open one. Refused for an
 /// Epic with no Round yet (Shape starts that one) and, like Shape, for one already being shaped.
 #[tauri::command]
-pub async fn shaping_continue(app: AppHandle, epic_id: String) -> Result<ShapingSessionDto, String> {
+pub async fn shaping_continue(
+    app: AppHandle,
+    epic_id: String,
+) -> Result<ShapingSessionDto, String> {
     // Waits on the sidecar (the spawn floor, an acknowledgement or a probe): on the blocking
     // pool, never the thread IPC dispatches on (issue #235).
     tauri::async_runtime::spawn_blocking(move || {
@@ -442,17 +584,27 @@ pub async fn shaping_continue(app: AppHandle, epic_id: String) -> Result<Shaping
 }
 
 /// [`shaping_continue`]'s body, on the blocking pool.
-fn shaping_continue_blocking(state: &AppState, app: &AppHandle, epic_id: String) -> Result<ShapingSessionDto, String> {
-    let run_id = continue_epic(&state.db, &epic_id, flywheel_core::login_path::claude_bin, |repo_path, request| {
-        send_gated_spawn(state, repo_path, request)
-    })?;
+fn shaping_continue_blocking(
+    state: &AppState,
+    app: &AppHandle,
+    epic_id: String,
+) -> Result<ShapingSessionDto, String> {
+    let run_id = continue_epic(
+        &state.db,
+        &epic_id,
+        flywheel_core::login_path::claude_bin,
+        |repo_path, request| send_gated_spawn(state, repo_path, request),
+    )?;
     let project_id = project_of_locked(&state.db, "epics", &epic_id);
     emit_board_changed(app, project_id.as_deref(), "session", Some(&run_id));
     Ok(ShapingSessionDto {
         id: run_id,
         epic_id,
         status: "running".to_string(),
-        permission_mode: SessionKind::Shaping.launch_policy().permission_mode.to_string(),
+        permission_mode: SessionKind::Shaping
+            .launch_policy()
+            .permission_mode
+            .to_string(),
     })
 }
 
@@ -465,9 +617,13 @@ pub(crate) fn continue_epic(
 ) -> Result<String, String> {
     {
         let conn = db.lock().map_err(|e| e.to_string())?;
-        let rounds = flywheel_core::domain::round::rounds_for_epic(&conn, epic_id).map_err(|e| e.to_string())?;
+        let rounds = flywheel_core::domain::round::rounds_for_epic(&conn, epic_id)
+            .map_err(|e| e.to_string())?;
         if rounds.is_empty() {
-            return Err("this Epic has no Round to continue from; Shape it to start its first Round".to_string());
+            return Err(
+                "this Epic has no Round to continue from; Shape it to start its first Round"
+                    .to_string(),
+            );
         }
     }
     shape_epic(db, epic_id, find_claude, send)
@@ -511,7 +667,11 @@ pub async fn stage_close(app: AppHandle, stage_id: String) -> Result<StageCloseD
 }
 
 /// [`stage_close`]'s body, on the blocking pool.
-fn stage_close_blocking(state: &AppState, app: &AppHandle, stage_id: String) -> Result<StageCloseDto, String> {
+fn stage_close_blocking(
+    state: &AppState,
+    app: &AppHandle,
+    stage_id: String,
+) -> Result<StageCloseDto, String> {
     let dto = close_stage_and_shape(
         &state.db,
         &stage_id,
@@ -523,7 +683,12 @@ fn stage_close_blocking(state: &AppState, app: &AppHandle, stage_id: String) -> 
         |repo_path, request| send_gated_spawn(state, repo_path, request),
     )?;
     let project_id = project_of_locked(&state.db, "stages", &dto.closed_stage_id);
-    emit_board_changed(app, project_id.as_deref(), "stage", Some(&dto.closed_stage_id));
+    emit_board_changed(
+        app,
+        project_id.as_deref(),
+        "stage",
+        Some(&dto.closed_stage_id),
+    );
     Ok(dto)
 }
 
@@ -541,8 +706,10 @@ pub(crate) fn close_stage_and_shape(
 ) -> Result<StageCloseDto, String> {
     let closed = {
         let mut conn = db.lock().map_err(|e| e.to_string())?;
-        let human = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-        flywheel_core::domain::stage::close_stage(&mut conn, &human, stage_id).map_err(|e| format!("{e:#}"))?
+        let human =
+            flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+        flywheel_core::domain::stage::close_stage(&mut conn, &human, stage_id)
+            .map_err(|e| format!("{e:#}"))?
     };
     let sidecar_warning = closed.ended_session.as_deref().and_then(|id| interrupt(id).err()).map(|e| {
         format!("Flywheel recorded the last Stage's session as ended, but could not confirm its agent process stopped: {e}")
@@ -560,7 +727,10 @@ pub(crate) fn close_stage_and_shape(
                     id,
                     epic_id: epic_id.clone(),
                     status: "running".to_string(),
-                    permission_mode: SessionKind::Shaping.launch_policy().permission_mode.to_string(),
+                    permission_mode: SessionKind::Shaping
+                        .launch_policy()
+                        .permission_mode
+                        .to_string(),
                 }),
                 None,
             ),
@@ -589,7 +759,12 @@ pub(crate) fn shape_epic(
     find_claude: impl FnOnce() -> Result<std::path::PathBuf, String>,
     send: impl FnOnce(&str, &serde_json::Value) -> Result<(), String>,
 ) -> Result<String, String> {
-    shape_subject(db, &ShapingSubject::Epic(epic_id.to_string()), find_claude, send)
+    shape_subject(
+        db,
+        &ShapingSubject::Epic(epic_id.to_string()),
+        find_claude,
+        send,
+    )
 }
 
 /// [`milestone_shape`]'s body (issue #132): [`shape_epic`] for a Milestone, whose session opens its
@@ -600,7 +775,12 @@ pub(crate) fn shape_milestone(
     find_claude: impl FnOnce() -> Result<std::path::PathBuf, String>,
     send: impl FnOnce(&str, &serde_json::Value) -> Result<(), String>,
 ) -> Result<String, String> {
-    shape_subject(db, &ShapingSubject::Milestone(milestone_id.to_string()), find_claude, send)
+    shape_subject(
+        db,
+        &ShapingSubject::Milestone(milestone_id.to_string()),
+        find_claude,
+        send,
+    )
 }
 
 /// Start a shaping session on `subject`: [`shape_epic`]'s and [`shape_milestone`]'s shared body.
@@ -611,7 +791,8 @@ fn shape_subject(
     send: impl FnOnce(&str, &serde_json::Value) -> Result<(), String>,
 ) -> Result<String, String> {
     let mut conn = db.lock().map_err(|e| e.to_string())?;
-    let human = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    let human =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     let (sql, id, noun) = match subject {
         ShapingSubject::Epic(id) => (
             "SELECT e.project_id, p.repo_path FROM epics e JOIN projects p ON p.id = e.project_id WHERE e.id = ?1",
@@ -626,11 +807,14 @@ fn shape_subject(
         ShapingSubject::Roadmap(_) => return Err("the Roadmap is shaped through Revisit roadmap".to_string()),
     };
     let (project_id, repo_path): (String, String) = conn
-        .query_row(sql, rusqlite::params![id], |row| Ok((row.get(0)?, row.get(1)?)))
+        .query_row(sql, rusqlite::params![id], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
         .map_err(|_| format!("{noun} {id:?} not found"))?;
     find_claude()?;
     // Resolved before the row exists: a missing API key must not leave a `running` row behind.
-    let env = crate::sidecar::resolved_env_for_run(&conn, &project_id).map_err(|e| e.to_string())?;
+    let env =
+        crate::sidecar::resolved_env_for_run(&conn, &project_id).map_err(|e| e.to_string())?;
 
     let kind = SessionKind::Shaping;
     let session = flywheel_core::domain::session::start_shaping_session(
@@ -670,14 +854,20 @@ impl MilestoneShapingSessionDto {
             id,
             milestone_id,
             status: "running".to_string(),
-            permission_mode: SessionKind::Shaping.launch_policy().permission_mode.to_string(),
+            permission_mode: SessionKind::Shaping
+                .launch_policy()
+                .permission_mode
+                .to_string(),
         }
     }
 }
 
 /// Shape on a Milestone in Shaping (issue #132): start a shaping session on its exit test.
 #[tauri::command]
-pub async fn milestone_shape(app: AppHandle, milestone_id: String) -> Result<MilestoneShapingSessionDto, String> {
+pub async fn milestone_shape(
+    app: AppHandle,
+    milestone_id: String,
+) -> Result<MilestoneShapingSessionDto, String> {
     // Waits on the sidecar (the spawn floor, an acknowledgement or a probe): on the blocking
     // pool, never the thread IPC dispatches on (issue #235).
     tauri::async_runtime::spawn_blocking(move || {
@@ -689,10 +879,17 @@ pub async fn milestone_shape(app: AppHandle, milestone_id: String) -> Result<Mil
 }
 
 /// [`milestone_shape`]'s body, on the blocking pool.
-fn milestone_shape_blocking(state: &AppState, app: &AppHandle, milestone_id: String) -> Result<MilestoneShapingSessionDto, String> {
-    let run_id = shape_milestone(&state.db, &milestone_id, flywheel_core::login_path::claude_bin, |repo_path, request| {
-        send_gated_spawn(state, repo_path, request)
-    })?;
+fn milestone_shape_blocking(
+    state: &AppState,
+    app: &AppHandle,
+    milestone_id: String,
+) -> Result<MilestoneShapingSessionDto, String> {
+    let run_id = shape_milestone(
+        &state.db,
+        &milestone_id,
+        flywheel_core::login_path::claude_bin,
+        |repo_path, request| send_gated_spawn(state, repo_path, request),
+    )?;
     let project_id = project_of_locked(&state.db, "milestones", &milestone_id);
     emit_board_changed(app, project_id.as_deref(), "session", Some(&run_id));
     Ok(MilestoneShapingSessionDto::running(run_id, milestone_id))
@@ -700,16 +897,25 @@ fn milestone_shape_blocking(state: &AppState, app: &AppHandle, milestone_id: Str
 
 /// The Milestone's live shaping session, if any (issue #132).
 #[tauri::command]
-pub fn milestone_shaping_session(state: State<AppState>, milestone_id: String) -> Result<Option<String>, String> {
+pub fn milestone_shaping_session(
+    state: State<AppState>,
+    milestone_id: String,
+) -> Result<Option<String>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    flywheel_core::domain::session::live_shaping_session(&conn, &ShapingSubject::Milestone(milestone_id))
-        .map_err(|e| e.to_string())
+    flywheel_core::domain::session::live_shaping_session(
+        &conn,
+        &ShapingSubject::Milestone(milestone_id),
+    )
+    .map_err(|e| e.to_string())
 }
 
 /// Continue shaping a Milestone (issue #132): [`shaping_continue`] for a Milestone whose Rounds
 /// outlived the session that posted them.
 #[tauri::command]
-pub async fn milestone_shaping_continue(app: AppHandle, milestone_id: String) -> Result<MilestoneShapingSessionDto, String> {
+pub async fn milestone_shaping_continue(
+    app: AppHandle,
+    milestone_id: String,
+) -> Result<MilestoneShapingSessionDto, String> {
     // Waits on the sidecar (the spawn floor, an acknowledgement or a probe): on the blocking
     // pool, never the thread IPC dispatches on (issue #235).
     tauri::async_runtime::spawn_blocking(move || {
@@ -721,10 +927,17 @@ pub async fn milestone_shaping_continue(app: AppHandle, milestone_id: String) ->
 }
 
 /// [`milestone_shaping_continue`]'s body, on the blocking pool.
-fn milestone_shaping_continue_blocking(state: &AppState, app: &AppHandle, milestone_id: String) -> Result<MilestoneShapingSessionDto, String> {
-    let run_id = continue_milestone(&state.db, &milestone_id, flywheel_core::login_path::claude_bin, |repo_path, request| {
-        send_gated_spawn(state, repo_path, request)
-    })?;
+fn milestone_shaping_continue_blocking(
+    state: &AppState,
+    app: &AppHandle,
+    milestone_id: String,
+) -> Result<MilestoneShapingSessionDto, String> {
+    let run_id = continue_milestone(
+        &state.db,
+        &milestone_id,
+        flywheel_core::login_path::claude_bin,
+        |repo_path, request| send_gated_spawn(state, repo_path, request),
+    )?;
     let project_id = project_of_locked(&state.db, "milestones", &milestone_id);
     emit_board_changed(app, project_id.as_deref(), "session", Some(&run_id));
     Ok(MilestoneShapingSessionDto::running(run_id, milestone_id))
@@ -739,9 +952,13 @@ pub(crate) fn continue_milestone(
 ) -> Result<String, String> {
     {
         let conn = db.lock().map_err(|e| e.to_string())?;
-        let rounds = flywheel_core::domain::round::rounds_for_milestone(&conn, milestone_id).map_err(|e| e.to_string())?;
+        let rounds = flywheel_core::domain::round::rounds_for_milestone(&conn, milestone_id)
+            .map_err(|e| e.to_string())?;
         if rounds.is_empty() {
-            return Err("this Milestone has no Round to continue from; Shape it to start its first Round".to_string());
+            return Err(
+                "this Milestone has no Round to continue from; Shape it to start its first Round"
+                    .to_string(),
+            );
         }
     }
     shape_milestone(db, milestone_id, find_claude, send)
@@ -765,30 +982,49 @@ pub struct MilestoneShapingDto {
 
 /// The Milestone's Stage, Rounds and Proposals (issue #132): what its dock shows.
 #[tauri::command]
-pub fn milestone_shaping_rounds(state: State<AppState>, milestone_id: String) -> Result<MilestoneShapingDto, String> {
+pub fn milestone_shaping_rounds(
+    state: State<AppState>,
+    milestone_id: String,
+) -> Result<MilestoneShapingDto, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     read_milestone_shaping(&conn, &milestone_id)
 }
 
-pub(crate) fn read_milestone_shaping(conn: &Connection, milestone_id: &str) -> Result<MilestoneShapingDto, String> {
+pub(crate) fn read_milestone_shaping(
+    conn: &Connection,
+    milestone_id: &str,
+) -> Result<MilestoneShapingDto, String> {
     let milestone = flywheel_core::domain::milestone::get_milestone(conn, milestone_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Milestone {milestone_id:?} not found"))?;
-    let current = flywheel_core::domain::milestone::current_milestone(conn, &milestone.project_id).map_err(|e| e.to_string())?;
-    let milestone = super::roadmap::to_dto(conn, milestone, current.as_ref().map(|c| c.id.as_str()))?;
-    let stages = flywheel_core::domain::stage::stages_for_milestone(conn, milestone_id).map_err(|e| e.to_string())?;
-    let rounds = flywheel_core::domain::round::rounds_for_milestone(conn, milestone_id).map_err(|e| e.to_string())?;
-    let proposals =
-        flywheel_core::domain::proposal::proposals_on_milestone(conn, milestone_id).map_err(|e| e.to_string())?;
+    let current = flywheel_core::domain::milestone::current_milestone(conn, &milestone.project_id)
+        .map_err(|e| e.to_string())?;
+    let milestone =
+        super::roadmap::to_dto(conn, milestone, current.as_ref().map(|c| c.id.as_str()))?;
+    let stages = flywheel_core::domain::stage::stages_for_milestone(conn, milestone_id)
+        .map_err(|e| e.to_string())?;
+    let rounds = flywheel_core::domain::round::rounds_for_milestone(conn, milestone_id)
+        .map_err(|e| e.to_string())?;
+    let proposals = flywheel_core::domain::proposal::proposals_on_milestone(conn, milestone_id)
+        .map_err(|e| e.to_string())?;
     let open_stage_status = match stages.iter().find(|s| s.state == "open") {
-        Some(open) => Some(flywheel_core::domain::stage::stage_status(conn, &open.id).map_err(|e| e.to_string())?.into()),
+        Some(open) => Some(
+            flywheel_core::domain::stage::stage_status(conn, &open.id)
+                .map_err(|e| e.to_string())?
+                .into(),
+        ),
         None => None,
     };
     Ok(MilestoneShapingDto {
         milestone,
         stages: stages
             .into_iter()
-            .map(|s| StageDto { id: s.id, kind: s.kind.as_str().to_string(), state: s.state, rank: s.rank })
+            .map(|s| StageDto {
+                id: s.id,
+                kind: s.kind.as_str().to_string(),
+                state: s.state,
+                rank: s.rank,
+            })
             .collect(),
         rounds: rounds.into_iter().map(RoundDto::from).collect(),
         // Only exit-test changes ghost over the exit test: an Amend Milestone with only `exit_test` set
@@ -819,8 +1055,11 @@ mod tests {
     fn shaping_epic() -> (std::sync::Mutex<Connection>, String, tempfile::TempDir) {
         let checkout = tempfile::tempdir().unwrap();
         let dir = tempfile::tempdir().unwrap();
-        let mut conn = flywheel_core::db::open_and_migrate(&dir.path().join("flywheel.db"), &dir.path().join("backups"))
-            .unwrap();
+        let mut conn = flywheel_core::db::open_and_migrate(
+            &dir.path().join("flywheel.db"),
+            &dir.path().join("backups"),
+        )
+        .unwrap();
         std::mem::forget(dir);
         let human = flywheel_core::domain::actor::local_human_actor_id(&conn).unwrap();
         let project = flywheel_core::domain::project::create_project(
@@ -832,8 +1071,17 @@ mod tests {
             "main",
         )
         .unwrap();
-        let m = flywheel_core::domain::milestone::create_milestone(&mut conn, &project.id, &human, "Shaping", None).unwrap();
-        let epic = flywheel_core::domain::epic::create_epic(&mut conn, &human, &m.id, "Epic shaping").unwrap();
+        let m = flywheel_core::domain::milestone::create_milestone(
+            &mut conn,
+            &project.id,
+            &human,
+            "Shaping",
+            None,
+        )
+        .unwrap();
+        let epic =
+            flywheel_core::domain::epic::create_epic(&mut conn, &human, &m.id, "Epic shaping")
+                .unwrap();
         (std::sync::Mutex::new(conn), epic.id, checkout)
     }
 
@@ -853,7 +1101,8 @@ mod tests {
     }
 
     fn session_count(conn: &Connection) -> i64 {
-        conn.query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0)).unwrap()
+        conn.query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0))
+            .unwrap()
     }
 
     #[test]
@@ -875,21 +1124,54 @@ mod tests {
                     |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
                 )
                 .unwrap();
-            assert_eq!((kind.as_str(), story, epic.as_deref(), worktree, status.as_str()), ("shaping", None, Some(epic_id.as_str()), None, "running"));
-            let worktrees: i64 = conn.query_row("SELECT COUNT(*) FROM worktrees", [], |r| r.get(0)).unwrap();
+            assert_eq!(
+                (
+                    kind.as_str(),
+                    story,
+                    epic.as_deref(),
+                    worktree,
+                    status.as_str()
+                ),
+                ("shaping", None, Some(epic_id.as_str()), None, "running")
+            );
+            let worktrees: i64 = conn
+                .query_row("SELECT COUNT(*) FROM worktrees", [], |r| r.get(0))
+                .unwrap();
             assert_eq!(worktrees, 0, "shaping creates no worktree");
 
             let (repo, request) = sent.expect("one spawn request");
             let checkout = checkout.path().to_string_lossy().into_owned();
-            assert_eq!(repo, checkout, "the spawn floor is keyed by the project's checkout");
-            assert_eq!(request["worktreePath"], serde_json::json!(checkout), "the session runs in the checkout");
+            assert_eq!(
+                repo, checkout,
+                "the spawn floor is keyed by the project's checkout"
+            );
+            assert_eq!(
+                request["worktreePath"],
+                serde_json::json!(checkout),
+                "the session runs in the checkout"
+            );
             assert_eq!(request["permissionMode"], "dontAsk");
-            assert_eq!(request["permissionPrompt"], false, "no permission-prompt tool");
-            let denied: Vec<String> = serde_json::from_value(request["disallowedTools"].clone()).unwrap();
-            assert!(denied.iter().any(|t| t == "AskUserQuestion"), "Rounds are the only way to ask: {denied:?}");
+            assert_eq!(
+                request["permissionPrompt"], false,
+                "no permission-prompt tool"
+            );
+            let denied: Vec<String> =
+                serde_json::from_value(request["disallowedTools"].clone()).unwrap();
+            assert!(
+                denied.iter().any(|t| t == "AskUserQuestion"),
+                "Rounds are the only way to ask: {denied:?}"
+            );
             assert!(denied.iter().any(|t| t == "Bash"), "{denied:?}");
-            assert!(request["env"].get(flywheel_core::destructive::WORKTREE_ENV).is_none(), "no worktree to fence");
-            assert!(request["prompt"].as_str().unwrap().starts_with("# Shaping packet: Epic "));
+            assert!(
+                request["env"]
+                    .get(flywheel_core::destructive::WORKTREE_ENV)
+                    .is_none(),
+                "no worktree to fence"
+            );
+            assert!(request["prompt"]
+                .as_str()
+                .unwrap()
+                .starts_with("# Shaping packet: Epic "));
             assert_eq!(request["runId"], serde_json::json!(run_id));
         });
     }
@@ -900,9 +1182,12 @@ mod tests {
             let (db, epic_id, _checkout) = shaping_epic();
             let empty = tempfile::tempdir().unwrap();
             let searched = format!("{}:/usr/bin:/bin", empty.path().display());
-            let err = shape_epic(&db, &epic_id, || flywheel_core::login_path::claude_bin_on(&searched), |_, _| {
-                panic!("nothing may be spawned")
-            })
+            let err = shape_epic(
+                &db,
+                &epic_id,
+                || flywheel_core::login_path::claude_bin_on(&searched),
+                |_, _| panic!("nothing may be spawned"),
+            )
             .expect_err("Shape is refused without claude");
             assert!(err.contains(&searched), "{err}");
             assert_eq!(session_count(&db.lock().unwrap()), 0);
@@ -914,17 +1199,28 @@ mod tests {
         with_scratch(|| {
             let (db, epic_id, _checkout) = shaping_epic();
             shape_epic(&db, &epic_id, found_claude, |_, _| Ok(())).unwrap();
-            let err = shape_epic(&db, &epic_id, found_claude, |_, _| panic!("no second spawn")).unwrap_err();
+            let err = shape_epic(&db, &epic_id, found_claude, |_, _| {
+                panic!("no second spawn")
+            })
+            .unwrap_err();
             assert!(err.contains("already has a live shaping session"), "{err}");
 
             let (db, epic_id, _checkout) = shaping_epic();
             {
                 let mut conn = db.lock().unwrap();
                 let human = flywheel_core::domain::actor::local_human_actor_id(&conn).unwrap();
-                flywheel_core::domain::epic::set_epic_state(&mut conn, &human, &epic_id, flywheel_core::domain::epic::EpicState::Ready)
-                    .unwrap();
+                flywheel_core::domain::epic::set_epic_state(
+                    &mut conn,
+                    &human,
+                    &epic_id,
+                    flywheel_core::domain::epic::EpicState::Ready,
+                )
+                .unwrap();
             }
-            let err = shape_epic(&db, &epic_id, found_claude, |_, _| panic!("nothing may be spawned")).unwrap_err();
+            let err = shape_epic(&db, &epic_id, found_claude, |_, _| {
+                panic!("nothing may be spawned")
+            })
+            .unwrap_err();
             assert!(err.contains("only a record in Shaping is shaped"), "{err}");
             assert_eq!(session_count(&db.lock().unwrap()), 0);
         });
@@ -934,10 +1230,16 @@ mod tests {
     fn a_shaping_launch_whose_spawn_fails_leaves_no_running_row_and_shape_works_again() {
         with_scratch(|| {
             let (db, epic_id, _checkout) = shaping_epic();
-            let err = shape_epic(&db, &epic_id, found_claude, |_, _| Err("spawn boom".to_string())).unwrap_err();
+            let err = shape_epic(&db, &epic_id, found_claude, |_, _| {
+                Err("spawn boom".to_string())
+            })
+            .unwrap_err();
             assert!(err.contains("spawn boom"), "{err}");
-            let status: String =
-                db.lock().unwrap().query_row("SELECT status FROM sessions", [], |r| r.get(0)).unwrap();
+            let status: String = db
+                .lock()
+                .unwrap()
+                .query_row("SELECT status FROM sessions", [], |r| r.get(0))
+                .unwrap();
             assert_eq!(status, "failed");
             shape_epic(&db, &epic_id, found_claude, |_, _| Ok(())).expect("Shape works again");
         });
@@ -949,16 +1251,30 @@ mod tests {
             let (db, epic_id, _checkout) = shaping_epic();
             let run_id = shape_epic(&db, &epic_id, found_claude, |_, _| Ok(())).unwrap();
             let live = |db: &std::sync::Mutex<Connection>| {
-                flywheel_core::domain::session::live_shaping_session(&db.lock().unwrap(), &ShapingSubject::Epic(epic_id.clone()))
-                    .unwrap()
+                flywheel_core::domain::session::live_shaping_session(
+                    &db.lock().unwrap(),
+                    &ShapingSubject::Epic(epic_id.clone()),
+                )
+                .unwrap()
             };
-            assert_eq!(live(&db), Some(run_id.clone()), "the card's Open session control finds it");
+            assert_eq!(
+                live(&db),
+                Some(run_id.clone()),
+                "the card's Open session control finds it"
+            );
 
-            let dto = crate::commands::session::stop_session_recording_first(&mut db.lock().unwrap(), &run_id, || Ok(()))
-                .expect("Stop records the end");
+            let dto = crate::commands::session::stop_session_recording_first(
+                &mut db.lock().unwrap(),
+                &run_id,
+                || Ok(()),
+            )
+            .expect("Stop records the end");
             assert_eq!(dto.status, "interrupted");
-            let summaries: i64 =
-                db.lock().unwrap().query_row("SELECT COUNT(*) FROM session_summaries", [], |r| r.get(0)).unwrap();
+            let summaries: i64 = db
+                .lock()
+                .unwrap()
+                .query_row("SELECT COUNT(*) FROM session_summaries", [], |r| r.get(0))
+                .unwrap();
             assert_eq!(summaries, 0, "a shaping session leaves no Session summary");
             assert_eq!(live(&db), None, "and the card offers Shape again");
         });
@@ -982,8 +1298,13 @@ mod tests {
             let (db, epic_id, _checkout) = shaping_epic();
             let run_id = shape_epic(&db, &epic_id, found_claude, |_, _| Ok(())).unwrap();
 
-            let (answer, changed) =
-                answer_shaping_tool_call(&mut db.lock().unwrap(), &run_id, "req-7", "round_post", &round_args());
+            let (answer, changed) = answer_shaping_tool_call(
+                &mut db.lock().unwrap(),
+                &run_id,
+                "req-7",
+                "round_post",
+                &round_args(),
+            );
             assert_eq!(answer, None, "the call is held, not answered");
             assert!(changed.is_some(), "the board changed: a Round landed");
 
@@ -995,7 +1316,12 @@ mod tests {
             assert_eq!(round.questions[0].recommended_answer, "Yes");
 
             let first = answer_and_release(&db, |conn, human| {
-                flywheel_core::domain::round::answer_round_question(conn, human, &round.questions[1].id, &RoundAnswer::Own("Desktop and web".into()))
+                flywheel_core::domain::round::answer_round_question(
+                    conn,
+                    human,
+                    &round.questions[1].id,
+                    &RoundAnswer::Own("Desktop and web".into()),
+                )
             })
             .unwrap();
             assert_eq!(first.release, None);
@@ -1003,12 +1329,22 @@ mod tests {
                 flywheel_core::domain::round::accept_all_recommended(conn, human, &round.id)
             })
             .unwrap();
-            let release = last.release.expect("the last answer releases the held call");
-            assert_eq!((release.session_id.as_str(), release.request_id.as_str()), (run_id.as_str(), "req-7"));
+            let release = last
+                .release
+                .expect("the last answer releases the held call");
+            assert_eq!(
+                (release.session_id.as_str(), release.request_id.as_str()),
+                (run_id.as_str(), "req-7")
+            );
             let body = release_answer(&release);
             assert_eq!(body["result"]["answers"][0]["answer"], "Yes");
             assert_eq!(body["result"]["answers"][1]["answer"], "Desktop and web");
-            assert!(!read_epic_shaping(&db.lock().unwrap(), &epic_id).unwrap().rounds[0].waiting_on_you);
+            assert!(
+                !read_epic_shaping(&db.lock().unwrap(), &epic_id)
+                    .unwrap()
+                    .rounds[0]
+                    .waiting_on_you
+            );
         });
     }
 
@@ -1031,13 +1367,24 @@ mod tests {
                     },
                 }],
             });
-            let (answer, _) = answer_shaping_tool_call(&mut db.lock().unwrap(), &run_id, "req-3", "round_post", &args);
+            let (answer, _) = answer_shaping_tool_call(
+                &mut db.lock().unwrap(),
+                &run_id,
+                "req-3",
+                "round_post",
+                &args,
+            );
             assert_eq!(answer, None, "the Round is held");
             {
                 let mut conn = db.lock().unwrap();
                 let human = flywheel_core::domain::actor::local_human_actor_id(&conn).unwrap();
-                let project: String =
-                    conn.query_row("SELECT project_id FROM epics WHERE id = ?1", [&epic_id], |r| r.get(0)).unwrap();
+                let project: String = conn
+                    .query_row(
+                        "SELECT project_id FROM epics WHERE id = ?1",
+                        [&epic_id],
+                        |r| r.get(0),
+                    )
+                    .unwrap();
                 flywheel_core::domain::adr_link::link_adr(
                     &mut conn,
                     &human,
@@ -1055,21 +1402,39 @@ mod tests {
             assert_eq!(adr.path, "docs/adr/0005-store.md");
             assert_eq!(adr.losing_alternative, "A .planning/ folder");
             assert_eq!(adr.relates_to, None);
-            assert_eq!(view.adr_links, ["docs/adr/0002-repo-holds-code-knowledge.md"]);
+            assert_eq!(
+                view.adr_links,
+                ["docs/adr/0002-repo-holds-code-knowledge.md"]
+            );
             assert!(view.accepted_knowledge.is_empty());
 
             answer_and_release(&db, |conn, human| {
-                flywheel_core::domain::round::answer_round_question(conn, human, &q.id, &RoundAnswer::Own("Yes".into()))
+                flywheel_core::domain::round::answer_round_question(
+                    conn,
+                    human,
+                    &q.id,
+                    &RoundAnswer::Own("Yes".into()),
+                )
             })
             .unwrap();
             let view = read_epic_shaping(&db.lock().unwrap(), &epic_id).unwrap();
             let q = &view.rounds[0].questions[0];
             assert_eq!(q.answer.as_deref(), Some("Yes"));
-            assert_eq!(view.accepted_knowledge.len(), 1, "the accepted ADR is a chip on the Epic card");
+            assert_eq!(
+                view.accepted_knowledge.len(),
+                1,
+                "the accepted ADR is a chip on the Epic card"
+            );
             let accepted = &view.accepted_knowledge[0];
-            assert_eq!((accepted.target_type.as_str(), accepted.state.as_str()), ("adr", "accepted"));
+            assert_eq!(
+                (accepted.target_type.as_str(), accepted.state.as_str()),
+                ("adr", "accepted")
+            );
             assert_eq!(q.adr_proposal_id.as_deref(), Some(accepted.id.as_str()));
-            assert!(view.proposals.is_empty(), "an accepted ADR is never a ghost");
+            assert!(
+                view.proposals.is_empty(),
+                "an accepted ADR is never a ghost"
+            );
         });
     }
 
@@ -1085,7 +1450,10 @@ mod tests {
                 "round_post",
                 &serde_json::json!({ "note": "n", "questions": [] }),
             );
-            assert!(answer.unwrap()["error"].as_str().unwrap().contains("at least one question"));
+            assert!(answer.unwrap()["error"]
+                .as_str()
+                .unwrap()
+                .contains("at least one question"));
             assert_eq!(changed, None);
         });
     }
@@ -1096,18 +1464,46 @@ mod tests {
     fn continue_shaping_starts_a_session_whose_round_wait_is_released_by_the_last_answer() {
         with_scratch(|| {
             let (db, epic_id, _checkout) = shaping_epic();
-            let err = continue_epic(&db, &epic_id, found_claude, |_, _| panic!("nothing to continue")).unwrap_err();
+            let err = continue_epic(&db, &epic_id, found_claude, |_, _| {
+                panic!("nothing to continue")
+            })
+            .unwrap_err();
             assert!(err.contains("no Round to continue"), "{err}");
 
             let first = shape_epic(&db, &epic_id, found_claude, |_, _| Ok(())).unwrap();
-            answer_shaping_tool_call(&mut db.lock().unwrap(), &first, "req-1", "round_post", &round_args());
-            let round = read_epic_shaping(&db.lock().unwrap(), &epic_id).unwrap().rounds.remove(0);
+            answer_shaping_tool_call(
+                &mut db.lock().unwrap(),
+                &first,
+                "req-1",
+                "round_post",
+                &round_args(),
+            );
+            let round = read_epic_shaping(&db.lock().unwrap(), &epic_id)
+                .unwrap()
+                .rounds
+                .remove(0);
             answer_and_release(&db, |conn, human| {
-                flywheel_core::domain::round::answer_round_question(conn, human, &round.questions[0].id, &RoundAnswer::Recommended)
+                flywheel_core::domain::round::answer_round_question(
+                    conn,
+                    human,
+                    &round.questions[0].id,
+                    &RoundAnswer::Recommended,
+                )
             })
             .unwrap();
-            crate::commands::session::stop_session_recording_first(&mut db.lock().unwrap(), &first, || Ok(())).unwrap();
-            assert!(!read_epic_shaping(&db.lock().unwrap(), &epic_id).unwrap().rounds[0].waiting_on_you, "no live session");
+            crate::commands::session::stop_session_recording_first(
+                &mut db.lock().unwrap(),
+                &first,
+                || Ok(()),
+            )
+            .unwrap();
+            assert!(
+                !read_epic_shaping(&db.lock().unwrap(), &epic_id)
+                    .unwrap()
+                    .rounds[0]
+                    .waiting_on_you,
+                "no live session"
+            );
 
             let mut sent = None;
             let next = continue_epic(&db, &epic_id, found_claude, |_, request| {
@@ -1117,22 +1513,49 @@ mod tests {
             .expect("Continue shaping starts a session");
             assert_ne!(next, first);
             let prompt = sent.unwrap()["prompt"].as_str().unwrap().to_string();
-            assert!(prompt.contains("Answer (your recommendation, accepted): Yes"), "{prompt}");
+            assert!(
+                prompt.contains("Answer (your recommendation, accepted): Yes"),
+                "{prompt}"
+            );
             assert!(prompt.contains("`round_wait`"), "{prompt}");
 
-            let (answer, changed) =
-                answer_shaping_tool_call(&mut db.lock().unwrap(), &next, "req-2", "round_wait", &serde_json::json!({}));
+            let (answer, changed) = answer_shaping_tool_call(
+                &mut db.lock().unwrap(),
+                &next,
+                "req-2",
+                "round_wait",
+                &serde_json::json!({}),
+            );
             assert_eq!(answer, None, "round_wait is held");
             assert!(changed.is_some());
-            assert!(read_epic_shaping(&db.lock().unwrap(), &epic_id).unwrap().rounds[0].waiting_on_you);
+            assert!(
+                read_epic_shaping(&db.lock().unwrap(), &epic_id)
+                    .unwrap()
+                    .rounds[0]
+                    .waiting_on_you
+            );
 
             let last = answer_and_release(&db, |conn, human| {
-                flywheel_core::domain::round::answer_round_question(conn, human, &round.questions[1].id, &RoundAnswer::Recommended)
+                flywheel_core::domain::round::answer_round_question(
+                    conn,
+                    human,
+                    &round.questions[1].id,
+                    &RoundAnswer::Recommended,
+                )
             })
             .unwrap();
             let release = last.release.expect("the last answer releases round_wait");
-            assert_eq!((release.session_id.as_str(), release.request_id.as_str()), (next.as_str(), "req-2"));
-            assert_eq!(release_answer(&release)["result"]["answers"].as_array().unwrap().len(), 2);
+            assert_eq!(
+                (release.session_id.as_str(), release.request_id.as_str()),
+                (next.as_str(), "req-2")
+            );
+            assert_eq!(
+                release_answer(&release)["result"]["answers"]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                2
+            );
         });
     }
 
@@ -1141,9 +1564,24 @@ mod tests {
         with_scratch(|| {
             let (db, epic_id, _checkout) = shaping_epic();
             let run_id = shape_epic(&db, &epic_id, found_claude, |_, _| Ok(())).unwrap();
-            answer_shaping_tool_call(&mut db.lock().unwrap(), &run_id, "req-1", "round_post", &round_args());
-            let (answer, _) = answer_shaping_tool_call(&mut db.lock().unwrap(), &run_id, "req-2", "round_post", &round_args());
-            assert!(answer.unwrap()["error"].as_str().unwrap().contains("round_wait"));
+            answer_shaping_tool_call(
+                &mut db.lock().unwrap(),
+                &run_id,
+                "req-1",
+                "round_post",
+                &round_args(),
+            );
+            let (answer, _) = answer_shaping_tool_call(
+                &mut db.lock().unwrap(),
+                &run_id,
+                "req-2",
+                "round_post",
+                &round_args(),
+            );
+            assert!(answer.unwrap()["error"]
+                .as_str()
+                .unwrap()
+                .contains("round_wait"));
         });
     }
 
@@ -1153,8 +1591,13 @@ mod tests {
             let (db, epic_id, _checkout) = shaping_epic();
             let run_id = shape_epic(&db, &epic_id, found_claude, |_, _| Ok(())).unwrap();
             let args = serde_json::json!({ "field": "scope", "text": "The board only.", "why": "Round 1 narrowed it" });
-            let (answer, changed) =
-                answer_shaping_tool_call(&mut db.lock().unwrap(), &run_id, "req-2", "propose_spec_change", &args);
+            let (answer, changed) = answer_shaping_tool_call(
+                &mut db.lock().unwrap(),
+                &run_id,
+                "req-2",
+                "propose_spec_change",
+                &args,
+            );
             let answer = answer.expect("a Proposal never holds the agent");
             assert_eq!(answer["result"]["state"], "pending");
             assert!(changed.is_some(), "the board changed: a Proposal landed");
@@ -1162,14 +1605,20 @@ mod tests {
             let view = read_epic_shaping(&db.lock().unwrap(), &epic_id).unwrap();
             assert_eq!(view.proposals.len(), 1);
             let ghost = &view.proposals[0];
-            assert_eq!((ghost.state.as_str(), ghost.payload["field"].as_str()), ("pending", Some("scope")));
+            assert_eq!(
+                (ghost.state.as_str(), ghost.payload["field"].as_str()),
+                ("pending", Some("scope"))
+            );
             assert_eq!(ghost.stage_id.as_deref(), Some(view.stages[0].id.as_str()));
 
             let mut conn = db.lock().unwrap();
             let human = flywheel_core::domain::actor::local_human_actor_id(&conn).unwrap();
             flywheel_core::domain::proposal::accept_proposal(&mut conn, &human, &ghost.id).unwrap();
             let view = read_epic_shaping(&conn, &epic_id).unwrap();
-            assert!(view.proposals.is_empty(), "an accepted Proposal is in the field it rewrote");
+            assert!(
+                view.proposals.is_empty(),
+                "an accepted Proposal is in the field it rewrote"
+            );
             assert_eq!(view.epic.scope.as_deref(), Some("The board only."));
         });
     }
@@ -1179,14 +1628,19 @@ mod tests {
         with_scratch(|| {
             let (db, epic_id, _checkout) = shaping_epic();
             let run_id = shape_epic(&db, &epic_id, found_claude, |_, _| Ok(())).unwrap();
-            let run = flywheel_core::query::sessions::run_by_id(&db.lock().unwrap(), &run_id).unwrap().unwrap();
+            let run = flywheel_core::query::sessions::run_by_id(&db.lock().unwrap(), &run_id)
+                .unwrap()
+                .unwrap();
             assert_eq!(run.story_id, None);
             assert_eq!(run.status, "running");
         });
     }
 
     fn open_status(db: &std::sync::Mutex<Connection>, epic_id: &str) -> StageStatusDto {
-        read_epic_shaping(&db.lock().unwrap(), epic_id).unwrap().open_stage_status.expect("an open Stage")
+        read_epic_shaping(&db.lock().unwrap(), epic_id)
+            .unwrap()
+            .open_stage_status
+            .expect("an open Stage")
     }
 
     /// Issue #126: the view lists what is open in the Stage, and Close Stage is refused until nothing is.
@@ -1194,9 +1648,21 @@ mod tests {
     fn the_view_lists_what_is_open_and_close_stage_is_refused_until_nothing_is() {
         with_scratch(|| {
             let (db, epic_id, _checkout) = shaping_epic();
-            assert!(read_epic_shaping(&db.lock().unwrap(), &epic_id).unwrap().open_stage_status.is_none(), "no Stage before Shape");
+            assert!(
+                read_epic_shaping(&db.lock().unwrap(), &epic_id)
+                    .unwrap()
+                    .open_stage_status
+                    .is_none(),
+                "no Stage before Shape"
+            );
             let run_id = shape_epic(&db, &epic_id, found_claude, |_, _| Ok(())).unwrap();
-            answer_shaping_tool_call(&mut db.lock().unwrap(), &run_id, "req-1", "round_post", &round_args());
+            answer_shaping_tool_call(
+                &mut db.lock().unwrap(),
+                &run_id,
+                "req-1",
+                "round_post",
+                &round_args(),
+            );
 
             let status = open_status(&db, &epic_id);
             assert!(!status.closable);
@@ -1204,16 +1670,38 @@ mod tests {
             let labels: Vec<&str> = status.open_items.iter().map(|i| i.label.as_str()).collect();
             assert_eq!(
                 labels,
-                ["Question 1 of Round 1 is unanswered: Audience", "Question 2 of Round 1 is unanswered: Surface"]
+                [
+                    "Question 1 of Round 1 is unanswered: Audience",
+                    "Question 2 of Round 1 is unanswered: Surface"
+                ]
             );
-            assert_eq!(status.warnings.len(), 3, "Problem, Scope and Exit test are empty: {:?}", status.warnings);
+            assert_eq!(
+                status.warnings.len(),
+                3,
+                "Problem, Scope and Exit test are empty: {:?}",
+                status.warnings
+            );
 
-            let err = close_stage_and_shape(&db, &status.stage_id, |_| panic!("nothing to interrupt"), found_claude, |_, _| {
-                panic!("nothing may be spawned")
-            })
+            let err = close_stage_and_shape(
+                &db,
+                &status.stage_id,
+                |_| panic!("nothing to interrupt"),
+                found_claude,
+                |_, _| panic!("nothing may be spawned"),
+            )
             .unwrap_err();
-            assert!(err.contains("Question 2 of Round 1 is unanswered: Surface"), "{err}");
-            assert_eq!(flywheel_core::domain::session::live_shaping_session(&db.lock().unwrap(), &ShapingSubject::Epic(epic_id.clone())).unwrap(), Some(run_id));
+            assert!(
+                err.contains("Question 2 of Round 1 is unanswered: Surface"),
+                "{err}"
+            );
+            assert_eq!(
+                flywheel_core::domain::session::live_shaping_session(
+                    &db.lock().unwrap(),
+                    &ShapingSubject::Epic(epic_id.clone())
+                )
+                .unwrap(),
+                Some(run_id)
+            );
         });
     }
 
@@ -1232,9 +1720,16 @@ mod tests {
                 &db,
                 &stage_id,
                 |session| {
-                    let conn = db.lock().expect("the lock is released before the interrupt");
-                    let status: String =
-                        conn.query_row("SELECT status FROM sessions WHERE id = ?1", [session], |r| r.get(0)).unwrap();
+                    let conn = db
+                        .lock()
+                        .expect("the lock is released before the interrupt");
+                    let status: String = conn
+                        .query_row(
+                            "SELECT status FROM sessions WHERE id = ?1",
+                            [session],
+                            |r| r.get(0),
+                        )
+                        .unwrap();
                     interrupted = Some((session.to_string(), status));
                     Ok(())
                 },
@@ -1246,7 +1741,11 @@ mod tests {
             )
             .expect("Close Stage");
 
-            assert_eq!(interrupted, Some((first.clone(), "interrupted".to_string())), "recorded first, then interrupted");
+            assert_eq!(
+                interrupted,
+                Some((first.clone(), "interrupted".to_string())),
+                "recorded first, then interrupted"
+            );
             let opened = dto.opened.as_ref().expect("Slice opens");
             assert_eq!((opened.kind.as_str(), opened.rank), ("slice", 2));
             assert!(dto.made_ready.is_empty());
@@ -1254,11 +1753,21 @@ mod tests {
             assert_eq!(dto.sidecar_warning, None);
             let next = dto.session.expect("the next Stage's session started");
             assert_ne!(next.id, first);
-            let prompt = sent.expect("one spawn")["prompt"].as_str().unwrap().to_string();
-            assert!(prompt.contains("This session works the second Stage, Slice into Stories"), "{prompt}");
+            let prompt = sent.expect("one spawn")["prompt"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            assert!(
+                prompt.contains("This session works the second Stage, Slice into Stories"),
+                "{prompt}"
+            );
 
             let view = read_epic_shaping(&db.lock().unwrap(), &epic_id).unwrap();
-            let stages: Vec<(&str, &str)> = view.stages.iter().map(|s| (s.kind.as_str(), s.state.as_str())).collect();
+            let stages: Vec<(&str, &str)> = view
+                .stages
+                .iter()
+                .map(|s| (s.kind.as_str(), s.state.as_str()))
+                .collect();
             assert_eq!(stages, [("challenge_spec", "closed"), ("slice", "open")]);
         });
     }
@@ -1269,22 +1778,49 @@ mod tests {
             let (db, epic_id, _checkout) = shaping_epic();
             shape_epic(&db, &epic_id, found_claude, |_, _| Ok(())).unwrap();
             let stage_id = open_status(&db, &epic_id).stage_id;
-            let dto = close_stage_and_shape(&db, &stage_id, |_| Err("sidecar gone".into()), found_claude, |_, _| {
-                Err("spawn boom".to_string())
-            })
+            let dto = close_stage_and_shape(
+                &db,
+                &stage_id,
+                |_| Err("sidecar gone".into()),
+                found_claude,
+                |_, _| Err("spawn boom".to_string()),
+            )
             .expect("the close itself succeeds");
             assert!(dto.session.is_none());
-            assert!(dto.launch_error.as_deref().is_some_and(|e| e.contains("spawn boom")), "{:?}", dto.launch_error);
-            assert!(dto.sidecar_warning.as_deref().is_some_and(|w| w.contains("sidecar gone")), "{:?}", dto.sidecar_warning);
-            assert_eq!(open_status(&db, &epic_id).next.as_deref(), Some("criteria"), "the Slice Stage is open");
+            assert!(
+                dto.launch_error
+                    .as_deref()
+                    .is_some_and(|e| e.contains("spawn boom")),
+                "{:?}",
+                dto.launch_error
+            );
+            assert!(
+                dto.sidecar_warning
+                    .as_deref()
+                    .is_some_and(|w| w.contains("sidecar gone")),
+                "{:?}",
+                dto.sidecar_warning
+            );
+            assert_eq!(
+                open_status(&db, &epic_id).next.as_deref(),
+                Some("criteria"),
+                "the Slice Stage is open"
+            );
         });
     }
 
     /// A Milestone in Shaping with a first-draft exit test, in a project whose checkout is a plain directory.
     fn shaping_milestone() -> (std::sync::Mutex<Connection>, String, tempfile::TempDir) {
         let (db, epic_id, checkout) = shaping_epic();
-        let milestone_id: String =
-            db.lock().unwrap().query_row("SELECT milestone_id FROM epics WHERE id = ?1", [&epic_id], |r| r.get(0)).unwrap();
+        let milestone_id: String = db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT milestone_id FROM epics WHERE id = ?1",
+                [&epic_id],
+                |r| r.get(0),
+            )
+            .unwrap();
         (db, milestone_id, checkout)
     }
 
@@ -1294,7 +1830,10 @@ mod tests {
     fn shape_on_a_milestone_opens_exit_test_and_close_stage_makes_it_ready() {
         with_scratch(|| {
             let (db, milestone_id, _checkout) = shaping_milestone();
-            let err = continue_milestone(&db, &milestone_id, found_claude, |_, _| panic!("nothing to continue")).unwrap_err();
+            let err = continue_milestone(&db, &milestone_id, found_claude, |_, _| {
+                panic!("nothing to continue")
+            })
+            .unwrap_err();
             assert!(err.contains("no Round to continue"), "{err}");
 
             let mut sent = None;
@@ -1304,21 +1843,42 @@ mod tests {
             })
             .expect("Shape starts a session");
             let prompt = sent.unwrap()["prompt"].as_str().unwrap().to_string();
-            assert!(prompt.starts_with("# Shaping packet: Milestone Shaping\n"), "{prompt}");
+            assert!(
+                prompt.starts_with("# Shaping packet: Milestone Shaping\n"),
+                "{prompt}"
+            );
 
             let view = read_milestone_shaping(&db.lock().unwrap(), &milestone_id).unwrap();
             assert_eq!(view.milestone.state, "shaping");
-            let stages: Vec<(&str, &str)> = view.stages.iter().map(|s| (s.kind.as_str(), s.state.as_str())).collect();
+            let stages: Vec<(&str, &str)> = view
+                .stages
+                .iter()
+                .map(|s| (s.kind.as_str(), s.state.as_str()))
+                .collect();
             assert_eq!(stages, [("exit_test", "open")]);
             let status = view.open_stage_status.expect("the open Stage's status");
             assert!(status.closable, "nothing is open yet");
             assert_eq!(status.next, None);
 
-            answer_shaping_tool_call(&mut db.lock().unwrap(), &run_id, "req-1", "round_post", &round_args());
+            answer_shaping_tool_call(
+                &mut db.lock().unwrap(),
+                &run_id,
+                "req-1",
+                "round_post",
+                &round_args(),
+            );
             let args = serde_json::json!({ "text": "A one-line idea becomes Ready Stories.", "why": "Round 1" });
-            let (answer, changed) =
-                answer_shaping_tool_call(&mut db.lock().unwrap(), &run_id, "req-2", "propose_exit_test", &args);
-            assert_eq!(answer.expect("answered at once")["result"]["state"], "pending");
+            let (answer, changed) = answer_shaping_tool_call(
+                &mut db.lock().unwrap(),
+                &run_id,
+                "req-2",
+                "propose_exit_test",
+                &args,
+            );
+            assert_eq!(
+                answer.expect("answered at once")["result"]["state"],
+                "pending"
+            );
             assert!(changed.is_some());
             let view = read_milestone_shaping(&db.lock().unwrap(), &milestone_id).unwrap();
             assert!(view.rounds[0].waiting_on_you);
@@ -1330,12 +1890,28 @@ mod tests {
             {
                 let mut conn = db.lock().unwrap();
                 let human = flywheel_core::domain::actor::local_human_actor_id(&conn).unwrap();
-                flywheel_core::domain::round::accept_all_recommended(&mut conn, &human, &view.rounds[0].id).unwrap();
-                flywheel_core::domain::proposal::accept_proposal(&mut conn, &human, &view.proposals[0].id).unwrap();
+                flywheel_core::domain::round::accept_all_recommended(
+                    &mut conn,
+                    &human,
+                    &view.rounds[0].id,
+                )
+                .unwrap();
+                flywheel_core::domain::proposal::accept_proposal(
+                    &mut conn,
+                    &human,
+                    &view.proposals[0].id,
+                )
+                .unwrap();
             }
             let view = read_milestone_shaping(&db.lock().unwrap(), &milestone_id).unwrap();
-            assert!(view.proposals.is_empty(), "an accepted Proposal is in the exit test it rewrote");
-            assert_eq!(view.milestone.exit_test.as_deref(), Some("A one-line idea becomes Ready Stories."));
+            assert!(
+                view.proposals.is_empty(),
+                "an accepted Proposal is in the exit test it rewrote"
+            );
+            assert_eq!(
+                view.milestone.exit_test.as_deref(),
+                Some("A one-line idea becomes Ready Stories.")
+            );
 
             let stage_id = view.open_stage_status.unwrap().stage_id;
             let mut interrupted = None;
@@ -1358,7 +1934,11 @@ mod tests {
             assert_eq!(view.milestone.state, "ready");
             assert!(view.open_stage_status.is_none());
             assert_eq!(
-                flywheel_core::domain::session::live_shaping_session(&db.lock().unwrap(), &ShapingSubject::Milestone(milestone_id)).unwrap(),
+                flywheel_core::domain::session::live_shaping_session(
+                    &db.lock().unwrap(),
+                    &ShapingSubject::Milestone(milestone_id)
+                )
+                .unwrap(),
                 None
             );
         });
@@ -1373,32 +1953,57 @@ mod tests {
             let story = {
                 let mut conn = db.lock().unwrap();
                 let human = flywheel_core::domain::actor::local_human_actor_id(&conn).unwrap();
-                flywheel_core::domain::story::create_story(&mut conn, &human, &epic_id, "Parser").unwrap()
+                flywheel_core::domain::story::create_story(&mut conn, &human, &epic_id, "Parser")
+                    .unwrap()
             };
             shape_epic(&db, &epic_id, found_claude, |_, _| Ok(())).unwrap();
             for _ in 0..2 {
                 let stage_id = open_status(&db, &epic_id).stage_id;
                 // Each close starts the next Stage's session.
-                close_stage_and_shape(&db, &stage_id, |_| Ok(()), found_claude, |_, _| Ok(())).unwrap();
+                close_stage_and_shape(&db, &stage_id, |_| Ok(()), found_claude, |_, _| Ok(()))
+                    .unwrap();
             }
             let status = open_status(&db, &epic_id);
-            assert_eq!((status.next.as_deref(), status.makes_ready, status.closable), (None, true, false));
+            assert_eq!(
+                (status.next.as_deref(), status.makes_ready, status.closable),
+                (None, true, false)
+            );
             let item = &status.open_items[0];
             assert_eq!(
-                (item.kind.as_str(), item.id.as_str(), item.story_key.as_deref(), item.title.as_str()),
-                ("story_without_criterion", story.id.as_str(), Some(story.key.as_str()), "Parser")
+                (
+                    item.kind.as_str(),
+                    item.id.as_str(),
+                    item.story_key.as_deref(),
+                    item.title.as_str()
+                ),
+                (
+                    "story_without_criterion",
+                    story.id.as_str(),
+                    Some(story.key.as_str()),
+                    "Parser"
+                )
             );
 
             {
                 let mut conn = db.lock().unwrap();
                 let human = flywheel_core::domain::actor::local_human_actor_id(&conn).unwrap();
-                flywheel_core::domain::acceptance_criterion::create_criterion(&mut conn, &human, &story.id, "It parses").unwrap();
+                flywheel_core::domain::acceptance_criterion::create_criterion(
+                    &mut conn,
+                    &human,
+                    &story.id,
+                    "It parses",
+                )
+                .unwrap();
             }
             let status = open_status(&db, &epic_id);
             assert!(status.closable);
-            let dto = close_stage_and_shape(&db, &status.stage_id, |_| Ok(()), || panic!("no session starts"), |_, _| {
-                panic!("nothing may be spawned")
-            })
+            let dto = close_stage_and_shape(
+                &db,
+                &status.stage_id,
+                |_| Ok(()),
+                || panic!("no session starts"),
+                |_, _| panic!("nothing may be spawned"),
+            )
             .unwrap();
             assert!(dto.opened.is_none());
             assert_eq!(dto.made_ready, vec![story.id.clone()]);

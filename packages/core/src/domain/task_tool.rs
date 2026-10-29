@@ -17,7 +17,9 @@ use rusqlite::{params, Connection};
 use serde_json::Value;
 
 use crate::domain::session::agent_actor_id;
-use crate::domain::task::{add_task, set_task_note, set_task_state, tasks_for_story, Task, TaskState, MAX_TASK_NOTE_LEN};
+use crate::domain::task::{
+    add_task, set_task_note, set_task_state, tasks_for_story, Task, TaskState, MAX_TASK_NOTE_LEN,
+};
 
 /// The tool names the sidecar's MCP server registers, in the order it lists them. Mirrored by
 /// `TASK_TOOL_NAMES` in `packages/sidecar/src/mcp-permission-server.ts`.
@@ -33,10 +35,17 @@ pub const MAX_TASKS_PER_ADD: usize = 50;
 #[derive(Debug, Clone, PartialEq)]
 pub enum TaskToolCall {
     List,
-    Add { titles: Vec<String> },
+    Add {
+        titles: Vec<String>,
+    },
     /// Move the Task to `state` and/or replace its note; at least one of the two is given. A
     /// `Some("")` note clears it.
-    Update { task_id: String, state: Option<TaskState>, reason: Option<String>, note: Option<String> },
+    Update {
+        task_id: String,
+        state: Option<TaskState>,
+        reason: Option<String>,
+        note: Option<String>,
+    },
 }
 
 impl TaskToolCall {
@@ -51,7 +60,10 @@ impl TaskToolCall {
                     .and_then(Value::as_array)
                     .context("task_add needs `titles`, a list of Task titles")?;
                 anyhow::ensure!(!titles.is_empty(), "task_add needs at least one title");
-                anyhow::ensure!(titles.len() <= MAX_TASKS_PER_ADD, "task_add takes at most {MAX_TASKS_PER_ADD} titles");
+                anyhow::ensure!(
+                    titles.len() <= MAX_TASKS_PER_ADD,
+                    "task_add takes at most {MAX_TASKS_PER_ADD} titles"
+                );
                 let titles = titles
                     .iter()
                     .map(|t| {
@@ -67,25 +79,39 @@ impl TaskToolCall {
                 Ok(TaskToolCall::Add { titles })
             }
             "task_update" => {
-                let task_id = args.get("task_id").and_then(Value::as_str).context("task_update needs `task_id`")?;
+                let task_id = args
+                    .get("task_id")
+                    .and_then(Value::as_str)
+                    .context("task_update needs `task_id`")?;
                 let state = match args.get("state") {
                     None | Some(Value::Null) => None,
-                    Some(v) => Some(TaskState::parse(v.as_str().context("`state` is a string")?)?),
+                    Some(v) => Some(TaskState::parse(
+                        v.as_str().context("`state` is a string")?,
+                    )?),
                 };
                 let note = match args.get("note") {
                     None | Some(Value::Null) => None,
                     Some(v) => Some(v.as_str().context("`note` is a string")?.trim().to_string()),
                 };
-                anyhow::ensure!(state.is_some() || note.is_some(), "task_update needs `state`, `note`, or both");
+                anyhow::ensure!(
+                    state.is_some() || note.is_some(),
+                    "task_update needs `state`, `note`, or both"
+                );
                 if let Some(note) = &note {
                     anyhow::ensure!(
                         note.chars().count() <= MAX_TASK_NOTE_LEN,
                         "a Task note is at most {MAX_TASK_NOTE_LEN} characters"
                     );
                 }
-                let reason = args.get("reason").and_then(Value::as_str).map(str::trim).filter(|r| !r.is_empty());
+                let reason = args
+                    .get("reason")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|r| !r.is_empty());
                 match state {
-                    Some(TaskState::Dropped) => anyhow::ensure!(reason.is_some(), "a dropped Task needs a one-line reason"),
+                    Some(TaskState::Dropped) => {
+                        anyhow::ensure!(reason.is_some(), "a dropped Task needs a one-line reason")
+                    }
                     _ => anyhow::ensure!(reason.is_none(), "only a dropped Task carries a reason"),
                 }
                 if let Some(reason) = reason {
@@ -94,7 +120,12 @@ impl TaskToolCall {
                         "a drop reason is one line, at most {MAX_TASK_TITLE_LEN} characters"
                     );
                 }
-                Ok(TaskToolCall::Update { task_id: task_id.to_string(), state, reason: reason.map(str::to_string), note })
+                Ok(TaskToolCall::Update {
+                    task_id: task_id.to_string(),
+                    state,
+                    reason: reason.map(str::to_string),
+                    note,
+                })
             }
             other => anyhow::bail!("{other:?} is not a Task tool"),
         }
@@ -111,7 +142,11 @@ pub struct TaskToolOutcome {
 
 /// Run one call for session `session_id`, writing as the agent actor. Refused when the session is
 /// unknown or has ended, and when a `task_update` names a Task of another Story.
-pub fn apply_task_tool_call(conn: &mut Connection, session_id: &str, call: &TaskToolCall) -> anyhow::Result<TaskToolOutcome> {
+pub fn apply_task_tool_call(
+    conn: &mut Connection,
+    session_id: &str,
+    call: &TaskToolCall,
+) -> anyhow::Result<TaskToolOutcome> {
     let (story_id, project_id, status) = crate::domain::session::story_session(conn, session_id)?;
     anyhow::ensure!(
         status == "running" || status == "blocked",
@@ -126,11 +161,23 @@ pub fn apply_task_tool_call(conn: &mut Connection, session_id: &str, call: &Task
                 add_task(conn, &agent, &story_id, title)?;
             }
         }
-        TaskToolCall::Update { task_id, state, reason, note } => {
+        TaskToolCall::Update {
+            task_id,
+            state,
+            reason,
+            note,
+        } => {
             let owner: Option<String> = conn
-                .query_row("SELECT story_id FROM tasks WHERE id = ?1", params![task_id], |r| r.get(0))
+                .query_row(
+                    "SELECT story_id FROM tasks WHERE id = ?1",
+                    params![task_id],
+                    |r| r.get(0),
+                )
                 .ok();
-            anyhow::ensure!(owner.as_deref() == Some(story_id.as_str()), "{task_id:?} is not a Task of this Story");
+            anyhow::ensure!(
+                owner.as_deref() == Some(story_id.as_str()),
+                "{task_id:?} is not a Task of this Story"
+            );
             // The note first: a refused state change (another Task already doing) still keeps
             // what the agent wrote down.
             if let Some(note) = note {
@@ -143,7 +190,11 @@ pub fn apply_task_tool_call(conn: &mut Connection, session_id: &str, call: &Task
     }
 
     let tasks = tasks_for_story(conn, &story_id)?;
-    Ok(TaskToolOutcome { project_id, story_id, tasks })
+    Ok(TaskToolOutcome {
+        project_id,
+        story_id,
+        tasks,
+    })
 }
 
 /// The checklist as the tool answers it to the agent: one object per Task, in order.
@@ -151,7 +202,8 @@ pub fn tasks_as_tool_result(tasks: &[Task]) -> Value {
     let rows: Vec<Value> = tasks
         .iter()
         .map(|t| {
-            let mut row = serde_json::json!({ "task_id": t.id, "title": t.title, "state": t.state });
+            let mut row =
+                serde_json::json!({ "task_id": t.id, "title": t.title, "state": t.state });
             if let Some(reason) = &t.dropped_reason {
                 row["reason"] = Value::String(reason.clone());
             }

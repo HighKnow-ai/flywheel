@@ -15,7 +15,9 @@ use flywheel_core::domain::question::{answer_question, ASK_USER_QUESTION_TOOL};
 use flywheel_core::domain::session::{interrupt_session, start_session};
 use flywheel_core::domain::story::{set_story_state, StoryState};
 use flywheel_core::query::fleet::blocked_queue;
-use flywheel_core::query::permissions::{blocked_count_for_project, blocked_story_ids_for_project, pending_requests_for_run};
+use flywheel_core::query::permissions::{
+    blocked_count_for_project, blocked_story_ids_for_project, pending_requests_for_run,
+};
 use rusqlite::{params, Connection};
 
 struct Seeded {
@@ -32,8 +34,15 @@ fn seeded_running_session() -> Seeded {
         let story = common::new_story(&mut conn, &project.id, &actor_id, "Question story");
         set_story_state(&mut conn, &actor_id, &story.id, StoryState::Ready).expect("Ready");
         set_story_state(&mut conn, &actor_id, &story.id, StoryState::Running).expect("Running");
-        let session = start_session(&mut conn, &story.id, "acceptEdits", &actor_id).expect("start_session");
-        Seeded { conn, actor_id, project_id: project.id, story_id: story.id, session_id: session.id }
+        let session =
+            start_session(&mut conn, &story.id, "acceptEdits", &actor_id).expect("start_session");
+        Seeded {
+            conn,
+            actor_id,
+            project_id: project.id,
+            story_id: story.id,
+            session_id: session.id,
+        }
     })
 }
 
@@ -45,15 +54,28 @@ fn ask(s: &mut Seeded) -> String {
           "options": [{ "label": "macOS", "description": "" }, { "label": "Linux", "description": "" }] },
     ]})
     .to_string();
-    create_pending_request(&mut s.conn, &s.session_id, ASK_USER_QUESTION_TOOL, Some(&input), &s.actor_id, None)
-        .expect("create_pending_request")
-        .id
+    create_pending_request(
+        &mut s.conn,
+        &s.session_id,
+        ASK_USER_QUESTION_TOOL,
+        Some(&input),
+        &s.actor_id,
+        None,
+    )
+    .expect("create_pending_request")
+    .id
 }
 
 fn picks() -> BTreeMap<String, Vec<String>> {
     BTreeMap::from([
-        ("Which colour?".to_string(), vec!["Teal, not on your list".to_string()]),
-        ("Which platforms?".to_string(), vec!["macOS".to_string(), "Linux".to_string()]),
+        (
+            "Which colour?".to_string(),
+            vec!["Teal, not on your list".to_string()],
+        ),
+        (
+            "Which platforms?".to_string(),
+            vec!["macOS".to_string(), "Linux".to_string()],
+        ),
     ])
 }
 
@@ -66,10 +88,18 @@ fn an_open_question_is_waiting_on_you_in_needs_you_and_the_sidebar_until_answere
     assert_eq!(queue.len(), 1, "the question is in Needs you");
     assert_eq!(queue[0].request_id, question);
     assert_eq!(queue[0].tool_name, ASK_USER_QUESTION_TOOL);
-    assert_eq!(blocked_story_ids_for_project(&s.conn, &s.project_id).unwrap(), vec![s.story_id.clone()]);
-    assert_eq!(blocked_count_for_project(&s.conn, &s.project_id).unwrap(), 1, "the sidebar counts it");
+    assert_eq!(
+        blocked_story_ids_for_project(&s.conn, &s.project_id).unwrap(),
+        vec![s.story_id.clone()]
+    );
+    assert_eq!(
+        blocked_count_for_project(&s.conn, &s.project_id).unwrap(),
+        1,
+        "the sidebar counts it"
+    );
 
-    let answered = answer_question(&mut s.conn, &question, &picks(), &s.actor_id).expect("answer_question");
+    let answered =
+        answer_question(&mut s.conn, &question, &picks(), &s.actor_id).expect("answer_question");
     assert_eq!(
         serde_json::Value::Object(answered.answers),
         serde_json::json!({ "Which colour?": "Teal, not on your list", "Which platforms?": "macOS, Linux" })
@@ -78,9 +108,11 @@ fn an_open_question_is_waiting_on_you_in_needs_you_and_the_sidebar_until_answere
 
     let (status, stored): (String, String) = s
         .conn
-        .query_row("SELECT status, answers FROM permission_requests WHERE id = ?1", params![question], |r| {
-            Ok((r.get(0)?, r.get(1)?))
-        })
+        .query_row(
+            "SELECT status, answers FROM permission_requests WHERE id = ?1",
+            params![question],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
         .unwrap();
     assert_eq!(status, "allowed");
     assert_eq!(
@@ -88,9 +120,15 @@ fn an_open_question_is_waiting_on_you_in_needs_you_and_the_sidebar_until_answere
         serde_json::json!({ "Which colour?": "Teal, not on your list", "Which platforms?": "macOS, Linux" })
     );
     assert!(blocked_queue(&s.conn, 50).unwrap().is_empty());
-    assert_eq!(blocked_count_for_project(&s.conn, &s.project_id).unwrap(), 0);
+    assert_eq!(
+        blocked_count_for_project(&s.conn, &s.project_id).unwrap(),
+        0
+    );
 
-    assert!(answer_question(&mut s.conn, &question, &picks(), &s.actor_id).is_err(), "answered once only");
+    assert!(
+        answer_question(&mut s.conn, &question, &picks(), &s.actor_id).is_err(),
+        "answered once only"
+    );
 }
 
 #[test]
@@ -101,7 +139,13 @@ fn a_question_is_never_allowed_or_denied() {
         let err = answer_request(&mut s.conn, &question, decision, &s.actor_id).unwrap_err();
         assert!(err.to_string().contains("question"), "{decision}: {err}");
     }
-    assert_eq!(pending_requests_for_run(&s.conn, &s.session_id).unwrap().len(), 1, "still open");
+    assert_eq!(
+        pending_requests_for_run(&s.conn, &s.session_id)
+            .unwrap()
+            .len(),
+        1,
+        "still open"
+    );
 }
 
 #[test]
@@ -111,7 +155,10 @@ fn a_question_expires_with_its_session() {
     interrupt_session(&mut s.conn, &s.session_id, &s.actor_id).expect("interrupt_session");
 
     assert!(blocked_queue(&s.conn, 50).unwrap().is_empty());
-    assert_eq!(blocked_count_for_project(&s.conn, &s.project_id).unwrap(), 0);
+    assert_eq!(
+        blocked_count_for_project(&s.conn, &s.project_id).unwrap(),
+        0
+    );
     let err = answer_question(&mut s.conn, &question, &picks(), &s.actor_id).unwrap_err();
     assert!(err.to_string().contains("no longer open"), "{err}");
 }

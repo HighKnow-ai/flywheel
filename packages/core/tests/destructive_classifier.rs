@@ -8,10 +8,10 @@ mod common;
 use common::with_scratch_worktree_root;
 
 use flywheel_core::destructive::DestructiveCategory;
-use flywheel_core::domain::session::start_session;
 use flywheel_core::domain::permission_request::{
     answer_request, create_pending_request, DestructiveAllowAlwaysRejected,
 };
+use flywheel_core::domain::session::start_session;
 use rusqlite::Connection;
 
 /// Seed one project with one Story and one `running` agent run — everything the two
@@ -37,7 +37,9 @@ fn args(items: &[&str]) -> Vec<String> {
 
 mod destructive_gated_actions {
     use super::args;
-    use flywheel_core::destructive::{classify, classify_in, DestructiveCategory, GateContext, Verdict};
+    use flywheel_core::destructive::{
+        classify, classify_in, DestructiveCategory, GateContext, Verdict,
+    };
     use std::path::{Path, PathBuf};
 
     const STORY: &str = "flywheel/s-1-gate";
@@ -83,7 +85,10 @@ mod destructive_gated_actions {
             "recursive-delete",
             "publish",
         ];
-        let actual: Vec<&str> = DestructiveCategory::all().iter().map(|c| c.as_str()).collect();
+        let actual: Vec<&str> = DestructiveCategory::all()
+            .iter()
+            .map(|c| c.as_str())
+            .collect();
         assert_eq!(actual, expected);
         assert_eq!(DestructiveCategory::from_str_name("uncategorized"), None);
     }
@@ -91,9 +96,15 @@ mod destructive_gated_actions {
     #[test]
     fn from_str_name_round_trips_every_category() {
         for category in DestructiveCategory::all() {
-            assert_eq!(DestructiveCategory::from_str_name(category.as_str()), Some(category));
+            assert_eq!(
+                DestructiveCategory::from_str_name(category.as_str()),
+                Some(category)
+            );
         }
-        assert_eq!(DestructiveCategory::from_str_name("not-a-real-category"), None);
+        assert_eq!(
+            DestructiveCategory::from_str_name("not-a-real-category"),
+            None
+        );
     }
 
     // --- Gated: every `git push` ---
@@ -105,21 +116,50 @@ mod destructive_gated_actions {
 
     #[test]
     fn gated_plain_push_of_the_story_branch() {
-        assert_eq!(git(&["push", "origin", STORY]), gated(DestructiveCategory::Push));
-        assert_eq!(git(&["push", "-u", "origin", "HEAD"]), gated(DestructiveCategory::Push));
+        assert_eq!(
+            git(&["push", "origin", STORY]),
+            gated(DestructiveCategory::Push)
+        );
+        assert_eq!(
+            git(&["push", "-u", "origin", "HEAD"]),
+            gated(DestructiveCategory::Push)
+        );
     }
 
     #[test]
     fn gated_push_behind_dash_c_dir_and_dash_c_config() {
-        assert_eq!(git(&["-C", "x", "-c", "a=b", "push"]), gated(DestructiveCategory::Push));
+        assert_eq!(
+            git(&["-C", "x", "-c", "a=b", "push"]),
+            gated(DestructiveCategory::Push)
+        );
     }
 
     #[test]
     fn gated_push_behind_other_global_options() {
-        assert_eq!(git(&["--no-pager", "push"]), gated(DestructiveCategory::Push));
-        assert_eq!(git(&["--git-dir=/x/.git", "push"]), gated(DestructiveCategory::Push));
-        assert_eq!(git(&["--work-tree", "/x", "push"]), gated(DestructiveCategory::Push));
-        assert_eq!(git(&["-c", "core.hooksPath=/dev/null", "-C", "/x", "push", "origin", "f"]), gated(DestructiveCategory::Push));
+        assert_eq!(
+            git(&["--no-pager", "push"]),
+            gated(DestructiveCategory::Push)
+        );
+        assert_eq!(
+            git(&["--git-dir=/x/.git", "push"]),
+            gated(DestructiveCategory::Push)
+        );
+        assert_eq!(
+            git(&["--work-tree", "/x", "push"]),
+            gated(DestructiveCategory::Push)
+        );
+        assert_eq!(
+            git(&[
+                "-c",
+                "core.hooksPath=/dev/null",
+                "-C",
+                "/x",
+                "push",
+                "origin",
+                "f"
+            ]),
+            gated(DestructiveCategory::Push)
+        );
     }
 
     #[test]
@@ -140,10 +180,22 @@ mod destructive_gated_actions {
 
     #[test]
     fn gated_push_to_the_default_branch() {
-        assert_eq!(git(&["push", "origin", "main"]), gated(DestructiveCategory::DefaultBranchPush));
-        assert_eq!(git(&["push", "origin", "HEAD:main"]), gated(DestructiveCategory::DefaultBranchPush));
-        assert_eq!(git(&["push", "origin", "HEAD:refs/heads/main"]), gated(DestructiveCategory::DefaultBranchPush));
-        assert_eq!(git(&["push", "--force", "origin", "main"]), gated(DestructiveCategory::DefaultBranchPush));
+        assert_eq!(
+            git(&["push", "origin", "main"]),
+            gated(DestructiveCategory::DefaultBranchPush)
+        );
+        assert_eq!(
+            git(&["push", "origin", "HEAD:main"]),
+            gated(DestructiveCategory::DefaultBranchPush)
+        );
+        assert_eq!(
+            git(&["push", "origin", "HEAD:refs/heads/main"]),
+            gated(DestructiveCategory::DefaultBranchPush)
+        );
+        assert_eq!(
+            git(&["push", "--force", "origin", "main"]),
+            gated(DestructiveCategory::DefaultBranchPush)
+        );
     }
 
     #[test]
@@ -156,15 +208,25 @@ mod destructive_gated_actions {
             &["push", "origin", ":main"],
             &["push", "-fd", "origin", "f"],
         ] {
-            assert_eq!(git(argv), gated(DestructiveCategory::BranchDeletion), "{argv:?}");
+            assert_eq!(
+                git(argv),
+                gated(DestructiveCategory::BranchDeletion),
+                "{argv:?}"
+            );
         }
     }
 
     #[test]
     fn gated_push_without_any_story_context() {
         let none = GateContext::default();
-        assert_eq!(classify_in("git", &args(&["push"]), &none), gated(DestructiveCategory::Push));
-        assert_eq!(classify("git", &args(&["push", "origin", "main"]), Some("main")), gated(DestructiveCategory::DefaultBranchPush));
+        assert_eq!(
+            classify_in("git", &args(&["push"]), &none),
+            gated(DestructiveCategory::Push)
+        );
+        assert_eq!(
+            classify("git", &args(&["push", "origin", "main"]), Some("main")),
+            gated(DestructiveCategory::DefaultBranchPush)
+        );
     }
 
     // --- Gated: deleting a branch or worktree other than the Story's own ---
@@ -181,20 +243,30 @@ mod destructive_gated_actions {
             &["branch", "-D", STORY, "other"],
             &["-C", "x", "branch", "-D", "main"],
         ] {
-            assert_eq!(git(argv), gated(DestructiveCategory::BranchDeletion), "{argv:?}");
+            assert_eq!(
+                git(argv),
+                gated(DestructiveCategory::BranchDeletion),
+                "{argv:?}"
+            );
         }
     }
 
     #[test]
     fn allowed_deleting_the_story_own_branch() {
         assert_eq!(git(&["branch", "-D", STORY]), Verdict::Safe);
-        assert_eq!(git(&["branch", "-d", &format!("refs/heads/{STORY}")]), Verdict::Safe);
+        assert_eq!(
+            git(&["branch", "-d", &format!("refs/heads/{STORY}")]),
+            Verdict::Safe
+        );
     }
 
     #[test]
     fn gated_branch_deletion_when_the_story_branch_is_unknown() {
         let none = GateContext::default();
-        assert_eq!(classify_in("git", &args(&["branch", "-D", STORY]), &none), gated(DestructiveCategory::BranchDeletion));
+        assert_eq!(
+            classify_in("git", &args(&["branch", "-D", STORY]), &none),
+            gated(DestructiveCategory::BranchDeletion)
+        );
     }
 
     #[test]
@@ -214,7 +286,11 @@ mod destructive_gated_actions {
             &["worktree", "remove", "-f", "-f", "/elsewhere/wt"],
             &["-C", "/elsewhere", "worktree", "remove", "wt"],
         ] {
-            assert_eq!(git(argv), gated(DestructiveCategory::WorktreeDeletion), "{argv:?}");
+            assert_eq!(
+                git(argv),
+                gated(DestructiveCategory::WorktreeDeletion),
+                "{argv:?}"
+            );
         }
     }
 
@@ -263,7 +339,11 @@ mod destructive_gated_actions {
             &["clean", "--force"],
             &["clean", "-d", "--force", "build"],
         ] {
-            assert_eq!(git(argv), gated(DestructiveCategory::ForceClean), "{argv:?}");
+            assert_eq!(
+                git(argv),
+                gated(DestructiveCategory::ForceClean),
+                "{argv:?}"
+            );
         }
     }
 
@@ -295,41 +375,78 @@ mod destructive_gated_actions {
 
     #[test]
     fn gated_rebase_of_another_branch_named_explicitly() {
-        assert_eq!(git(&["rebase", "main", "other"]), gated(DestructiveCategory::HistoryRewrite));
-        assert_eq!(git(&["rebase", "--onto", "main", "base", "other"]), gated(DestructiveCategory::HistoryRewrite));
-        assert_eq!(git(&["rebase", "--root", "other"]), gated(DestructiveCategory::HistoryRewrite));
+        assert_eq!(
+            git(&["rebase", "main", "other"]),
+            gated(DestructiveCategory::HistoryRewrite)
+        );
+        assert_eq!(
+            git(&["rebase", "--onto", "main", "base", "other"]),
+            gated(DestructiveCategory::HistoryRewrite)
+        );
+        assert_eq!(
+            git(&["rebase", "--root", "other"]),
+            gated(DestructiveCategory::HistoryRewrite)
+        );
     }
 
     #[test]
     fn gated_rebase_while_head_is_another_branch() {
         let ctx = story_ctx_at(Path::new(WORKTREE), "main");
-        assert_eq!(classify_in("git", &args(&["rebase", "origin/main"]), &ctx), gated(DestructiveCategory::HistoryRewrite));
-        assert_eq!(classify_in("git", &args(&["rebase", "-i", "HEAD~2"]), &ctx), gated(DestructiveCategory::HistoryRewrite));
+        assert_eq!(
+            classify_in("git", &args(&["rebase", "origin/main"]), &ctx),
+            gated(DestructiveCategory::HistoryRewrite)
+        );
+        assert_eq!(
+            classify_in("git", &args(&["rebase", "-i", "HEAD~2"]), &ctx),
+            gated(DestructiveCategory::HistoryRewrite)
+        );
     }
 
     #[test]
     fn gated_rebase_when_the_story_branch_is_unknown() {
         let none = GateContext::default();
-        assert_eq!(classify_in("git", &args(&["rebase", "main"]), &none), gated(DestructiveCategory::HistoryRewrite));
+        assert_eq!(
+            classify_in("git", &args(&["rebase", "main"]), &none),
+            gated(DestructiveCategory::HistoryRewrite)
+        );
     }
 
     #[test]
     fn gated_filter_branch_off_the_story_own_branch() {
         for argv in [
-            &["filter-branch", "--tree-filter", "rm -f secrets", "--", "--all"][..],
+            &[
+                "filter-branch",
+                "--tree-filter",
+                "rm -f secrets",
+                "--",
+                "--all",
+            ][..],
             &["filter-branch", "--", "other"],
             &["filter-branch", "-f", "--msg-filter", "cat", "main"],
         ] {
-            assert_eq!(git(argv), gated(DestructiveCategory::HistoryRewrite), "{argv:?}");
+            assert_eq!(
+                git(argv),
+                gated(DestructiveCategory::HistoryRewrite),
+                "{argv:?}"
+            );
         }
         let elsewhere = story_ctx_at(Path::new(WORKTREE), "main");
-        assert_eq!(classify_in("git", &args(&["filter-branch"]), &elsewhere), gated(DestructiveCategory::HistoryRewrite));
+        assert_eq!(
+            classify_in("git", &args(&["filter-branch"]), &elsewhere),
+            gated(DestructiveCategory::HistoryRewrite)
+        );
     }
 
     #[test]
     fn allowed_filter_branch_on_the_story_own_branch() {
-        assert_eq!(git(&["filter-branch", "--msg-filter", "cat", "--", STORY]), Verdict::Safe);
-        assert_eq!(git(&["filter-branch", "--msg-filter", "cat"]), Verdict::Safe);
+        assert_eq!(
+            git(&["filter-branch", "--msg-filter", "cat", "--", STORY]),
+            Verdict::Safe
+        );
+        assert_eq!(
+            git(&["filter-branch", "--msg-filter", "cat"]),
+            Verdict::Safe
+        );
     }
 
     // --- Gated: recursive `rm` outside the worktree ---
@@ -365,15 +482,25 @@ mod destructive_gated_actions {
             &["-rf", WORKTREE],
             &["-rf", "/"],
         ] {
-            assert_eq!(rm(argv), gated(DestructiveCategory::RecursiveDelete), "{argv:?}");
+            assert_eq!(
+                rm(argv),
+                gated(DestructiveCategory::RecursiveDelete),
+                "{argv:?}"
+            );
         }
     }
 
     #[test]
     fn gated_recursive_rm_when_the_worktree_is_unknown() {
         let none = GateContext::default();
-        assert_eq!(classify_in("rm", &args(&["-rf", "build"]), &none), gated(DestructiveCategory::RecursiveDelete));
-        assert_eq!(classify("rm", &args(&["-rf", "build"]), None), gated(DestructiveCategory::RecursiveDelete));
+        assert_eq!(
+            classify_in("rm", &args(&["-rf", "build"]), &none),
+            gated(DestructiveCategory::RecursiveDelete)
+        );
+        assert_eq!(
+            classify("rm", &args(&["-rf", "build"]), None),
+            gated(DestructiveCategory::RecursiveDelete)
+        );
     }
 
     #[test]
@@ -396,7 +523,10 @@ mod destructive_gated_actions {
             cwd: Some(real.canonicalize().unwrap()),
             ..GateContext::default()
         };
-        assert_eq!(classify_in("rm", &args(&["-rf", "build"]), &ctx), Verdict::Safe);
+        assert_eq!(
+            classify_in("rm", &args(&["-rf", "build"]), &ctx),
+            Verdict::Safe
+        );
         let outside: PathBuf = root.path().join("sibling");
         assert_eq!(
             classify_in("rm", &args(&["-rf", outside.to_str().unwrap()]), &ctx),
@@ -412,34 +542,82 @@ mod destructive_gated_actions {
 
     #[test]
     fn gated_npm_publish() {
-        assert_eq!(run("npm", &["publish"]), gated(DestructiveCategory::Publish));
-        assert_eq!(run("npm", &["publish", "--access", "public"]), gated(DestructiveCategory::Publish));
-        assert_eq!(run("npm", &["--registry=https://r.example", "publish"]), gated(DestructiveCategory::Publish));
-        assert_eq!(run("npm", &["-w", "pkg", "publish"]), gated(DestructiveCategory::Publish));
+        assert_eq!(
+            run("npm", &["publish"]),
+            gated(DestructiveCategory::Publish)
+        );
+        assert_eq!(
+            run("npm", &["publish", "--access", "public"]),
+            gated(DestructiveCategory::Publish)
+        );
+        assert_eq!(
+            run("npm", &["--registry=https://r.example", "publish"]),
+            gated(DestructiveCategory::Publish)
+        );
+        assert_eq!(
+            run("npm", &["-w", "pkg", "publish"]),
+            gated(DestructiveCategory::Publish)
+        );
     }
 
     #[test]
     fn gated_cargo_publish() {
-        assert_eq!(run("cargo", &["publish"]), gated(DestructiveCategory::Publish));
-        assert_eq!(run("cargo", &["+nightly", "publish", "-p", "core"]), gated(DestructiveCategory::Publish));
-        assert_eq!(run("cargo", &["--config", "x=1", "publish"]), gated(DestructiveCategory::Publish));
+        assert_eq!(
+            run("cargo", &["publish"]),
+            gated(DestructiveCategory::Publish)
+        );
+        assert_eq!(
+            run("cargo", &["+nightly", "publish", "-p", "core"]),
+            gated(DestructiveCategory::Publish)
+        );
+        assert_eq!(
+            run("cargo", &["--config", "x=1", "publish"]),
+            gated(DestructiveCategory::Publish)
+        );
     }
 
     #[test]
     fn gated_gh_pr_merge() {
-        assert_eq!(run("gh", &["pr", "merge", "12", "--squash"]), gated(DestructiveCategory::Publish));
-        assert_eq!(run("gh", &["-R", "o/r", "pr", "merge"]), gated(DestructiveCategory::Publish));
-        assert_eq!(run("gh", &["pr", "--repo", "o/r", "merge", "12"]), gated(DestructiveCategory::Publish));
+        assert_eq!(
+            run("gh", &["pr", "merge", "12", "--squash"]),
+            gated(DestructiveCategory::Publish)
+        );
+        assert_eq!(
+            run("gh", &["-R", "o/r", "pr", "merge"]),
+            gated(DestructiveCategory::Publish)
+        );
+        assert_eq!(
+            run("gh", &["pr", "--repo", "o/r", "merge", "12"]),
+            gated(DestructiveCategory::Publish)
+        );
     }
 
     #[test]
     fn gated_gh_release() {
-        assert_eq!(run("gh", &["release", "create", "v1.0.0"]), gated(DestructiveCategory::Publish));
-        assert_eq!(run("gh", &["release", "upload", "v1.0.0", "a.tgz"]), gated(DestructiveCategory::Publish));
-        assert_eq!(run("gh", &["release", "delete", "v1.0.0"]), gated(DestructiveCategory::Publish));
-        assert_eq!(run("gh", &["release", "edit", "v1.0.0", "--draft=false"]), gated(DestructiveCategory::Publish));
-        assert_eq!(run("gh", &["release", "delete-asset", "v1.0.0", "a.tgz"]), gated(DestructiveCategory::Publish));
-        assert_eq!(run("gh", &["-R", "o/r", "release", "create", "v1.0.0"]), gated(DestructiveCategory::Publish));
+        assert_eq!(
+            run("gh", &["release", "create", "v1.0.0"]),
+            gated(DestructiveCategory::Publish)
+        );
+        assert_eq!(
+            run("gh", &["release", "upload", "v1.0.0", "a.tgz"]),
+            gated(DestructiveCategory::Publish)
+        );
+        assert_eq!(
+            run("gh", &["release", "delete", "v1.0.0"]),
+            gated(DestructiveCategory::Publish)
+        );
+        assert_eq!(
+            run("gh", &["release", "edit", "v1.0.0", "--draft=false"]),
+            gated(DestructiveCategory::Publish)
+        );
+        assert_eq!(
+            run("gh", &["release", "delete-asset", "v1.0.0", "a.tgz"]),
+            gated(DestructiveCategory::Publish)
+        );
+        assert_eq!(
+            run("gh", &["-R", "o/r", "release", "create", "v1.0.0"]),
+            gated(DestructiveCategory::Publish)
+        );
     }
 
     #[test]
@@ -455,7 +633,10 @@ mod destructive_gated_actions {
         assert_eq!(run("npm", &["install"]), Verdict::Safe);
         assert_eq!(run("npm", &["test"]), Verdict::Safe);
         assert_eq!(run("npm", &["run", "publish-docs"]), Verdict::Safe);
-        assert_eq!(run("npm", &["--prefix", "packages/desktop", "run", "build"]), Verdict::Safe);
+        assert_eq!(
+            run("npm", &["--prefix", "packages/desktop", "run", "build"]),
+            Verdict::Safe
+        );
         assert_eq!(run("cargo", &["test", "--workspace"]), Verdict::Safe);
         assert_eq!(run("cargo", &["build", "--release"]), Verdict::Safe);
         assert_eq!(run("gh", &["pr", "create", "--fill"]), Verdict::Safe);
@@ -485,7 +666,14 @@ mod destructive_gated_actions {
             &["--no-optional-locks", "status", "--porcelain"],
             &["-c", "core.quotepath=false", "status"],
             &["-C", "/some/repo", "log", "-1"],
-            &["-C", "/some/repo", "-c", "a=b", "rev-parse", "--is-inside-work-tree"],
+            &[
+                "-C",
+                "/some/repo",
+                "-c",
+                "a=b",
+                "rev-parse",
+                "--is-inside-work-tree",
+            ],
         ] {
             assert_eq!(git(argv), Verdict::Safe, "{argv:?}");
         }
@@ -529,8 +717,14 @@ fn migration_source_list_defines_the_destructive_gate_column_exactly_once() {
     // The schema of record is one baseline migration; `permission_requests.destructive_category`
     // must be declared in exactly one registered migration, never zero, never twice.
     let sources = flywheel_core::db::migration_sources();
-    let occurrences = sources.iter().map(|s| s.matches("destructive_category TEXT").count()).sum::<usize>();
-    assert_eq!(occurrences, 1, "destructive_category must be defined by exactly one migration");
+    let occurrences = sources
+        .iter()
+        .map(|s| s.matches("destructive_category TEXT").count())
+        .sum::<usize>();
+    assert_eq!(
+        occurrences, 1,
+        "destructive_category must be defined by exactly one migration"
+    );
 }
 
 // --- create_pending_request: validates destructive_category against the enum's string set ---
@@ -548,7 +742,10 @@ fn create_pending_request_accepts_every_valid_destructive_category() {
             Some(category.as_str()),
         )
         .unwrap_or_else(|e| panic!("expected {category:?} to be accepted, got: {e}"));
-        assert_eq!(request.destructive_category.as_deref(), Some(category.as_str()));
+        assert_eq!(
+            request.destructive_category.as_deref(),
+            Some(category.as_str())
+        );
         // Answer it so the run is unblocked before the next iteration raises another request.
         answer_request(&mut conn, &request.id, "denied", &actor_id)
             .expect("answer_request should succeed for the routine denied path");
@@ -566,7 +763,10 @@ fn create_pending_request_rejects_a_destructive_category_outside_the_enum_set() 
         &actor_id,
         Some("not-a-real-category"),
     );
-    assert!(result.is_err(), "an out-of-set destructive_category must be rejected");
+    assert!(
+        result.is_err(),
+        "an out-of-set destructive_category must be rejected"
+    );
 }
 
 #[test]
@@ -594,8 +794,9 @@ fn answer_request_rejects_allowed_always_for_a_request_carrying_a_destructive_ca
 
     let result = answer_request(&mut conn, &request.id, "allowed_always", &actor_id);
     let err = result.expect_err("allowed_always must be rejected for a destructive request");
-    err.downcast_ref::<DestructiveAllowAlwaysRejected>()
-        .expect("the error must be the typed DestructiveAllowAlwaysRejected, not a generic failure");
+    err.downcast_ref::<DestructiveAllowAlwaysRejected>().expect(
+        "the error must be the typed DestructiveAllowAlwaysRejected, not a generic failure",
+    );
 
     // The row must still be genuinely pending afterward — the rejected attempt must not have
     // partially applied.
@@ -606,7 +807,10 @@ fn answer_request_rejects_allowed_always_for_a_request_carrying_a_destructive_ca
             |row| row.get(0),
         )
         .expect("permission_requests row should exist");
-    assert_eq!(status, "pending", "a rejected allowed_always attempt must not change the row's status");
+    assert_eq!(
+        status, "pending",
+        "a rejected allowed_always attempt must not change the row's status"
+    );
 }
 
 #[test]
@@ -633,7 +837,8 @@ mod shim_gate {
     use std::time::Duration;
 
     fn resolve_system_rm() -> PathBuf {
-        let path_var = std::env::var_os("PATH").expect("PATH should be set in the test environment");
+        let path_var =
+            std::env::var_os("PATH").expect("PATH should be set in the test environment");
         for dir in std::env::split_paths(&path_var) {
             let candidate = dir.join("rm");
             if candidate.is_file() {
@@ -645,7 +850,8 @@ mod shim_gate {
 
     /// Mirrors [`resolve_system_rm`] for `git` — used by `run_shim_as_git`'s `FLYWHEEL_REAL_GIT`.
     fn resolve_system_git() -> PathBuf {
-        let path_var = std::env::var_os("PATH").expect("PATH should be set in the test environment");
+        let path_var =
+            std::env::var_os("PATH").expect("PATH should be set in the test environment");
         for dir in std::env::split_paths(&path_var) {
             let candidate = dir.join("git");
             if candidate.is_file() {
@@ -678,15 +884,21 @@ mod shim_gate {
         let listener =
             UnixListener::bind(&socket_path).expect("failed to bind the mock permission socket");
         std::thread::spawn(move || {
-            let (stream, _) = listener.accept().expect("failed to accept the shim's connection");
-            let mut reader = BufReader::new(stream.try_clone().expect("failed to clone the socket"));
+            let (stream, _) = listener
+                .accept()
+                .expect("failed to accept the shim's connection");
+            let mut reader =
+                BufReader::new(stream.try_clone().expect("failed to clone the socket"));
             let mut line = String::new();
             reader
                 .read_line(&mut line)
                 .expect("failed to read the shim's request line");
             let parsed: serde_json::Value =
                 serde_json::from_str(line.trim()).expect("the shim's request must be valid JSON");
-            assert_eq!(parsed["toolName"], "Bash", "the shim always names the tool Bash");
+            assert_eq!(
+                parsed["toolName"], "Bash",
+                "the shim always names the tool Bash"
+            );
 
             match decision {
                 Some(decision) => {
@@ -757,15 +969,22 @@ mod shim_gate {
         let server = spawn_mock_permission_server(socket_path.clone(), Some("allow"));
 
         let child = run_shim_as_rm(&["-r", target.to_str().unwrap()], &real_rm, &socket_path);
-        let output = child.wait_with_output().expect("the shim process should exit");
+        let output = child
+            .wait_with_output()
+            .expect("the shim process should exit");
 
         assert!(
             output.status.success(),
             "expected the shim to exit successfully on allow, stderr: {}",
             String::from_utf8_lossy(&output.stderr)
         );
-        assert!(!target.exists(), "an allowed recursive rm must actually have deleted the file");
-        server.join().expect("the mock server thread should not panic");
+        assert!(
+            !target.exists(),
+            "an allowed recursive rm must actually have deleted the file"
+        );
+        server
+            .join()
+            .expect("the mock server thread should not panic");
         let _ = std::fs::remove_file(&socket_path);
     }
 
@@ -780,14 +999,18 @@ mod shim_gate {
         let server = spawn_mock_permission_server(socket_path.clone(), Some("deny"));
 
         let child = run_shim_as_rm(&["-r", target.to_str().unwrap()], &real_rm, &socket_path);
-        let output = child.wait_with_output().expect("the shim process should exit");
+        let output = child
+            .wait_with_output()
+            .expect("the shim process should exit");
 
         assert!(!output.status.success(), "expected a non-zero exit on deny");
         assert!(
             target.exists(),
             "a denied recursive rm must never have touched the file — checked by the side effect's absence, not the exit code alone"
         );
-        server.join().expect("the mock server thread should not panic");
+        server
+            .join()
+            .expect("the mock server thread should not panic");
         let _ = std::fs::remove_file(&socket_path);
     }
 
@@ -806,7 +1029,9 @@ mod shim_gate {
         std::thread::sleep(Duration::from_secs(3));
         match child.try_wait().expect("try_wait should not error") {
             Some(status) => {
-                panic!("expected the shim to still be blocked after 3s, but it exited with {status:?}")
+                panic!(
+                    "expected the shim to still be blocked after 3s, but it exited with {status:?}"
+                )
             }
             None => {
                 assert!(
@@ -830,7 +1055,9 @@ mod shim_gate {
         let socket_a = scratch_socket_path("first");
         let server_a = spawn_mock_permission_server(socket_a.clone(), Some("allow"));
         let child_a = run_shim_as_rm(&["-r", first_target.to_str().unwrap()], &real_rm, &socket_a);
-        let output_a = child_a.wait_with_output().expect("the first shim invocation should exit");
+        let output_a = child_a
+            .wait_with_output()
+            .expect("the first shim invocation should exit");
         assert!(output_a.status.success());
         let request_a = server_a.join().expect("server thread should not panic");
         let request_id_a = request_a["requestId"]
@@ -842,8 +1069,14 @@ mod shim_gate {
         std::fs::write(&second_target, b"two").expect("failed to write the second marker");
         let socket_b = scratch_socket_path("second");
         let server_b = spawn_mock_permission_server(socket_b.clone(), Some("allow"));
-        let child_b = run_shim_as_rm(&["-r", second_target.to_str().unwrap()], &real_rm, &socket_b);
-        let output_b = child_b.wait_with_output().expect("the second shim invocation should exit");
+        let child_b = run_shim_as_rm(
+            &["-r", second_target.to_str().unwrap()],
+            &real_rm,
+            &socket_b,
+        );
+        let output_b = child_b
+            .wait_with_output()
+            .expect("the second shim invocation should exit");
         assert!(output_b.status.success());
         let request_b = server_b.join().expect("server thread should not panic");
         let request_id_b = request_b["requestId"]
@@ -882,11 +1115,15 @@ mod shim_gate {
         };
         assert!(run(&["init", "-q", "-b", "main"]).status.success());
         assert!(run(&["config", "user.name", "Test User"]).status.success());
-        assert!(run(&["config", "user.email", "test@example.com"]).status.success());
+        assert!(run(&["config", "user.email", "test@example.com"])
+            .status
+            .success());
         std::fs::write(repo_dir.path().join("README.md"), b"scratch\n")
             .expect("failed to write scratch file");
         assert!(run(&["add", "README.md"]).status.success());
-        assert!(run(&["commit", "-q", "-m", "initial commit"]).status.success());
+        assert!(run(&["commit", "-q", "-m", "initial commit"])
+            .status
+            .success());
         assert!(run(&["checkout", "-q", "-b", "feature"]).status.success());
         assert!(run(&["checkout", "-q", "main"]).status.success());
 
@@ -900,7 +1137,9 @@ mod shim_gate {
             "main",
             repo_dir.path(),
         );
-        let output = child.wait_with_output().expect("the shim process should exit");
+        let output = child
+            .wait_with_output()
+            .expect("the shim process should exit");
 
         assert!(
             !output.status.success(),
@@ -909,7 +1148,9 @@ mod shim_gate {
             String::from_utf8_lossy(&output.stderr)
         );
 
-        let request = server.join().expect("the mock server thread should not panic");
+        let request = server
+            .join()
+            .expect("the mock server thread should not panic");
         assert_eq!(
             request["input"]["destructiveCategory"], "branch-deletion",
             "the wire payload's destructiveCategory must be branch-deletion for a delete-shaped push"

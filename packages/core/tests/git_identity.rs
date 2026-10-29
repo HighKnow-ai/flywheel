@@ -14,7 +14,9 @@ use common::new_story;
 use flywheel_core::branch::story_branch_name;
 use flywheel_core::domain::actor::local_human_actor_id;
 use flywheel_core::domain::project::{register_project, Project};
-use flywheel_core::git_identity::{classify, resolve_identifier, GitIdentifier, IdentityResolution, ResolveOutcome};
+use flywheel_core::git_identity::{
+    classify, resolve_identifier, GitIdentifier, IdentityResolution, ResolveOutcome,
+};
 use rusqlite::{params, Connection};
 
 /// Serializes every call to [`with_scratch_envs`] in THIS binary — `FLYWHEEL_WORKTREE_ROOT` and
@@ -23,7 +25,9 @@ use rusqlite::{params, Connection};
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn with_scratch_envs<T>(worktree_root: &Path, runtime_dir: &Path, f: impl FnOnce() -> T) -> T {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     // SAFETY: the mutex above serializes every caller in this binary, so no other thread reads or
     // mutates these vars while they're set, and this helper always clears them before returning.
     unsafe {
@@ -63,10 +67,20 @@ fn fresh_repo(root: &Path) -> PathBuf {
     let dir = tempfile::tempdir_in(root).expect("failed to create scratch repo dir");
     let repo = dir.path().to_path_buf();
     std::mem::forget(dir);
-    run_git_ok(root, &["init", "--initial-branch", "main", repo.to_str().unwrap()]);
-    run_git_ok(&repo, &["config", "user.email", "git-identity-test@flywheel.invalid"]);
-    run_git_ok(&repo, &["config", "user.name", "Flywheel Git Identity Test"]);
-    std::fs::write(repo.join("README.md"), "# git_identity.rs scratch repo\n").expect("failed to write README");
+    run_git_ok(
+        root,
+        &["init", "--initial-branch", "main", repo.to_str().unwrap()],
+    );
+    run_git_ok(
+        &repo,
+        &["config", "user.email", "git-identity-test@flywheel.invalid"],
+    );
+    run_git_ok(
+        &repo,
+        &["config", "user.name", "Flywheel Git Identity Test"],
+    );
+    std::fs::write(repo.join("README.md"), "# git_identity.rs scratch repo\n")
+        .expect("failed to write README");
     run_git_ok(&repo, &["add", "README.md"]);
     run_git_ok(&repo, &["commit", "-m", "initial commit"]);
     repo
@@ -83,8 +97,14 @@ fn open_registered_project(
 ) -> (String, Project) {
     with_scratch_envs(worktree_root, runtime_dir, || {
         let actor_id = local_human_actor_id(conn).expect("seeded human actor should exist");
-        let project = register_project(conn, &actor_id, work_path, "Git Identity Fixture", key_prefix)
-            .expect("register_project should succeed");
+        let project = register_project(
+            conn,
+            &actor_id,
+            work_path,
+            "Git Identity Fixture",
+            key_prefix,
+        )
+        .expect("register_project should succeed");
         (actor_id, project)
     })
 }
@@ -94,7 +114,8 @@ fn open_scratch_db() -> Connection {
     let db_path = db_dir.path().join("flywheel.db");
     let backups_dir = db_dir.path().join("backups");
     std::mem::forget(db_dir);
-    flywheel_core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate should succeed")
+    flywheel_core::db::open_and_migrate(&db_path, &backups_dir)
+        .expect("open_and_migrate should succeed")
 }
 
 /// Checkout `branch` (creating it from HEAD if needed) and make one commit, with `run_id` set as
@@ -102,7 +123,9 @@ fn open_scratch_db() -> Connection {
 fn commit_on_branch(repo: &Path, branch: &str, run_id: Option<&str>) {
     run_git_ok(repo, &["checkout", "-B", branch]);
     let mut cmd = Command::new("git");
-    cmd.arg("-C").arg(repo).args(["commit", "--allow-empty", "-m", "test commit"]);
+    cmd.arg("-C")
+        .arg(repo)
+        .args(["commit", "--allow-empty", "-m", "test commit"]);
     match run_id {
         Some(id) => {
             cmd.env("FLYWHEEL_RUN_ID", id);
@@ -125,7 +148,13 @@ fn head_sha(repo: &Path) -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
-fn insert_worktree_row(conn: &Connection, story_id: &str, project_id: &str, actor_id: &str, branch: &str) {
+fn insert_worktree_row(
+    conn: &Connection,
+    story_id: &str,
+    project_id: &str,
+    actor_id: &str,
+    branch: &str,
+) {
     conn.execute(
         "INSERT INTO worktrees (id, story_id, project_id, path, branch, base_branch, status, created_by, created_at)
          VALUES (?1, ?2, ?3, '/tmp/unused-in-this-test', ?4, 'main', 'active', ?5, '2026-01-01T00:00:00.000Z')",
@@ -136,7 +165,14 @@ fn insert_worktree_row(conn: &Connection, story_id: &str, project_id: &str, acto
 
 /// Every object's full name in `repo`, via `git cat-file --batch-all-objects`.
 fn repo_object_shas(repo: &Path) -> Vec<String> {
-    let output = run_git_ok(repo, &["cat-file", "--batch-all-objects", "--batch-check=%(objectname)"]);
+    let output = run_git_ok(
+        repo,
+        &[
+            "cat-file",
+            "--batch-all-objects",
+            "--batch-check=%(objectname)",
+        ],
+    );
     String::from_utf8_lossy(&output.stdout)
         .lines()
         .filter(|line| !line.is_empty())
@@ -156,13 +192,19 @@ fn find_ambiguous_prefix(repo: &Path) -> (String, usize) {
         }
         if let Some((prefix, _)) = counts.into_iter().find(|(_, c)| *c >= 2) {
             let output = run_git_ok(repo, &["rev-parse", &format!("--disambiguate={prefix}")]);
-            let real_count = String::from_utf8_lossy(&output.stdout).lines().filter(|l| !l.is_empty()).count();
+            let real_count = String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .filter(|l| !l.is_empty())
+                .count();
             if real_count >= 2 {
                 return (prefix, real_count);
             }
         }
     }
-    panic!("no ambiguous prefix found among {} objects — increase the commit count", shas.len());
+    panic!(
+        "no ambiguous prefix found among {} objects — increase the commit count",
+        shas.len()
+    );
 }
 
 // --- classify: the pure security boundary (T-07-05-01) ----------------------------------------
@@ -200,15 +242,29 @@ fn resolve_identifier_for_a_story_branch_returns_the_owning_story() {
     let runtime = tempfile::tempdir().expect("runtime dir");
     let repo = fresh_repo(scratch.path());
     let mut conn = open_scratch_db();
-    let (actor_id, project) = open_registered_project(scratch.path(), runtime.path(), &mut conn, &repo, "GID1");
+    let (actor_id, project) =
+        open_registered_project(scratch.path(), runtime.path(), &mut conn, &repo, "GID1");
 
-    let story = new_story(&mut conn, &project.id, &actor_id, "Branch resolves to story");
+    let story = new_story(
+        &mut conn,
+        &project.id,
+        &actor_id,
+        "Branch resolves to story",
+    );
     let branch = story_branch_name(&story.key, &story.title);
     insert_worktree_row(&conn, &story.id, &project.id, &actor_id, &branch);
 
-    let outcome = resolve_identifier(&conn, &GitIdentifier::Branch(branch)).expect("resolve_identifier");
+    let outcome =
+        resolve_identifier(&conn, &GitIdentifier::Branch(branch)).expect("resolve_identifier");
     match outcome {
-        ResolveOutcome::Resolved(IdentityResolution { project_id, item_kind, item_id, item_key, matched_sha, run_id }) => {
+        ResolveOutcome::Resolved(IdentityResolution {
+            project_id,
+            item_kind,
+            item_id,
+            item_key,
+            matched_sha,
+            run_id,
+        }) => {
             assert_eq!(project_id, project.id);
             assert_eq!(item_kind, "story");
             assert_eq!(item_id, story.id);
@@ -228,15 +284,16 @@ fn resolve_identifier_for_a_stamped_sha_returns_the_story_and_run_id() {
     let runtime = tempfile::tempdir().expect("runtime dir");
     let repo = fresh_repo(scratch.path());
     let mut conn = open_scratch_db();
-    let (actor_id, project) = open_registered_project(scratch.path(), runtime.path(), &mut conn, &repo, "GID3");
+    let (actor_id, project) =
+        open_registered_project(scratch.path(), runtime.path(), &mut conn, &repo, "GID3");
 
     let story = new_story(&mut conn, &project.id, &actor_id, "Stamped commit resolves");
     let branch = story_branch_name(&story.key, &story.title);
     commit_on_branch(&repo, &branch, Some("run-xyz"));
     let full_sha = head_sha(&repo);
 
-    let outcome =
-        resolve_identifier(&conn, &GitIdentifier::Sha(full_sha.clone())).expect("resolve_identifier");
+    let outcome = resolve_identifier(&conn, &GitIdentifier::Sha(full_sha.clone()))
+        .expect("resolve_identifier");
     match outcome {
         ResolveOutcome::Resolved(resolution) => {
             assert_eq!(resolution.project_id, project.id);
@@ -256,13 +313,18 @@ fn resolve_identifier_for_a_sha_with_no_trailer_returns_not_found() {
     let runtime = tempfile::tempdir().expect("runtime dir");
     let repo = fresh_repo(scratch.path());
     let mut conn = open_scratch_db();
-    let (_actor_id, _project) = open_registered_project(scratch.path(), runtime.path(), &mut conn, &repo, "GID4");
+    let (_actor_id, _project) =
+        open_registered_project(scratch.path(), runtime.path(), &mut conn, &repo, "GID4");
 
     run_git_ok(&repo, &["checkout", "main"]);
-    run_git_ok(&repo, &["commit", "--allow-empty", "-m", "untracked commit"]);
+    run_git_ok(
+        &repo,
+        &["commit", "--allow-empty", "-m", "untracked commit"],
+    );
     let full_sha = head_sha(&repo);
 
-    let outcome = resolve_identifier(&conn, &GitIdentifier::Sha(full_sha)).expect("resolve_identifier");
+    let outcome =
+        resolve_identifier(&conn, &GitIdentifier::Sha(full_sha)).expect("resolve_identifier");
     assert_eq!(outcome, ResolveOutcome::NotFound);
 }
 
@@ -272,7 +334,8 @@ fn resolve_identifier_for_an_ambiguous_prefix_reports_the_real_match_count() {
     let runtime = tempfile::tempdir().expect("runtime dir");
     let repo = fresh_repo(scratch.path());
     let mut conn = open_scratch_db();
-    let (_actor_id, _project) = open_registered_project(scratch.path(), runtime.path(), &mut conn, &repo, "GID5");
+    let (_actor_id, _project) =
+        open_registered_project(scratch.path(), runtime.path(), &mut conn, &repo, "GID5");
 
     run_git_ok(&repo, &["checkout", "main"]);
     // 900 empty commits, message-varied so each produces a distinct commit object even though the
@@ -281,17 +344,27 @@ fn resolve_identifier_for_an_ambiguous_prefix_reports_the_real_match_count() {
     // all but certain, proven below against git's own --disambiguate rather than assumed (and the
     // length loop below falls through to longer prefixes on the rare miss).
     for i in 0..900 {
-        run_git_ok(&repo, &["commit", "--allow-empty", "-m", &format!("commit {i}")]);
+        run_git_ok(
+            &repo,
+            &["commit", "--allow-empty", "-m", &format!("commit {i}")],
+        );
     }
 
     let (prefix, expected_count) = find_ambiguous_prefix(&repo);
 
-    let outcome = resolve_identifier(&conn, &GitIdentifier::Sha(prefix)).expect("resolve_identifier");
-    assert_eq!(outcome, ResolveOutcome::AmbiguousPrefix { matches: expected_count });
+    let outcome =
+        resolve_identifier(&conn, &GitIdentifier::Sha(prefix)).expect("resolve_identifier");
+    assert_eq!(
+        outcome,
+        ResolveOutcome::AmbiguousPrefix {
+            matches: expected_count
+        }
+    );
 }
 
 #[test]
-fn resolve_identifier_for_a_sha_present_in_two_registered_repositories_is_ambiguous_across_repositories() {
+fn resolve_identifier_for_a_sha_present_in_two_registered_repositories_is_ambiguous_across_repositories(
+) {
     let scratch = tempfile::tempdir().expect("scratch dir");
     let runtime = tempfile::tempdir().expect("runtime dir");
     let repo_a = fresh_repo(scratch.path());
@@ -308,12 +381,19 @@ fn resolve_identifier_for_a_sha_present_in_two_registered_repositories_is_ambigu
     // both, proving genuine cross-repository ambiguity rather than two repositories that merely
     // happen to share a sha by construction.
     let repo_b = scratch.path().join("repo-b-clone");
-    run_git_ok(scratch.path(), &["clone", repo_a.to_str().unwrap(), repo_b.to_str().unwrap()]);
+    run_git_ok(
+        scratch.path(),
+        &["clone", repo_a.to_str().unwrap(), repo_b.to_str().unwrap()],
+    );
     let (_actor_id_b, _project_b) =
         open_registered_project(scratch.path(), runtime.path(), &mut conn, &repo_b, "GID6B");
 
-    let outcome = resolve_identifier(&conn, &GitIdentifier::Sha(full_sha)).expect("resolve_identifier");
-    assert_eq!(outcome, ResolveOutcome::AmbiguousAcrossRepositories { repositories: 2 });
+    let outcome =
+        resolve_identifier(&conn, &GitIdentifier::Sha(full_sha)).expect("resolve_identifier");
+    assert_eq!(
+        outcome,
+        ResolveOutcome::AmbiguousAcrossRepositories { repositories: 2 }
+    );
 }
 
 #[test]
@@ -322,10 +402,12 @@ fn resolve_identifier_for_a_sha_present_in_no_repository_returns_not_found() {
     let runtime = tempfile::tempdir().expect("runtime dir");
     let repo = fresh_repo(scratch.path());
     let mut conn = open_scratch_db();
-    let (_actor_id, _project) = open_registered_project(scratch.path(), runtime.path(), &mut conn, &repo, "GID7");
+    let (_actor_id, _project) =
+        open_registered_project(scratch.path(), runtime.path(), &mut conn, &repo, "GID7");
 
     let fabricated = "f".repeat(40);
-    let outcome = resolve_identifier(&conn, &GitIdentifier::Sha(fabricated)).expect("resolve_identifier");
+    let outcome =
+        resolve_identifier(&conn, &GitIdentifier::Sha(fabricated)).expect("resolve_identifier");
     assert_eq!(outcome, ResolveOutcome::NotFound);
 }
 
@@ -335,14 +417,17 @@ fn resolve_identifier_is_deterministic_across_two_calls_on_unchanged_input() {
     let runtime = tempfile::tempdir().expect("runtime dir");
     let repo = fresh_repo(scratch.path());
     let mut conn = open_scratch_db();
-    let (actor_id, project) = open_registered_project(scratch.path(), runtime.path(), &mut conn, &repo, "GID8");
+    let (actor_id, project) =
+        open_registered_project(scratch.path(), runtime.path(), &mut conn, &repo, "GID8");
 
     let story = new_story(&mut conn, &project.id, &actor_id, "Deterministic resolve");
     let branch = story_branch_name(&story.key, &story.title);
     commit_on_branch(&repo, &branch, Some("run-det"));
     let full_sha = head_sha(&repo);
 
-    let first = resolve_identifier(&conn, &GitIdentifier::Sha(full_sha.clone())).expect("resolve_identifier");
-    let second = resolve_identifier(&conn, &GitIdentifier::Sha(full_sha)).expect("resolve_identifier");
+    let first = resolve_identifier(&conn, &GitIdentifier::Sha(full_sha.clone()))
+        .expect("resolve_identifier");
+    let second =
+        resolve_identifier(&conn, &GitIdentifier::Sha(full_sha)).expect("resolve_identifier");
     assert_eq!(first, second);
 }

@@ -69,7 +69,10 @@ pub fn strip(src: &str) -> String {
             }
             i += 2;
             blank(&mut out, start, i.min(b.len()));
-        } else if c == 'r' && (next == Some('"') || next == Some('#')) && !is_ident(b.get(i.wrapping_sub(1)).copied()) {
+        } else if c == 'r'
+            && (next == Some('"') || next == Some('#'))
+            && !is_ident(b.get(i.wrapping_sub(1)).copied())
+        {
             // A raw string: r"..." or r#"..."#.
             let mut j = i + 1;
             let mut hashes = 0;
@@ -128,7 +131,10 @@ pub fn strip(src: &str) -> String {
     // Blank every `#[cfg(test)]` item: the attribute through the end of the item it decorates.
     while let Some(at) = text.find("#[cfg(test)]") {
         let end = item_end(&text, at + "#[cfg(test)]".len());
-        let blanked: String = text[at..end].chars().map(|c| if c == '\n' { '\n' } else { ' ' }).collect();
+        let blanked: String = text[at..end]
+            .chars()
+            .map(|c| if c == '\n' { '\n' } else { ' ' })
+            .collect();
         text.replace_range(at..end, &blanked);
     }
     text
@@ -189,7 +195,10 @@ pub fn functions(text: &str) -> Vec<Function> {
         if is_ident(text[..at].chars().last()) {
             continue;
         }
-        let name: String = text[at + 3..].chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+        let name: String = text[at + 3..]
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_')
+            .collect();
         if name.is_empty() {
             continue;
         }
@@ -216,7 +225,12 @@ pub fn functions(text: &str) -> Vec<Function> {
             i += 1;
         }
         let Some(open) = open else { continue };
-        found.push(Function { name, sig_start: at, body_open: open, body_close: matching_close(text, open) });
+        found.push(Function {
+            name,
+            sig_start: at,
+            body_open: open,
+            body_close: matching_close(text, open),
+        });
     }
     found
 }
@@ -225,14 +239,17 @@ pub fn functions(text: &str) -> Vec<Function> {
 /// turbofish), excluding keywords and macro invocations.
 pub fn calls(text: &str, from: usize, to: usize) -> Vec<(usize, String)> {
     const KEYWORDS: &[&str] = &[
-        "if", "while", "for", "match", "return", "fn", "loop", "in", "as", "move", "Some", "Ok", "Err", "None",
-        "let", "else", "break", "continue", "where", "impl", "mut", "ref", "self", "Self", "super", "crate",
+        "if", "while", "for", "match", "return", "fn", "loop", "in", "as", "move", "Some", "Ok",
+        "Err", "None", "let", "else", "break", "continue", "where", "impl", "mut", "ref", "self",
+        "Self", "super", "crate",
     ];
     let bytes = text.as_bytes();
     let mut out = Vec::new();
     let mut i = from;
     while i < to {
-        if (bytes[i].is_ascii_alphabetic() || bytes[i] == b'_') && !is_ident(text[..i].chars().last()) {
+        if (bytes[i].is_ascii_alphabetic() || bytes[i] == b'_')
+            && !is_ident(text[..i].chars().last())
+        {
             let start = i;
             while i < to && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
                 i += 1;
@@ -268,8 +285,18 @@ pub fn calls(text: &str, from: usize, to: usize) -> Vec<(usize, String)> {
 /// Whether `text[from..to]` itself spawns a process: builds a `Command`, runs one, or hands one to
 /// the bounded-wait guard.
 pub fn spawns_directly(text: &str, from: usize, to: usize) -> bool {
-    let body: String = text[from..to].split_whitespace().collect::<Vec<_>>().join("");
-    ["Command::new(", ".spawn()", ".output()", "output_with_timeout("].iter().any(|s| body.contains(s))
+    let body: String = text[from..to]
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join("");
+    [
+        "Command::new(",
+        ".spawn()",
+        ".output()",
+        "output_with_timeout(",
+    ]
+    .iter()
+    .any(|s| body.contains(s))
 }
 
 /// Every source file under `dir`, recursively, as `(display path, text)`.
@@ -299,11 +326,17 @@ pub fn sources(dir: &Path, label: &str) -> Vec<(String, String)> {
 /// Every function that reaches a spawn, by fixpoint over `files` (already stripped), each mapped to
 /// the callee through which it does (`None`: it spawns in its own body) — the chain a report prints.
 pub fn spawning_names(files: &[(String, String)]) -> BTreeMap<String, Option<String>> {
-    spawning_names_skipping(files, &NOT_A_SPAWN.iter().map(|(n, _)| *n).collect::<Vec<_>>())
+    spawning_names_skipping(
+        files,
+        &NOT_A_SPAWN.iter().map(|(n, _)| *n).collect::<Vec<_>>(),
+    )
 }
 
 /// [`spawning_names`] with `skip` in place of [`NOT_A_SPAWN`].
-pub fn spawning_names_skipping(files: &[(String, String)], skip: &[&str]) -> BTreeMap<String, Option<String>> {
+pub fn spawning_names_skipping(
+    files: &[(String, String)],
+    skip: &[&str],
+) -> BTreeMap<String, Option<String>> {
     reaching_names(files, skip, spawns_directly)
 }
 
@@ -311,21 +344,37 @@ pub fn spawning_names_skipping(files: &[(String, String)], skip: &[&str]) -> BTr
 /// #235): a `thread::sleep`, or a wait on a channel, a child or a thread (`.recv()` that is not
 /// awaited, `.recv_timeout(`, `.wait()`, `.join()` with no argument).
 pub fn blocks_directly(text: &str, from: usize, to: usize) -> bool {
-    let body: String = text[from..to].split_whitespace().collect::<Vec<_>>().join("");
-    ["thread::sleep(", ".recv_timeout(", ".wait()", ".join()"].iter().any(|s| body.contains(s))
-        || body.match_indices(".recv()").any(|(at, _)| !body[at + ".recv()".len()..].starts_with(".await"))
+    let body: String = text[from..to]
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join("");
+    ["thread::sleep(", ".recv_timeout(", ".wait()", ".join()"]
+        .iter()
+        .any(|s| body.contains(s))
+        || body
+            .match_indices(".recv()")
+            .any(|(at, _)| !body[at + ".recv()".len()..].starts_with(".await"))
 }
 
 /// Every function that blocks the thread it runs on: it reaches a process spawn or a blocking wait
 /// ([`blocks_directly`]), by the same fixpoint as [`spawning_names`].
 pub fn blocking_names(files: &[(String, String)]) -> BTreeMap<String, Option<String>> {
-    let skip: Vec<&str> = NOT_A_SPAWN.iter().chain(NOT_BLOCKING).map(|(n, _)| *n).collect();
+    let skip: Vec<&str> = NOT_A_SPAWN
+        .iter()
+        .chain(NOT_BLOCKING)
+        .map(|(n, _)| *n)
+        .collect();
     blocking_names_skipping(files, &skip)
 }
 
 /// [`blocking_names`] with `skip` in place of [`NOT_A_SPAWN`] and [`NOT_BLOCKING`].
-pub fn blocking_names_skipping(files: &[(String, String)], skip: &[&str]) -> BTreeMap<String, Option<String>> {
-    reaching_names(files, skip, |text, from, to| spawns_directly(text, from, to) || blocks_directly(text, from, to))
+pub fn blocking_names_skipping(
+    files: &[(String, String)],
+    skip: &[&str],
+) -> BTreeMap<String, Option<String>> {
+    reaching_names(files, skip, |text, from, to| {
+        spawns_directly(text, from, to) || blocks_directly(text, from, to)
+    })
 }
 
 /// `(name, reason)`: names a blocking function in the tree also carries ([`blocks_directly`]), but
@@ -415,7 +464,11 @@ pub struct Holder {
 
 impl std::fmt::Display for Holder {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{} {} calls {} with the board lock held", self.file, self.line, self.function, self.callee)
+        write!(
+            f,
+            "{}:{} {} calls {} with the board lock held",
+            self.file, self.line, self.function, self.callee
+        )
     }
 }
 
@@ -462,7 +515,8 @@ pub fn guard_returning(text: &str) -> BTreeSet<String> {
         .into_iter()
         .filter(|f| {
             let sig = &text[f.sig_start..f.body_open];
-            sig.split_once("->").is_some_and(|(_, ret)| ret.contains("MutexGuard") && ret.contains("Connection"))
+            sig.split_once("->")
+                .is_some_and(|(_, ret)| ret.contains("MutexGuard") && ret.contains("Connection"))
         })
         .map(|f| f.name)
         .collect()
@@ -479,8 +533,18 @@ fn lock_spans(text: &str, f: &Function, guard_fns: &BTreeSet<String>) -> Vec<(us
     let sig = sig.split_once("->").map_or(sig, |(params, _)| params);
     for param in sig.split([',', '(']) {
         if param.contains("MutexGuard") {
-            let name = param.split(':').next().unwrap_or("").split_whitespace().last().unwrap_or("").to_string();
-            spans.push((f.body_open, end_of_guard(text, f.body_open + 1, f.body_close, &name)));
+            let name = param
+                .split(':')
+                .next()
+                .unwrap_or("")
+                .split_whitespace()
+                .last()
+                .unwrap_or("")
+                .to_string();
+            spans.push((
+                f.body_open,
+                end_of_guard(text, f.body_open + 1, f.body_close, &name),
+            ));
         }
     }
 
@@ -499,8 +563,13 @@ fn lock_spans(text: &str, f: &Function, guard_fns: &BTreeSet<String>) -> Vec<(us
             b'{' => {
                 // A block opened by `if let .. = db.lock()`, `match db.lock()` or a `let .. else`
                 // runs with the guard alive: the whole block is a span.
-                let prefix: String = without_blocks(&text[stmt_start..i]).split_whitespace().collect();
-                if locks_db(&prefix, &lock_fns) && !prefix.starts_with("||") && !prefix.starts_with("move||") {
+                let prefix: String = without_blocks(&text[stmt_start..i])
+                    .split_whitespace()
+                    .collect();
+                if locks_db(&prefix, &lock_fns)
+                    && !prefix.starts_with("||")
+                    && !prefix.starts_with("move||")
+                {
                     spans.push((i, matching_close(text, i)));
                 }
                 // Entering a block: the statement so far is suspended.
@@ -518,7 +587,9 @@ fn lock_spans(text: &str, f: &Function, guard_fns: &BTreeSet<String>) -> Vec<(us
                 let head = head.trim_start();
                 let block_statement = paren == 0
                     && (head.is_empty()
-                        || ["if ", "match ", "for ", "while ", "loop", "unsafe"].iter().any(|k| head.starts_with(k)));
+                        || ["if ", "match ", "for ", "while ", "loop", "unsafe"]
+                            .iter()
+                            .any(|k| head.starts_with(k)));
                 if block_statement && !text[i + 1..].trim_start().starts_with("else") {
                     stmt_start = i + 1;
                 }
@@ -542,7 +613,9 @@ fn lock_spans(text: &str, f: &Function, guard_fns: &BTreeSet<String>) -> Vec<(us
                         && locks_db(&rhs_squeezed, &lock_fns)
                     {
                         lock_fns.insert(guard_name);
-                    } else if locks_db(&rhs_squeezed, &lock_fns) && guard_rhs(&rhs_squeezed, &lock_fns) {
+                    } else if locks_db(&rhs_squeezed, &lock_fns)
+                        && guard_rhs(&rhs_squeezed, &lock_fns)
+                    {
                         spans.push((i, end_of_guard(text, i + 1, f.body_close, &guard_name)));
                     } else if locks_db(&squeezed, &lock_fns) {
                         spans.push((stmt_start, i));
@@ -578,7 +651,9 @@ fn without_blocks(stmt: &str) -> String {
 /// the top level, followed only by error handling — rather than a value computed under a temporary
 /// guard (`f(&*lock()?)`).
 fn guard_rhs(rhs: &str, lock_fns: &BTreeSet<String>) -> bool {
-    let Some((at, end)) = lock_call(rhs, lock_fns) else { return false };
+    let Some((at, end)) = lock_call(rhs, lock_fns) else {
+        return false;
+    };
     let before = &rhs[..at];
     let opens = before.matches('(').count();
     let closes = before.matches(')').count();
@@ -610,7 +685,10 @@ fn end_of_guard(text: &str, from: usize, body_close: usize, name: &str) -> usize
                 }
                 depth -= 1;
             }
-            b'd' if !name.is_empty() && text[i..].starts_with(&drop_call) && !is_ident(text[..i].chars().last()) => {
+            b'd' if !name.is_empty()
+                && text[i..].starts_with(&drop_call)
+                && !is_ident(text[..i].chars().last()) =>
+            {
                 return i;
             }
             _ => {}
@@ -621,21 +699,39 @@ fn end_of_guard(text: &str, from: usize, body_close: usize, name: &str) -> usize
 }
 
 /// Every call to a spawning function made under a lock span, across `files` (already stripped).
-pub fn holders(files: &[(String, String)], spawning: &BTreeMap<String, Option<String>>) -> Vec<Holder> {
-    let guard_fns: BTreeSet<String> = files.iter().flat_map(|(_, text)| guard_returning(text)).collect();
+pub fn holders(
+    files: &[(String, String)],
+    spawning: &BTreeMap<String, Option<String>>,
+) -> Vec<Holder> {
+    let guard_fns: BTreeSet<String> = files
+        .iter()
+        .flat_map(|(_, text)| guard_returning(text))
+        .collect();
     let mut out = BTreeSet::new();
     for (file, text) in files {
         for f in functions(text) {
             for (from, to) in lock_spans(text, &f, &guard_fns) {
                 for (at, callee) in calls(text, from, to) {
-                    if spawning.contains_key(&callee) || spawns_directly(text, at, (at + callee.len() + 2).min(to)) {
+                    if spawning.contains_key(&callee)
+                        || spawns_directly(text, at, (at + callee.len() + 2).min(to))
+                    {
                         let line = text[..at].matches('\n').count() + 1;
-                        out.insert(Holder { file: file.clone(), function: f.name.clone(), line, callee });
+                        out.insert(Holder {
+                            file: file.clone(),
+                            function: f.name.clone(),
+                            line,
+                            callee,
+                        });
                     }
                 }
                 if spawns_directly(text, from, to) {
                     let line = text[..from].matches('\n').count() + 1;
-                    out.insert(Holder { file: file.clone(), function: f.name.clone(), line, callee: "a process spawn".into() });
+                    out.insert(Holder {
+                        file: file.clone(),
+                        function: f.name.clone(),
+                        line,
+                        callee: "a process spawn".into(),
+                    });
                 }
             }
         }
@@ -644,7 +740,8 @@ pub fn holders(files: &[(String, String)], spawning: &BTreeMap<String, Option<St
     // collapse duplicates by (file, line, callee).
     let mut seen: BTreeMap<(String, usize, String), Holder> = BTreeMap::new();
     for h in out {
-        seen.entry((h.file.clone(), h.line, h.callee.clone())).or_insert(h);
+        seen.entry((h.file.clone(), h.line, h.callee.clone()))
+            .or_insert(h);
     }
     seen.into_values().collect()
 }
@@ -661,8 +758,16 @@ pub struct IpcThreadSpawn {
 
 impl std::fmt::Display for IpcThreadSpawn {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let kind = if self.is_async { "async command" } else { "sync command (main thread)" };
-        write!(f, "{}:{} {} {} calls {} on its dispatch thread", self.file, self.line, kind, self.command, self.callee)
+        let kind = if self.is_async {
+            "async command"
+        } else {
+            "sync command (main thread)"
+        };
+        write!(
+            f,
+            "{}:{} {} {} calls {} on its dispatch thread",
+            self.file, self.line, kind, self.command, self.callee
+        )
     }
 }
 
@@ -703,7 +808,13 @@ pub fn commands_on_the_ipc_thread(
     for (file, text) in files {
         let fns = functions(text);
         for (attr, _) in text.match_indices("#[tauri::command") {
-            let Some(f) = fns.iter().filter(|f| f.sig_start > attr).min_by_key(|f| f.sig_start) else { continue };
+            let Some(f) = fns
+                .iter()
+                .filter(|f| f.sig_start > attr)
+                .min_by_key(|f| f.sig_start)
+            else {
+                continue;
+            };
             let is_async = text[attr..f.sig_start].trim_end().ends_with("async");
             let away = offloaded(text, f.body_open, f.body_close);
             let inside = |at: usize| away.iter().any(|(s, e)| at > *s && at < *e);
@@ -711,17 +822,28 @@ pub fn commands_on_the_ipc_thread(
                 if inside(at) {
                     continue;
                 }
-                let after = text[at + callee.len()..].split_whitespace().collect::<String>();
+                let after = text[at + callee.len()..]
+                    .split_whitespace()
+                    .collect::<String>();
                 let method = text[..at].trim_end().ends_with('.');
                 let direct = callee == "new" && text[..at].ends_with("Command::")
                     || (callee == "spawn" || callee == "output") && method
                     || callee == "sleep" && text[..at].ends_with("thread::")
                     || callee == "recv_timeout" && method
                     || (callee == "wait" || callee == "join") && method && after.starts_with("()")
-                    || callee == "recv" && method && after.starts_with("()") && !after.starts_with("().await");
+                    || callee == "recv"
+                        && method
+                        && after.starts_with("()")
+                        && !after.starts_with("().await");
                 if spawning.contains_key(&callee) || direct {
                     let line = text[..at].matches('\n').count() + 1;
-                    out.insert(IpcThreadSpawn { file: file.clone(), line, command: f.name.clone(), is_async, callee });
+                    out.insert(IpcThreadSpawn {
+                        file: file.clone(),
+                        line,
+                        command: f.name.clone(),
+                        is_async,
+                        callee,
+                    });
                 }
             }
         }

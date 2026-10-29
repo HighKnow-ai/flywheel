@@ -162,7 +162,10 @@ fn attach_activity(
 ) {
     for row in rows.iter_mut().filter(|row| is_live(&row.run_status)) {
         if let Ok(tail) = read(&row.session_id) {
-            row.activity = FleetActivityDto { lines: tail.lines, truncated: tail.truncated };
+            row.activity = FleetActivityDto {
+                lines: tail.lines,
+                truncated: tail.truncated,
+            };
         }
     }
 }
@@ -173,7 +176,10 @@ fn attach_activity(
 #[tauri::command(async)]
 pub async fn fleet_list(state: State<'_, AppState>) -> Result<FleetListDto, String> {
     let list = {
-        let conn = state.db.lock().map_err(|e| ipc_error("fleet_list:lock", e))?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| ipc_error("fleet_list:lock", e))?;
         let list = flywheel_core::query::fleet::fleet_rows(&conn, FLEET_ROWS_CAP)
             .map_err(|e| ipc_error("fleet_list:read", e));
         // Released explicitly: nothing below may run with the database mutex held.
@@ -184,14 +190,20 @@ pub async fn fleet_list(state: State<'_, AppState>) -> Result<FleetListDto, Stri
     let total_rows = list.total_rows;
     let visible_cost_usd = list.visible_cost_usd;
     let mut rows: Vec<FleetRowDto> = list.rows.into_iter().map(FleetRowDto::from).collect();
-    let mut shaping_rows: Vec<ShapingFleetRowDto> =
-        list.shaping_rows.into_iter().map(ShapingFleetRowDto::from).collect();
+    let mut shaping_rows: Vec<ShapingFleetRowDto> = list
+        .shaping_rows
+        .into_iter()
+        .map(ShapingFleetRowDto::from)
+        .collect();
     let (rows, shaping_rows) = tauri::async_runtime::spawn_blocking(move || {
         attach_activity(&mut rows, flywheel_core::session_log::read_tail);
         // Every shaping row is live, so each gets its log's end, through the same read.
         for row in shaping_rows.iter_mut() {
             if let Ok(tail) = flywheel_core::session_log::read_tail(&row.session_id) {
-                row.activity = FleetActivityDto { lines: tail.lines, truncated: tail.truncated };
+                row.activity = FleetActivityDto {
+                    lines: tail.lines,
+                    truncated: tail.truncated,
+                };
             }
         }
         (rows, shaping_rows)
@@ -199,7 +211,12 @@ pub async fn fleet_list(state: State<'_, AppState>) -> Result<FleetListDto, Stri
     .await
     .map_err(|e| ipc_error("fleet_list:tail", e))?;
 
-    Ok(FleetListDto { total_rows, visible_cost_usd, rows, shaping_rows })
+    Ok(FleetListDto {
+        total_rows,
+        visible_cost_usd,
+        rows,
+        shaping_rows,
+    })
 }
 
 /// The server-side cap on the blocked queue (T-10-05-04), equal to the core's backstop clamp.
@@ -258,11 +275,19 @@ impl From<flywheel_core::query::fleet::BlockedQueueEntry> for BlockedQueueEntryD
 /// no arguments. Answering goes through the existing, unchanged `session_answer_permission` (D-173).
 /// Pure database read, so it is a plain sync command like the other short reads.
 #[tauri::command]
-pub fn fleet_blocked_queue(state: State<'_, AppState>) -> Result<Vec<BlockedQueueEntryDto>, String> {
-    let conn = state.db.lock().map_err(|e| ipc_error("fleet_blocked_queue:lock", e))?;
+pub fn fleet_blocked_queue(
+    state: State<'_, AppState>,
+) -> Result<Vec<BlockedQueueEntryDto>, String> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| ipc_error("fleet_blocked_queue:lock", e))?;
     let entries = flywheel_core::query::fleet::blocked_queue(&conn, BLOCKED_QUEUE_CAP)
         .map_err(|e| ipc_error("fleet_blocked_queue:read", e))?;
-    Ok(entries.into_iter().map(BlockedQueueEntryDto::from).collect())
+    Ok(entries
+        .into_iter()
+        .map(BlockedQueueEntryDto::from)
+        .collect())
 }
 
 /// The server-side cap on the waiting-Rounds window.
@@ -323,7 +348,10 @@ impl From<flywheel_core::query::fleet::WaitingRound> for WaitingRoundDto {
 /// Round's lamp and joins the sidebar's Waiting-on-you count. Read-only, takes no arguments.
 #[tauri::command]
 pub fn fleet_waiting_rounds(state: State<'_, AppState>) -> Result<Vec<WaitingRoundDto>, String> {
-    let conn = state.db.lock().map_err(|e| ipc_error("fleet_waiting_rounds:lock", e))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| ipc_error("fleet_waiting_rounds:lock", e))?;
     let rounds = flywheel_core::query::fleet::waiting_rounds(&conn, WAITING_ROUNDS_CAP)
         .map_err(|e| ipc_error("fleet_waiting_rounds:read", e))?;
     Ok(rounds.into_iter().map(WaitingRoundDto::from).collect())
@@ -392,11 +420,17 @@ impl From<flywheel_core::query::fleet::WorktreeInventoryRow> for WorktreeInvento
 /// runs under the database lock; the git half (ancestry check, porcelain read) runs on the blocking
 /// pool after the lock is released.
 #[tauri::command(async)]
-pub async fn worktree_inventory(state: State<'_, AppState>) -> Result<Vec<WorktreeInventoryRowDto>, String> {
+pub async fn worktree_inventory(
+    state: State<'_, AppState>,
+) -> Result<Vec<WorktreeInventoryRowDto>, String> {
     let inputs = {
-        let conn = state.db.lock().map_err(|e| ipc_error("worktree_inventory:lock", e))?;
-        let inputs = flywheel_core::query::fleet::worktree_inventory_inputs(&conn, WORKTREE_INVENTORY_CAP)
-            .map_err(|e| ipc_error("worktree_inventory:read", e));
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| ipc_error("worktree_inventory:lock", e))?;
+        let inputs =
+            flywheel_core::query::fleet::worktree_inventory_inputs(&conn, WORKTREE_INVENTORY_CAP)
+                .map_err(|e| ipc_error("worktree_inventory:read", e));
         // Released explicitly: nothing below may run with the database mutex held.
         drop(conn);
         inputs?
@@ -408,7 +442,10 @@ pub async fn worktree_inventory(state: State<'_, AppState>) -> Result<Vec<Worktr
     .await
     .map_err(|e| ipc_error("worktree_inventory:join", e))?;
 
-    Ok(rows.into_iter().map(WorktreeInventoryRowDto::from).collect())
+    Ok(rows
+        .into_iter()
+        .map(WorktreeInventoryRowDto::from)
+        .collect())
 }
 
 /// The server-side cap on how many worktrees one measure call may walk (T-10-08-02). Smaller than
@@ -448,7 +485,10 @@ pub async fn worktree_measure(
         }
     }
     let targets = {
-        let conn = state.db.lock().map_err(|e| ipc_error("worktree_measure:lock", e))?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| ipc_error("worktree_measure:lock", e))?;
         let targets = flywheel_core::query::fleet::worktree_measure_targets(
             &conn,
             story_ids.as_deref(),
@@ -464,7 +504,8 @@ pub async fn worktree_measure(
         targets
             .into_iter()
             .map(|t| {
-                let result = flywheel_core::domain::worktree::worktree_size(std::path::Path::new(&t.path));
+                let result =
+                    flywheel_core::domain::worktree::worktree_size(std::path::Path::new(&t.path));
                 (t.story_id, result)
             })
             .collect::<Vec<_>>()
@@ -475,13 +516,26 @@ pub async fn worktree_measure(
     let measured_at = chrono::Utc::now().to_rfc3339();
     let mut out = Vec::with_capacity(walked.len());
     {
-        let conn = state.db.lock().map_err(|e| ipc_error("worktree_measure:lock", e))?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| ipc_error("worktree_measure:lock", e))?;
         for (story_id, result) in walked {
             out.push(match result {
                 Ok(size) if !size.bounded => {
                     let bytes = i64::try_from(size.bytes).unwrap_or(i64::MAX);
-                    match flywheel_core::query::fleet::record_worktree_size(&conn, &story_id, bytes, &measured_at) {
-                        Ok(true) => WorktreeMeasureDto { story_id, size_bytes: Some(bytes), bounded: false, error: None },
+                    match flywheel_core::query::fleet::record_worktree_size(
+                        &conn,
+                        &story_id,
+                        bytes,
+                        &measured_at,
+                    ) {
+                        Ok(true) => WorktreeMeasureDto {
+                            story_id,
+                            size_bytes: Some(bytes),
+                            bounded: false,
+                            error: None,
+                        },
                         // No row was updated: the worktree was reclaimed or forgotten while the walk ran,
                         // so nothing was cached and the renderer must not be told otherwise.
                         Ok(false) => WorktreeMeasureDto {
@@ -490,11 +544,26 @@ pub async fn worktree_measure(
                             bounded: false,
                             error: Some("worktree no longer exists".to_string()),
                         },
-                        Err(e) => WorktreeMeasureDto { story_id, size_bytes: None, bounded: false, error: Some(e.to_string()) },
+                        Err(e) => WorktreeMeasureDto {
+                            story_id,
+                            size_bytes: None,
+                            bounded: false,
+                            error: Some(e.to_string()),
+                        },
                     }
                 }
-                Ok(_) => WorktreeMeasureDto { story_id, size_bytes: None, bounded: true, error: None },
-                Err(e) => WorktreeMeasureDto { story_id, size_bytes: None, bounded: false, error: Some(e.to_string()) },
+                Ok(_) => WorktreeMeasureDto {
+                    story_id,
+                    size_bytes: None,
+                    bounded: true,
+                    error: None,
+                },
+                Err(e) => WorktreeMeasureDto {
+                    story_id,
+                    size_bytes: None,
+                    bounded: false,
+                    error: Some(e.to_string()),
+                },
             });
         }
     }
@@ -556,7 +625,10 @@ pub async fn worktree_reclaim(
     check_reclaim_batch(story_ids.len())?;
 
     let actor = {
-        let conn = state.db.lock().map_err(|e| ipc_error("worktree_reclaim:lock", e))?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| ipc_error("worktree_reclaim:lock", e))?;
         let actor = flywheel_core::domain::actor::local_human_actor_id(&conn)
             .map_err(|e| ipc_error("worktree_reclaim:actor", e));
         // Released explicitly: nothing below may run with the database mutex held.
@@ -565,10 +637,12 @@ pub async fn worktree_reclaim(
     };
     let db_path = super::board_path(&state.db)?;
 
-    let outcomes = tauri::async_runtime::spawn_blocking(move || reclaim_with_story_work(&db_path, &story_ids, &actor))
-        .await
-        .map_err(|e| ipc_error("worktree_reclaim:join", e))?
-        .map_err(|e| ipc_error("worktree_reclaim:git", e))?;
+    let outcomes = tauri::async_runtime::spawn_blocking(move || {
+        reclaim_with_story_work(&db_path, &story_ids, &actor)
+    })
+    .await
+    .map_err(|e| ipc_error("worktree_reclaim:join", e))?
+    .map_err(|e| ipc_error("worktree_reclaim:git", e))?;
 
     // A reclaim batch can span projects, and no single project is honest here: broadcast.
     emit_board_changed(&app, None, "worktree", None);
@@ -589,7 +663,11 @@ pub fn reclaim_with_story_work(
     let mut outcomes = Vec::new();
     for story_id in story_ids.iter().filter(|id| seen.insert(id.as_str())) {
         outcomes.extend(super::with_story_work(story_id, || {
-            flywheel_core::domain::worktree::reclaim_worktrees(&mut conn, std::slice::from_ref(story_id), actor)
+            flywheel_core::domain::worktree::reclaim_worktrees(
+                &mut conn,
+                std::slice::from_ref(story_id),
+                actor,
+            )
         }));
     }
     Ok(outcomes)
@@ -626,7 +704,10 @@ mod tests {
     }
 
     fn tail(line: &str) -> anyhow::Result<LogTail> {
-        Ok(LogTail { lines: vec![line.to_string()], truncated: false })
+        Ok(LogTail {
+            lines: vec![line.to_string()],
+            truncated: false,
+        })
     }
 
     #[test]
@@ -679,7 +760,13 @@ mod tests {
     #[test]
     fn a_failed_read_leaves_that_row_empty_and_does_not_fail_the_rest() {
         let mut rows = vec![row("bad", "running"), row("good", "running")];
-        attach_activity(&mut rows, |id| if id == "bad" { Err(anyhow::anyhow!("nope")) } else { tail("{}") });
+        attach_activity(&mut rows, |id| {
+            if id == "bad" {
+                Err(anyhow::anyhow!("nope"))
+            } else {
+                tail("{}")
+            }
+        });
         assert!(rows[0].activity.lines.is_empty());
         assert_eq!(rows[1].activity.lines.len(), 1);
     }
@@ -687,7 +774,12 @@ mod tests {
     #[test]
     fn the_truncated_flag_is_carried_through() {
         let mut rows = vec![row("a", "running")];
-        attach_activity(&mut rows, |_| Ok(LogTail { lines: Vec::new(), truncated: true }));
+        attach_activity(&mut rows, |_| {
+            Ok(LogTail {
+                lines: Vec::new(),
+                truncated: true,
+            })
+        });
         assert!(rows[0].activity.truncated);
     }
 

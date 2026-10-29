@@ -27,7 +27,9 @@ use anyhow::Context;
 use rusqlite::{params, Connection};
 use serde_json::{json, Value};
 
-use crate::context_packet::{adr_line, adr_numbers, is_superseded_status, leading_number, live_adrs_at, supersedes_numbers};
+use crate::context_packet::{
+    adr_line, adr_numbers, is_superseded_status, leading_number, live_adrs_at, supersedes_numbers,
+};
 use crate::domain::actor::assert_human_actor;
 use crate::domain::proposal_apply::{is_adr_path, AdrBarLines, AdrDraft};
 use crate::domain::review::{diff_to_open_review, open_review, open_review_in_tx};
@@ -95,7 +97,10 @@ pub enum AdrDecision {
     /// The decision does not belong in `docs/adr/`: the agent deletes the file.
     NotAnAdr,
     /// The decision itself is wrong: the agent changes the code and the ADR.
-    WrongDecision { what_is_wrong: String, should_be: String },
+    WrongDecision {
+        what_is_wrong: String,
+        should_be: String,
+    },
 }
 
 impl AdrDecision {
@@ -125,8 +130,13 @@ impl AdrDecision {
     pub fn review_point(&self, path: &str) -> Option<String> {
         match self {
             AdrDecision::Keep => None,
-            AdrDecision::NotAnAdr => Some(format!("Delete `{path}`; keep the decision out of docs/adr.")),
-            AdrDecision::WrongDecision { what_is_wrong, should_be } => Some(format!(
+            AdrDecision::NotAnAdr => Some(format!(
+                "Delete `{path}`; keep the decision out of docs/adr."
+            )),
+            AdrDecision::WrongDecision {
+                what_is_wrong,
+                should_be,
+            } => Some(format!(
                 "Wrong decision in `{path}`: {}. It should be: {}. Change the code and the ADR.",
                 sentence(what_is_wrong),
                 sentence(should_be)
@@ -150,7 +160,8 @@ pub struct StoredAdrDecision {
 /// The decisions stored in a review's `adr_decisions`, in stored order. An entry that no longer reads
 /// as one is skipped.
 pub fn stored_adr_decisions(value: &Value) -> Vec<StoredAdrDecision> {
-    let text = |entry: &Value, key: &str| entry.get(key).and_then(Value::as_str).map(str::to_string);
+    let text =
+        |entry: &Value, key: &str| entry.get(key).and_then(Value::as_str).map(str::to_string);
     value
         .as_array()
         .map(|entries| {
@@ -175,7 +186,10 @@ pub fn stored_adr_decisions(value: &Value) -> Vec<StoredAdrDecision> {
 
 fn stored_entry(path: &str, decision: &AdrDecision) -> Value {
     match decision {
-        AdrDecision::WrongDecision { what_is_wrong, should_be } => json!({
+        AdrDecision::WrongDecision {
+            what_is_wrong,
+            should_be,
+        } => json!({
             "path": path,
             "decision": decision.as_str(),
             "what_is_wrong": what_is_wrong.trim(),
@@ -192,7 +206,11 @@ pub enum DecisionFlag {
     /// changed decision that should be a new ADR superseding it?
     WordingOrSupersede,
     /// A new ADR whose number another file holds on the base branch's tip.
-    Renumber { number: u32, taken_by: String, base_branch: String },
+    Renumber {
+        number: u32,
+        taken_by: String,
+        base_branch: String,
+    },
     /// A new ADR supersedes ADR `number`, whose file at the branch's head has no
     /// `Status: superseded by` line.
     SupersessionLineMissing { superseded: String, number: u32 },
@@ -292,7 +310,11 @@ impl ReviewDecisions {
 
     /// The decision stored on the ADR at `path`; Keep when none is.
     pub fn decision_on(&self, path: &str) -> AdrDecision {
-        self.decisions.iter().find(|d| d.path == path).map(|d| d.decision.clone()).unwrap_or_default()
+        self.decisions
+            .iter()
+            .find(|d| d.path == path)
+            .map(|d| d.decision.clone())
+            .unwrap_or_default()
     }
 
     /// The review points a request for changes carries, by ADR path: each ADR's decision, then its
@@ -304,10 +326,19 @@ impl ReviewDecisions {
             let decision = self.decision_on(&change.path);
             points.extend(decision.review_point(&change.path));
             if decision != AdrDecision::NotAnAdr {
-                points.extend(change.flags.iter().filter_map(|flag| flag.review_point(&change.path)));
+                points.extend(
+                    change
+                        .flags
+                        .iter()
+                        .filter_map(|flag| flag.review_point(&change.path)),
+                );
             }
         }
-        for stored in self.decisions.iter().filter(|d| !self.changes.iter().any(|c| c.path == d.path)) {
+        for stored in self
+            .decisions
+            .iter()
+            .filter(|d| !self.changes.iter().any(|c| c.path == d.path))
+        {
             points.extend(stored.decision.review_point(&stored.path));
         }
         points
@@ -321,19 +352,28 @@ pub fn is_new_adr(file: &ReviewFile) -> bool {
 
 /// The paths of the ADRs a diff adds, in diff order.
 pub fn new_adr_paths(files: &[ReviewFile]) -> Vec<String> {
-    files.iter().filter(|f| is_new_adr(f)).map(|f| f.path.clone()).collect()
+    files
+        .iter()
+        .filter(|f| is_new_adr(f))
+        .map(|f| f.path.clone())
+        .collect()
 }
 
 /// The ADR Proposals accepted on `epic_id` in shaping, as `(proposal id, draft)`, oldest first. A
 /// payload that no longer reads as a draft is skipped.
-pub fn accepted_epic_adrs(conn: &Connection, epic_id: &str) -> anyhow::Result<Vec<(String, AdrDraft)>> {
+pub fn accepted_epic_adrs(
+    conn: &Connection,
+    epic_id: &str,
+) -> anyhow::Result<Vec<(String, AdrDraft)>> {
     let mut stmt = conn.prepare(
         "SELECT id, payload FROM proposals
          WHERE epic_id = ?1 AND verb = 'create' AND target_type = 'adr' AND state = 'accepted'
          ORDER BY created_at, id",
     )?;
     let rows = stmt
-        .query_map(params![epic_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+        .query_map(params![epic_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?
         .collect::<Result<Vec<_>, _>>()
         .context("failed to read the Epic's accepted ADR Proposals")?;
     Ok(rows
@@ -349,14 +389,25 @@ pub fn accepted_epic_adrs(conn: &Connection, epic_id: &str) -> anyhow::Result<Ve
 fn file_at(repo: &Path, rev: &str, path: &str) -> Option<String> {
     // `rev:./path` names `path` relative to `repo`, where `rev:path` would name it from the
     // repository's root: the two differ for a project in a subdirectory of its repository.
-    git::git_at(repo, &["show", &format!("{rev}:./{path}")]).ok().map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+    git::git_at(repo, &["show", &format!("{rev}:./{path}")])
+        .ok()
+        .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 /// The ADR's `# ` heading in `text`, or its file name when it has none.
 fn adr_title(text: Option<&str>, path: &str) -> String {
-    text.and_then(|text| text.lines().find_map(|line| line.trim().strip_prefix("# ").map(|t| t.trim().to_string())))
-        .filter(|t| !t.is_empty())
-        .unwrap_or_else(|| path.rsplit('/').next().unwrap_or(path).trim_end_matches(".md").to_string())
+    text.and_then(|text| {
+        text.lines()
+            .find_map(|line| line.trim().strip_prefix("# ").map(|t| t.trim().to_string()))
+    })
+    .filter(|t| !t.is_empty())
+    .unwrap_or_else(|| {
+        path.rsplit('/')
+            .next()
+            .unwrap_or(path)
+            .trim_end_matches(".md")
+            .to_string()
+    })
 }
 
 /// The file names directly under `docs/adr/` in `rev`.
@@ -383,7 +434,8 @@ fn rewords(patch: &str) -> bool {
 
 /// Whether an ADR's text carries a `Status: superseded by` line.
 fn marked_superseded(text: &str) -> bool {
-    text.lines().any(|line| is_superseded_status(&adr_line(line)))
+    text.lines()
+        .any(|line| is_superseded_status(&adr_line(line)))
 }
 
 /// The live ADRs `relates_to` names by number, each once, in the order named.
@@ -404,7 +456,8 @@ fn related_live_adrs(relates_to: &str, live: &[RelatedAdr]) -> Vec<RelatedAdr> {
 /// the Story branch's tip (or, without them, the base branch's tip and the review's head); a Story
 /// whose commits cannot be read has an empty section.
 pub fn review_decisions(conn: &Connection, story_id: &str) -> anyhow::Result<ReviewDecisions> {
-    let story = get_story(conn, story_id)?.with_context(|| format!("Story {story_id:?} not found"))?;
+    let story =
+        get_story(conn, story_id)?.with_context(|| format!("Story {story_id:?} not found"))?;
     let (repo_path, default_branch): (String, String) = conn.query_row(
         "SELECT repo_path, default_branch FROM projects WHERE id = ?1",
         params![story.project_id],
@@ -416,16 +469,29 @@ pub fn review_decisions(conn: &Connection, story_id: &str) -> anyhow::Result<Rev
     }
     let review = open_review(conn, story_id)?;
     let worktree = worktree_for_story(conn, story_id)?;
-    let base_branch = worktree.as_ref().map_or(default_branch, |w| w.base_branch.clone());
+    let base_branch = worktree
+        .as_ref()
+        .map_or(default_branch, |w| w.base_branch.clone());
     let commit = |rev: &str| git::rev_parse_commit(repo, rev).ok();
     let base_tip = commit(&format!("refs/heads/{base_branch}"));
     let head = worktree
         .as_ref()
         .and_then(|w| commit(&format!("refs/heads/{}", w.branch)))
         .or_else(|| review.as_ref().map(|r| r.head_sha.clone()));
-    let base = review.as_ref().map(|r| r.base_sha.clone()).or_else(|| base_tip.clone());
-    let decisions = review.as_ref().map(|r| stored_adr_decisions(&r.adr_decisions)).unwrap_or_default();
-    let (Some(base), Some(head)) = (base, head) else { return Ok(ReviewDecisions { changes: Vec::new(), decisions }) };
+    let base = review
+        .as_ref()
+        .map(|r| r.base_sha.clone())
+        .or_else(|| base_tip.clone());
+    let decisions = review
+        .as_ref()
+        .map(|r| stored_adr_decisions(&r.adr_decisions))
+        .unwrap_or_default();
+    let (Some(base), Some(head)) = (base, head) else {
+        return Ok(ReviewDecisions {
+            changes: Vec::new(),
+            decisions,
+        });
+    };
 
     // Paths relative to the project, so a project registered at a subdirectory of a larger
     // repository reads its own `docs/adr/` and `GLOSSARY.md` (cymarechal/highknow-mvp#551).
@@ -446,32 +512,64 @@ pub fn review_decisions(conn: &Connection, story_id: &str) -> anyhow::Result<Rev
             })
         })
         .collect();
-    changes.sort_by(|a, b| (a.kind == DecisionKind::Glossary, &a.path).cmp(&(b.kind == DecisionKind::Glossary, &b.path)));
+    changes.sort_by(|a, b| {
+        (a.kind == DecisionKind::Glossary, &a.path)
+            .cmp(&(b.kind == DecisionKind::Glossary, &b.path))
+    });
     let live_at = base_tip.as_deref().unwrap_or(&base);
 
     // Wording or supersede?: an existing ADR with a changed line other than its Status: line.
-    for change in changes.iter_mut().filter(|c| c.kind == DecisionKind::Adr && matches!(c.status.as_str(), "M" | "R")) {
-        let from_top = |p: &str| if prefix.is_empty() { p.to_string() } else { format!("{prefix}/{p}") };
+    for change in changes
+        .iter_mut()
+        .filter(|c| c.kind == DecisionKind::Adr && matches!(c.status.as_str(), "M" | "R"))
+    {
+        let from_top = |p: &str| {
+            if prefix.is_empty() {
+                p.to_string()
+            } else {
+                format!("{prefix}/{p}")
+            }
+        };
         let old_path = change.old_path.as_deref().map(from_top);
-        let patch = git::review_patch(repo, &base, &head, &from_top(&change.path), old_path.as_deref())?;
+        let patch = git::review_patch(
+            repo,
+            &base,
+            &head,
+            &from_top(&change.path),
+            old_path.as_deref(),
+        )?;
         if rewords(&patch) {
             change.flags.push(DecisionFlag::WordingOrSupersede);
         }
     }
 
-    if changes.iter().any(|c| c.status == "A" && is_adr_path(&c.path)) {
+    if changes
+        .iter()
+        .any(|c| c.status == "A" && is_adr_path(&c.path))
+    {
         let notes: Vec<AdrBarLines> = review
             .as_ref()
             .and_then(|r| r.adr_notes.as_array())
-            .map(|notes| notes.iter().filter_map(|n| AdrBarLines::from_payload(n).ok()).collect())
+            .map(|notes| {
+                notes
+                    .iter()
+                    .filter_map(|n| AdrBarLines::from_payload(n).ok())
+                    .collect()
+            })
             .unwrap_or_default();
         let shaped = accepted_epic_adrs(conn, &story.epic_id)?;
         let live: Vec<RelatedAdr> = live_adrs_at(repo, live_at)?
             .into_iter()
-            .map(|a| RelatedAdr { path: a.path, title: a.title })
+            .map(|a| RelatedAdr {
+                path: a.path,
+                title: a.title,
+            })
             .collect();
-        let new_paths: Vec<String> =
-            changes.iter().filter(|c| c.status == "A" && is_adr_path(&c.path)).map(|c| c.path.clone()).collect();
+        let new_paths: Vec<String> = changes
+            .iter()
+            .filter(|c| c.status == "A" && is_adr_path(&c.path))
+            .map(|c| c.path.clone())
+            .collect();
         let on_base = adr_names_at(repo, live_at)?;
         // The ADRs at the branch's head that it does not add: the ones a new ADR can supersede.
         let older: Vec<String> = adr_names_at(repo, &head)?
@@ -479,14 +577,24 @@ pub fn review_decisions(conn: &Connection, story_id: &str) -> anyhow::Result<Rev
             .map(|name| format!("docs/adr/{name}"))
             .filter(|path| !new_paths.contains(path))
             .collect();
-        for change in changes.iter_mut().filter(|c| c.status == "A" && is_adr_path(&c.path)) {
-            let name = change.path.strip_prefix("docs/adr/").unwrap_or(&change.path).to_string();
+        for change in changes
+            .iter_mut()
+            .filter(|c| c.status == "A" && is_adr_path(&c.path))
+        {
+            let name = change
+                .path
+                .strip_prefix("docs/adr/")
+                .unwrap_or(&change.path)
+                .to_string();
             let number = leading_number(&name);
             let text = file_at(repo, &head, &change.path);
 
             // Renumber: another file holds this number on the base branch's tip.
             if let Some(n) = number {
-                if let Some(taken) = on_base.iter().find(|other| **other != name && leading_number(other) == Some(n)) {
+                if let Some(taken) = on_base
+                    .iter()
+                    .find(|other| **other != name && leading_number(other) == Some(n))
+                {
                     change.flags.push(DecisionFlag::Renumber {
                         number: n,
                         taken_by: format!("docs/adr/{taken}"),
@@ -504,9 +612,17 @@ pub fn review_decisions(conn: &Connection, story_id: &str) -> anyhow::Result<Rev
                 }
             }
             for n in superseded {
-                for old in older.iter().filter(|p| leading_number(p.strip_prefix("docs/adr/").unwrap_or(p)) == Some(n)) {
-                    if file_at(repo, &head, old).is_some_and(|old_text| !marked_superseded(&old_text)) {
-                        change.flags.push(DecisionFlag::SupersessionLineMissing { superseded: old.clone(), number: n });
+                for old in older
+                    .iter()
+                    .filter(|p| leading_number(p.strip_prefix("docs/adr/").unwrap_or(p)) == Some(n))
+                {
+                    if file_at(repo, &head, old)
+                        .is_some_and(|old_text| !marked_superseded(&old_text))
+                    {
+                        change.flags.push(DecisionFlag::SupersessionLineMissing {
+                            superseded: old.clone(),
+                            number: n,
+                        });
                     }
                 }
             }
@@ -530,7 +646,11 @@ pub fn review_decisions(conn: &Connection, story_id: &str) -> anyhow::Result<Rev
                 bar_lines_from,
                 related,
                 proposal_id: proposal.map(|(id, _)| id.clone()),
-                decision: decisions.iter().find(|d| d.path == change.path).map(|d| d.decision.clone()).unwrap_or_default(),
+                decision: decisions
+                    .iter()
+                    .find(|d| d.path == change.path)
+                    .map(|d| d.decision.clone())
+                    .unwrap_or_default(),
             });
         }
     }
@@ -549,14 +669,19 @@ pub fn set_adr_decision(
     decision: &AdrDecision,
 ) -> anyhow::Result<()> {
     assert_human_actor(conn, actor_id)?;
-    let story = get_story(conn, story_id)?.with_context(|| format!("Story {story_id:?} not found"))?;
+    let story =
+        get_story(conn, story_id)?.with_context(|| format!("Story {story_id:?} not found"))?;
     anyhow::ensure!(
         story.state == StoryState::InReview.as_str(),
         "Only a Story In review takes a decision on its ADRs, and {} is {}.",
         story.key,
         story.state.replace('_', " ")
     );
-    if let AdrDecision::WrongDecision { what_is_wrong, should_be } = decision {
+    if let AdrDecision::WrongDecision {
+        what_is_wrong,
+        should_be,
+    } = decision
+    {
         anyhow::ensure!(
             !what_is_wrong.trim().is_empty() && !should_be.trim().is_empty(),
             "Wrong decision needs both: what is wrong, and what it should be."
@@ -572,12 +697,22 @@ pub fn set_adr_decision(
     let now = now();
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     if let Some(diff) = &diff {
-        open_review_in_tx(&tx, &story.project_id, story_id, None, diff, &Value::Array(Vec::new()), &Value::Array(Vec::new()))?;
+        open_review_in_tx(
+            &tx,
+            &story.project_id,
+            story_id,
+            None,
+            diff,
+            &Value::Array(Vec::new()),
+            &Value::Array(Vec::new()),
+        )?;
     }
     let (review_id, stored): (String, String) = tx
-        .query_row("SELECT id, adr_decisions FROM reviews WHERE story_id = ?1 AND outcome IS NULL", params![story_id], |r| {
-            Ok((r.get(0)?, r.get(1)?))
-        })
+        .query_row(
+            "SELECT id, adr_decisions FROM reviews WHERE story_id = ?1 AND outcome IS NULL",
+            params![story_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
         .context("failed to read the open review")?;
     let mut entries: Vec<Value> = serde_json::from_str::<Value>(&stored)
         .ok()
@@ -606,7 +741,10 @@ pub fn set_adr_decision(
         &story.project_id,
         "review",
         &review_id,
-        EventScope { story_id: Some(story_id), epic_id: Some(&story.epic_id) },
+        EventScope {
+            story_id: Some(story_id),
+            epic_id: Some(&story.epic_id),
+        },
         actor_id,
         "review.adr_decided",
         &payload,

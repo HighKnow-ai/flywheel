@@ -32,7 +32,10 @@ fn workspace_root() -> PathBuf {
 fn every_destructive_category_has_at_least_one_named_layer() {
     for category in DestructiveCategory::all() {
         let layers = interception_layers_for(category);
-        assert!(!layers.is_empty(), "DestructiveCategory::{category:?} has no interception layer named for it");
+        assert!(
+            !layers.is_empty(),
+            "DestructiveCategory::{category:?} has no interception layer named for it"
+        );
     }
 }
 
@@ -40,8 +43,12 @@ fn every_destructive_category_has_at_least_one_named_layer() {
 fn the_table_is_not_degenerate_at_least_one_multi_layer_and_one_single_layer_category() {
     let categories = DestructiveCategory::all();
 
-    let multi_layer = categories.iter().any(|&c| interception_layers_for(c).len() > 1);
-    let single_layer = categories.iter().any(|&c| interception_layers_for(c).len() == 1);
+    let multi_layer = categories
+        .iter()
+        .any(|&c| interception_layers_for(c).len() > 1);
+    let single_layer = categories
+        .iter()
+        .any(|&c| interception_layers_for(c).len() == 1);
 
     assert!(
         multi_layer,
@@ -98,12 +105,16 @@ fn the_rendered_pre_push_script_names_exactly_the_categories_the_table_maps_to_i
 #[test]
 fn every_repo_path_mutation_routes_through_the_layer3_install() {
     let path = workspace_root().join("packages/core/src/domain/project.rs");
-    let source = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
+    let source = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
 
     // Strip every line whose trimmed form begins with `//` — doc comments included — so a comment
     // naming either identifier can never satisfy or invalidate the scan below.
-    let stripped: String =
-        source.lines().filter(|line| !line.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
+    let stripped: String = source
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n");
 
     // Split the remaining text into per-function chunks on a start-of-line `fn `/`pub fn ` prefix.
     let mut chunks: Vec<String> = Vec::new();

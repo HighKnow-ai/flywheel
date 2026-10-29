@@ -25,7 +25,9 @@ use std::path::Path;
 use anyhow::Context;
 use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::domain::worktree::{porcelain_entries, reclaim_eligibility, PorcelainEntry, ReclaimDisposition};
+use crate::domain::worktree::{
+    porcelain_entries, reclaim_eligibility, PorcelainEntry, ReclaimDisposition,
+};
 
 /// The hard ceiling on one fleet window. The Tauri command applies its own cap before it calls in
 /// here; this clamp is the backstop for any other caller.
@@ -189,7 +191,12 @@ fn shaping_fleet_rows(conn: &Connection, limit: i64) -> anyhow::Result<Vec<Shapi
                 milestone_id: row.get(9)?,
                 milestone_title: row.get(10)?,
                 run_status: row.get(11)?,
-                fleet_state: if blocked_since.is_some() { "blocked" } else { "running" }.to_string(),
+                fleet_state: if blocked_since.is_some() {
+                    "blocked"
+                } else {
+                    "running"
+                }
+                .to_string(),
                 started_at: row.get(12)?,
                 blocked_since,
             })
@@ -233,8 +240,16 @@ pub fn fleet_rows(conn: &Connection, limit: usize) -> anyhow::Result<FleetList> 
         .context("failed to read the fleet")?;
     let shaping_rows = shaping_fleet_rows(conn, limit)?;
     let total_rows = rows.len();
-    let visible_cost_usd = rows.iter().filter_map(|r| r.cost_usd).fold(None, |sum, c| Some(sum.unwrap_or(0.0) + c));
-    Ok(FleetList { rows, shaping_rows, total_rows, visible_cost_usd })
+    let visible_cost_usd = rows
+        .iter()
+        .filter_map(|r| r.cost_usd)
+        .fold(None, |sum, c| Some(sum.unwrap_or(0.0) + c));
+    Ok(FleetList {
+        rows,
+        shaping_rows,
+        total_rows,
+        visible_cost_usd,
+    })
 }
 
 /// The hard ceiling on one blocked-queue window (T-10-05-04).
@@ -457,8 +472,10 @@ macro_rules! worktree_inventory_select {
 
 /// The inventory statement. Size descending (never-measured last: SQLite sorts NULL lowest), Story
 /// key ascending as the tie-break, then the worktree id so two reads are byte-identical.
-pub const WORKTREE_INVENTORY_SQL: &str =
-    concat!(worktree_inventory_select!(), " WHERE p.hidden = 0 ORDER BY w.size_bytes DESC, s.key ASC, w.id ASC LIMIT ?1");
+pub const WORKTREE_INVENTORY_SQL: &str = concat!(
+    worktree_inventory_select!(),
+    " WHERE p.hidden = 0 ORDER BY w.size_bytes DESC, s.key ASC, w.id ASC LIMIT ?1"
+);
 
 const WORKTREE_INVENTORY_ONE_SQL: &str = concat!(worktree_inventory_select!(), " WHERE s.id = ?1");
 
@@ -486,16 +503,23 @@ pub fn worktree_inventory_input_for_story(
     conn: &Connection,
     story_id: &str,
 ) -> anyhow::Result<Option<WorktreeInventoryInput>> {
-    conn.query_row(WORKTREE_INVENTORY_ONE_SQL, params![story_id], inventory_input_from_row)
-        .optional()
-        .context("failed to read one worktree for reclaim")
+    conn.query_row(
+        WORKTREE_INVENTORY_ONE_SQL,
+        params![story_id],
+        inventory_input_from_row,
+    )
+    .optional()
+    .context("failed to read one worktree for reclaim")
 }
 
 /// The board half: every Story worktree across every project, at most `limit` (clamped to
 /// [`WORKTREE_INVENTORY_MAX_LIMIT`]). Takes only a `&Connection` and spawns no process, so it is
 /// safe under the database lock; hand the result to [`finish_worktree_inventory`] once the lock is
 /// released.
-pub fn worktree_inventory_inputs(conn: &Connection, limit: usize) -> anyhow::Result<Vec<WorktreeInventoryInput>> {
+pub fn worktree_inventory_inputs(
+    conn: &Connection,
+    limit: usize,
+) -> anyhow::Result<Vec<WorktreeInventoryInput>> {
     let limit = limit.min(WORKTREE_INVENTORY_MAX_LIMIT) as i64;
     let mut stmt = conn.prepare(WORKTREE_INVENTORY_SQL)?;
     let inputs = stmt
@@ -532,7 +556,9 @@ pub fn finish_worktree_inventory_with(
             let story_closed = matches!(input.story_state.as_str(), "merged" | "dropped");
             let dirty = evaluable
                 && story_closed
-                && read_porcelain(Path::new(&input.path)).map(|e| !e.is_empty()).unwrap_or(true);
+                && read_porcelain(Path::new(&input.path))
+                    .map(|e| !e.is_empty())
+                    .unwrap_or(true);
             let disposition = reclaim_eligibility(
                 &input.story_state,
                 input.live_run_status.as_deref(),
@@ -584,7 +610,10 @@ pub fn worktree_measure_targets(
         Some(ids) => {
             for id in ids.iter().take(limit) {
                 if let Some(wt) = crate::domain::worktree::worktree_for_story(conn, id)? {
-                    targets.push(WorktreeMeasureTarget { story_id: wt.story_id, path: wt.path });
+                    targets.push(WorktreeMeasureTarget {
+                        story_id: wt.story_id,
+                        path: wt.path,
+                    });
                 }
             }
         }
@@ -592,7 +621,10 @@ pub fn worktree_measure_targets(
             let mut stmt = conn.prepare("SELECT story_id, path FROM worktrees WHERE project_id IN (SELECT id FROM projects WHERE hidden = 0) ORDER BY size_measured_at ASC, id ASC LIMIT ?1")?;
             targets = stmt
                 .query_map(params![limit as i64], |row| {
-                    Ok(WorktreeMeasureTarget { story_id: row.get(0)?, path: row.get(1)? })
+                    Ok(WorktreeMeasureTarget {
+                        story_id: row.get(0)?,
+                        path: row.get(1)?,
+                    })
                 })?
                 .collect::<Result<Vec<_>, _>>()
                 .context("failed to read the worktrees to measure")?;

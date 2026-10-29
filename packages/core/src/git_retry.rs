@@ -85,7 +85,9 @@ pub fn is_lock_contention(stderr: &str) -> bool {
         "cannot lock ref",
         "another git process seems to be running",
     ];
-    LOCK_FAILURE_PHRASES.iter().any(|phrase| lower.contains(phrase))
+    LOCK_FAILURE_PHRASES
+        .iter()
+        .any(|phrase| lower.contains(phrase))
 }
 
 /// The result of a [`with_lock_retry`] call that eventually succeeded — carries the collision
@@ -148,7 +150,11 @@ where
 /// caller that supplies a non-empty hook (a fire-and-forget permission-socket notice, per
 /// `03-UI-SPEC.md`'s "Git lock-retry transient row"); [`with_lock_retry`] itself passes a no-op,
 /// so every other caller in this workspace is unaffected by this addition.
-pub fn with_lock_retry_notify<T, F, N>(label: &str, mut f: F, mut on_retry: N) -> anyhow::Result<RetryOutcome<T>>
+pub fn with_lock_retry_notify<T, F, N>(
+    label: &str,
+    mut f: F,
+    mut on_retry: N,
+) -> anyhow::Result<RetryOutcome<T>>
 where
     F: FnMut(u32) -> anyhow::Result<T>,
     N: FnMut(u32, u32),
@@ -174,7 +180,9 @@ where
             }
         }
     }
-    unreachable!("the loop above always returns on its final iteration (attempt == RETRY_MAX_ATTEMPTS)");
+    unreachable!(
+        "the loop above always returns on its final iteration (attempt == RETRY_MAX_ATTEMPTS)"
+    );
 }
 
 /// Per-run collision counts (D-53): collisions are counted and stay silent while retries succeed —
@@ -215,7 +223,11 @@ impl CollisionCounter {
 /// D-53's exact board-visible payload for a lock-exhaustion event — produced ONCE here so the
 /// activity-trail entry and the event payload can never drift from each other or from the
 /// Copywriting Contract sentence plan 03-12 renders verbatim.
-pub fn exhaustion_event_payload(repository: &str, command: &str, attempts: u32) -> serde_json::Value {
+pub fn exhaustion_event_payload(
+    repository: &str,
+    command: &str,
+    attempts: u32,
+) -> serde_json::Value {
     let label =
         format!("Git lock contention: {command} in {repository} failed after {attempts} attempts.");
     serde_json::json!({
@@ -251,7 +263,10 @@ impl SpawnFloor {
     /// A floor of `floor` instead of [`SPAWN_FLOOR_MS`]: a test that has to watch the wait (issue
     /// #235) makes it long enough to see.
     pub fn with_floor(floor: Duration) -> Self {
-        Self { last_started: Mutex::new(HashMap::new()), floor }
+        Self {
+            last_started: Mutex::new(HashMap::new()),
+            floor,
+        }
     }
 
     /// Returns immediately on the first call for `repo_key`. On a subsequent call for the SAME

@@ -7,10 +7,14 @@ mod common;
 use common::with_scratch_worktree_root;
 
 use flywheel_core::destructive::DestructiveCategory;
-use flywheel_core::domain::session::start_session;
-use flywheel_core::domain::permission_request::{answer_request, create_pending_request, AlreadyAnsweredError};
-use flywheel_core::domain::permission_rule::{matching_rule, revoke_rule, rules_for_project, upsert_rule};
+use flywheel_core::domain::permission_request::{
+    answer_request, create_pending_request, AlreadyAnsweredError,
+};
+use flywheel_core::domain::permission_rule::{
+    matching_rule, revoke_rule, rules_for_project, upsert_rule,
+};
 use flywheel_core::domain::project;
+use flywheel_core::domain::session::start_session;
 use flywheel_core::query::permissions::{
     blocked_count_for_project, blocked_story_ids_for_project, latest_run_id_for_story,
     pending_requests_for_run,
@@ -57,10 +61,21 @@ fn run_status(conn: &Connection, run_id: &str) -> String {
 fn create_pending_request_blocks_the_run_and_raises_a_labeled_event() {
     let (mut conn, actor_id, _project_id, _story_id, run_id) = seeded_running_run();
 
-    assert_eq!(run_status(&conn, &run_id), "running", "the run must start out running");
+    assert_eq!(
+        run_status(&conn, &run_id),
+        "running",
+        "the run must start out running"
+    );
 
-    let request = create_pending_request(&mut conn, &run_id, "Bash", Some("{\"command\":\"rm -rf /\"}"), &actor_id, None)
-        .expect("create_pending_request should succeed");
+    let request = create_pending_request(
+        &mut conn,
+        &run_id,
+        "Bash",
+        Some("{\"command\":\"rm -rf /\"}"),
+        &actor_id,
+        None,
+    )
+    .expect("create_pending_request should succeed");
 
     // --- Behavior: the row is pending ---
     assert_eq!(request.status, "pending");
@@ -69,7 +84,11 @@ fn create_pending_request_blocks_the_run_and_raises_a_labeled_event() {
     // --- Behavior: creating a pending request moves its run to blocked, in the same transaction
     // as the row's own insert (read back here — a real second read, not an in-memory return
     // value) ---
-    assert_eq!(run_status(&conn, &run_id), "blocked", "creating a pending request must block the run");
+    assert_eq!(
+        run_status(&conn, &run_id),
+        "blocked",
+        "creating a pending request must block the run"
+    );
 
     // --- Behavior: a permission_request.raised event carries a human-renderable label ---
     let (event_type, payload): (String, String) = conn
@@ -103,10 +122,17 @@ fn answer_request_allowed_clears_the_block_and_appends_exactly_one_event() {
     assert!(answered.resolved_at.is_some());
 
     // --- Behavior: the run is cleared back to running, in the same transaction ---
-    assert_eq!(run_status(&conn, &run_id), "running", "answering must clear the run's blocked status");
+    assert_eq!(
+        run_status(&conn, &run_id),
+        "running",
+        "answering must clear the run's blocked status"
+    );
 
     // --- Behavior: exactly one permission_request.answered event exists ---
-    assert_eq!(event_count(&conn, "permission_request.answered", &request.id), 1);
+    assert_eq!(
+        event_count(&conn, "permission_request.answered", &request.id),
+        1
+    );
 }
 
 #[test]
@@ -119,7 +145,8 @@ fn answering_an_already_answered_request_is_refused_and_resolves_nothing_a_secon
         .expect("the first answer should succeed");
 
     let second_result = answer_request(&mut conn, &request.id, "denied", &actor_id);
-    let second_err = second_result.expect_err("a second answer to an already-answered row must be refused");
+    let second_err =
+        second_result.expect_err("a second answer to an already-answered row must be refused");
     second_err
         .downcast_ref::<AlreadyAnsweredError>()
         .expect("the error must be the typed AlreadyAnsweredError, not a generic failure");
@@ -141,14 +168,24 @@ fn answering_an_already_answered_request_is_refused_and_resolves_nothing_a_secon
             |row| row.get(0),
         )
         .expect("permission_requests row should exist");
-    assert_eq!(status, "allowed", "the second (denying) answer must never overwrite the first");
+    assert_eq!(
+        status, "allowed",
+        "the second (denying) answer must never overwrite the first"
+    );
 }
 
 #[test]
 fn matching_rule_never_crosses_a_project_boundary() {
     let (mut conn, actor_id, project_a_id, _story_id, _run_id) = seeded_running_run();
-    let project_b = project::create_project(&mut conn, &actor_id, "Other Project", "/other-repo", "OTH", "main")
-        .expect("create_project should succeed for the second project");
+    let project_b = project::create_project(
+        &mut conn,
+        &actor_id,
+        "Other Project",
+        "/other-repo",
+        "OTH",
+        "main",
+    )
+    .expect("create_project should succeed for the second project");
 
     upsert_rule(&mut conn, &project_a_id, "Bash", "npm test:*", &actor_id)
         .expect("upsert_rule should succeed for project A");
@@ -158,12 +195,19 @@ fn matching_rule_never_crosses_a_project_boundary() {
         .expect("project A must have a matching rule for Bash");
     assert_eq!(rule_a.pattern, "npm test:*");
 
-    let rule_b = matching_rule(&conn, &project_b.id, "Bash", &npm_test()).expect("matching_rule should succeed");
-    assert!(rule_b.is_none(), "a rule granted on project A must never match project B");
+    let rule_b = matching_rule(&conn, &project_b.id, "Bash", &npm_test())
+        .expect("matching_rule should succeed");
+    assert!(
+        rule_b.is_none(),
+        "a rule granted on project A must never match project B"
+    );
 
-    let rule_wrong_tool =
-        matching_rule(&conn, &project_a_id, "WebFetch", &npm_test()).expect("matching_rule should succeed");
-    assert!(rule_wrong_tool.is_none(), "a rule for Bash must never match a different tool");
+    let rule_wrong_tool = matching_rule(&conn, &project_a_id, "WebFetch", &npm_test())
+        .expect("matching_rule should succeed");
+    assert!(
+        rule_wrong_tool.is_none(),
+        "a rule for Bash must never match a different tool"
+    );
 }
 
 #[test]
@@ -176,10 +220,18 @@ fn upsert_rule_called_twice_returns_the_existing_rule_rather_than_duplicating() 
         .expect("the second upsert_rule call should succeed");
 
     let count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM permission_rules", [], |row| row.get(0))
+        .query_row("SELECT COUNT(*) FROM permission_rules", [], |row| {
+            row.get(0)
+        })
         .expect("failed to count permission_rules rows");
-    assert_eq!(count, 1, "a second upsert_rule for the same (project, tool, pattern) must not duplicate");
-    assert_eq!(second, first, "the second call must return the existing rule unchanged");
+    assert_eq!(
+        count, 1,
+        "a second upsert_rule for the same (project, tool, pattern) must not duplicate"
+    );
+    assert_eq!(
+        second, first,
+        "the second call must return the existing rule unchanged"
+    );
     assert_eq!(
         event_count(&conn, "permission_rule.granted", &first.id),
         1,
@@ -200,8 +252,12 @@ fn revoke_rule_deletes_the_row_and_appends_a_revoked_event() {
 
     revoke_rule(&mut conn, &rule.id, &actor_id).expect("revoke_rule should succeed");
 
-    let remaining = rules_for_project(&conn, &project_id).expect("rules_for_project should succeed");
-    assert!(remaining.is_empty(), "the rule must be gone after revoke_rule");
+    let remaining =
+        rules_for_project(&conn, &project_id).expect("rules_for_project should succeed");
+    assert!(
+        remaining.is_empty(),
+        "the rule must be gone after revoke_rule"
+    );
 
     assert_eq!(event_count(&conn, "permission_rule.revoked", &rule.id), 1);
 
@@ -222,7 +278,8 @@ fn blocked_count_and_ids_reflect_only_stories_whose_most_recent_run_is_blocked()
 
         // A project with no runs at all reports zero, not an error.
         assert_eq!(
-            blocked_count_for_project(&conn, &project.id).expect("blocked_count_for_project should succeed"),
+            blocked_count_for_project(&conn, &project.id)
+                .expect("blocked_count_for_project should succeed"),
             0
         );
         assert!(blocked_story_ids_for_project(&conn, &project.id)
@@ -235,13 +292,17 @@ fn blocked_count_and_ids_reflect_only_stories_whose_most_recent_run_is_blocked()
         create_pending_request(&mut conn, &blocked_run.id, "Bash", None, &actor_id, None)
             .expect("create_pending_request should succeed");
 
-        let running_story = common::new_story(&mut conn, &project.id, &actor_id, "Still running story");
+        let running_story =
+            common::new_story(&mut conn, &project.id, &actor_id, "Still running story");
         start_session(&mut conn, &running_story.id, "acceptEdits", &actor_id)
             .expect("start_session should succeed");
 
         let count = blocked_count_for_project(&conn, &project.id)
             .expect("blocked_count_for_project should succeed");
-        assert_eq!(count, 1, "only the genuinely blocked Story's run should count");
+        assert_eq!(
+            count, 1,
+            "only the genuinely blocked Story's run should count"
+        );
 
         let ids = blocked_story_ids_for_project(&conn, &project.id)
             .expect("blocked_story_ids_for_project should succeed");
@@ -258,35 +319,62 @@ fn pending_requests_for_run_returns_every_pending_row_in_creation_order() {
         .expect("pending_requests_for_run should succeed")
         .is_empty());
 
-    let first = create_pending_request(&mut conn, &run_id, "Bash", Some("{\"command\":\"ls\"}"), &actor_id, None)
-        .expect("create_pending_request should succeed");
+    let first = create_pending_request(
+        &mut conn,
+        &run_id,
+        "Bash",
+        Some("{\"command\":\"ls\"}"),
+        &actor_id,
+        None,
+    )
+    .expect("create_pending_request should succeed");
     // Two concurrent held calls (02-05-SUMMARY's own D4) can each raise their own pending row for
     // the SAME run — this query must surface BOTH, not just the latest.
-    let second = create_pending_request(&mut conn, &run_id, "Edit", Some("{\"path\":\"a.txt\"}"), &actor_id, None)
-        .expect("create_pending_request should succeed");
+    let second = create_pending_request(
+        &mut conn,
+        &run_id,
+        "Edit",
+        Some("{\"path\":\"a.txt\"}"),
+        &actor_id,
+        None,
+    )
+    .expect("create_pending_request should succeed");
 
-    let pending = pending_requests_for_run(&conn, &run_id).expect("pending_requests_for_run should succeed");
-    assert_eq!(pending.len(), 2, "both concurrent pending requests must be returned");
+    let pending =
+        pending_requests_for_run(&conn, &run_id).expect("pending_requests_for_run should succeed");
+    assert_eq!(
+        pending.len(),
+        2,
+        "both concurrent pending requests must be returned"
+    );
     assert_eq!(pending[0].id, first.id, "oldest first (creation order)");
     assert_eq!(pending[1].id, second.id);
     assert_eq!(pending[0].tool_name, "Bash");
     assert_eq!(pending[1].tool_name, "Edit");
 
     // Answering one leaves only the other pending.
-    answer_request(&mut conn, &first.id, "allowed", &actor_id).expect("answer_request should succeed");
-    let remaining = pending_requests_for_run(&conn, &run_id).expect("pending_requests_for_run should succeed");
+    answer_request(&mut conn, &first.id, "allowed", &actor_id)
+        .expect("answer_request should succeed");
+    let remaining =
+        pending_requests_for_run(&conn, &run_id).expect("pending_requests_for_run should succeed");
     assert_eq!(remaining.len(), 1);
     assert_eq!(remaining[0].id, second.id);
 }
 
 #[test]
-fn pending_requests_for_run_round_trips_the_destructive_category_or_none(
-) {
+fn pending_requests_for_run_round_trips_the_destructive_category_or_none() {
     let (mut conn, actor_id, _project_id, _story_id, run_id) = seeded_running_run();
 
     // A routine request comes back with `destructive_category: None`.
-    let routine = create_pending_request(&mut conn, &run_id, "Bash", Some("{\"command\":\"ls\"}"), &actor_id, None)
-        .expect("create_pending_request should succeed for a routine request");
+    let routine = create_pending_request(
+        &mut conn,
+        &run_id,
+        "Bash",
+        Some("{\"command\":\"ls\"}"),
+        &actor_id,
+        None,
+    )
+    .expect("create_pending_request should succeed for a routine request");
 
     // A destructive request comes back with its EXACT category string — asserted against
     // `DestructiveCategory::as_str()`'s own output, never a hand-typed literal, so the classifier,
@@ -302,16 +390,27 @@ fn pending_requests_for_run_round_trips_the_destructive_category_or_none(
     )
     .expect("create_pending_request should succeed for a destructive request");
 
-    let pending = pending_requests_for_run(&conn, &run_id).expect("pending_requests_for_run should succeed");
-    assert_eq!(pending.len(), 2, "both the routine and destructive requests must be returned");
+    let pending =
+        pending_requests_for_run(&conn, &run_id).expect("pending_requests_for_run should succeed");
+    assert_eq!(
+        pending.len(),
+        2,
+        "both the routine and destructive requests must be returned"
+    );
 
-    let routine_row = pending.iter().find(|r| r.id == routine.id).expect("routine row must be present");
+    let routine_row = pending
+        .iter()
+        .find(|r| r.id == routine.id)
+        .expect("routine row must be present");
     assert_eq!(
         routine_row.destructive_category, None,
         "a routine request must round-trip with destructive_category = None"
     );
 
-    let destructive_row = pending.iter().find(|r| r.id == destructive.id).expect("destructive row must be present");
+    let destructive_row = pending
+        .iter()
+        .find(|r| r.id == destructive.id)
+        .expect("destructive row must be present");
     assert_eq!(
         destructive_row.destructive_category.as_deref(),
         Some(category.as_str()),
@@ -327,14 +426,16 @@ fn latest_run_id_for_story_resolves_the_most_recently_started_run() {
 
         // A Story with no runs yet resolves to None, not an error.
         assert_eq!(
-            latest_run_id_for_story(&conn, &story.id).expect("latest_run_id_for_story should succeed"),
+            latest_run_id_for_story(&conn, &story.id)
+                .expect("latest_run_id_for_story should succeed"),
             None
         );
 
         let run = start_session(&mut conn, &story.id, "acceptEdits", &actor_id)
             .expect("start_session should succeed");
         assert_eq!(
-            latest_run_id_for_story(&conn, &story.id).expect("latest_run_id_for_story should succeed"),
+            latest_run_id_for_story(&conn, &story.id)
+                .expect("latest_run_id_for_story should succeed"),
             Some(run.id)
         );
     });
@@ -370,9 +471,20 @@ fn migration_source_list_registers_the_permission_gate_tables_exactly_once() {
     let sources = flywheel_core::db::migration_sources();
     // The trailing `(` (this codebase's `CREATE TABLE <name> (` formatting) keeps a transient
     // `permission_requests_new` rebuild table, should a later migration add one, from matching too.
-    let request_table_count =
-        sources.iter().filter(|s| s.contains("CREATE TABLE permission_requests (")).count();
-    let rule_table_count = sources.iter().filter(|s| s.contains("CREATE TABLE permission_rules")).count();
-    assert_eq!(request_table_count, 1, "permission_requests must be created by exactly one migration");
-    assert_eq!(rule_table_count, 1, "permission_rules must be created by exactly one migration");
+    let request_table_count = sources
+        .iter()
+        .filter(|s| s.contains("CREATE TABLE permission_requests ("))
+        .count();
+    let rule_table_count = sources
+        .iter()
+        .filter(|s| s.contains("CREATE TABLE permission_rules"))
+        .count();
+    assert_eq!(
+        request_table_count, 1,
+        "permission_requests must be created by exactly one migration"
+    );
+    assert_eq!(
+        rule_table_count, 1,
+        "permission_rules must be created by exactly one migration"
+    );
 }

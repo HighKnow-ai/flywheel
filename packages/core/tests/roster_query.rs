@@ -16,6 +16,7 @@ use common::with_scratch_worktree_root;
 use flywheel_core::domain::acceptance_criterion::{accept_criterion, create_criterion};
 use flywheel_core::domain::check::{record_check_run, set_check, CheckResult, CheckRunRecord};
 use flywheel_core::domain::epic::create_epic;
+use flywheel_core::domain::epic::{set_epic_state, EpicState};
 use flywheel_core::domain::milestone::create_milestone;
 use flywheel_core::domain::permission_request::create_pending_request;
 use flywheel_core::domain::session::{interrupt_session, start_session};
@@ -23,7 +24,6 @@ use flywheel_core::domain::story::{create_story, set_story_state, StoryState};
 use flywheel_core::domain::story_drop::drop_story;
 use flywheel_core::domain::task::{add_task, set_task_state, TaskState};
 use flywheel_core::ids::new_id;
-use flywheel_core::domain::epic::{set_epic_state, EpicState};
 use flywheel_core::query::progress::{epic_progress, ShapingMarker};
 use flywheel_core::query::roster::{roster_rows, ReviewDiffSize, RosterRow};
 use rusqlite::{params, Connection};
@@ -44,7 +44,12 @@ struct Review<'a> {
 
 /// A review row as the hand-off writes it (`domain::review`), closed with `outcome` when given.
 fn review(conn: &Connection, actor: &str, project: &str, story: &str, review: Review) {
-    let Review { opened_at, head, size, outcome } = review;
+    let Review {
+        opened_at,
+        head,
+        size,
+        outcome,
+    } = review;
     conn.execute(
         "INSERT INTO reviews (id, project_id, story_id, opened_at, base_sha, head_sha, files, added, removed, open_tasks, \
             outcome, decided_by, decided_at) \
@@ -67,7 +72,14 @@ fn review(conn: &Connection, actor: &str, project: &str, story: &str, review: Re
 }
 
 /// A criterion with a Check whose one run of record says `result` at `commit`.
-fn criterion_with_run(conn: &mut Connection, actor: &str, story: &str, statement: &str, result: CheckResult, commit: &str) {
+fn criterion_with_run(
+    conn: &mut Connection,
+    actor: &str,
+    story: &str,
+    statement: &str,
+    result: CheckResult,
+    commit: &str,
+) {
     let criterion = create_criterion(conn, actor, story, statement).unwrap();
     let check = set_check(conn, actor, &criterion.id, "cargo test", None).unwrap();
     record_check_run(
@@ -87,7 +99,9 @@ fn criterion_with_run(conn: &mut Connection, actor: &str, story: &str, statement
 }
 
 fn row<'a>(rows: &'a [RosterRow], story_id: &str) -> &'a RosterRow {
-    rows.iter().find(|r| r.story_id == story_id).expect("the Story has a row")
+    rows.iter()
+        .find(|r| r.story_id == story_id)
+        .expect("the Story has a row")
 }
 
 #[test]
@@ -97,21 +111,37 @@ fn one_read_returns_every_rows_attention_doing_task_counts_and_diff_size() {
         let m = create_milestone(&mut conn, &project.id, &actor, "Board and review", None).unwrap();
         let a = create_epic(&mut conn, &actor, &m.id, "Roster").unwrap();
         let b = create_epic(&mut conn, &actor, &m.id, "Review").unwrap();
-        let story = |conn: &mut Connection, epic: &str, title: &str| create_story(conn, &actor, epic, title).unwrap().id;
+        let story = |conn: &mut Connection, epic: &str, title: &str| {
+            create_story(conn, &actor, epic, title).unwrap().id
+        };
 
         // Waiting on you: a live session holds a pending request; it is doing a Task.
         let waiting = story(&mut conn, &a.id, "Waiting");
         running(&mut conn, &actor, &waiting);
         let live = start_session(&mut conn, &waiting, "acceptEdits", &actor).unwrap();
-        create_pending_request(&mut conn, &live.id, "Bash", Some(r#"{"command":"git push"}"#), &actor, Some("git-push"))
-            .unwrap();
+        create_pending_request(
+            &mut conn,
+            &live.id,
+            "Bash",
+            Some(r#"{"command":"git push"}"#),
+            &actor,
+            Some("git-push"),
+        )
+        .unwrap();
         let done = add_task(&mut conn, &actor, &waiting, "Read the schema").unwrap();
         set_task_state(&mut conn, &actor, &done.id, TaskState::Done, None).unwrap();
         let doing = add_task(&mut conn, &actor, &waiting, "Wire the command").unwrap();
         set_task_state(&mut conn, &actor, &doing.id, TaskState::Doing, None).unwrap();
         add_task(&mut conn, &actor, &waiting, "Draw the row").unwrap();
         let dropped_task = add_task(&mut conn, &actor, &waiting, "Cache per row").unwrap();
-        set_task_state(&mut conn, &actor, &dropped_task.id, TaskState::Dropped, Some("one read instead")).unwrap();
+        set_task_state(
+            &mut conn,
+            &actor,
+            &dropped_task.id,
+            TaskState::Dropped,
+            Some("one read instead"),
+        )
+        .unwrap();
 
         // Stopped: its latest session is dead and it never handed off.
         let stopped = story(&mut conn, &a.id, "Stopped");
@@ -121,19 +151,70 @@ fn one_read_returns_every_rows_attention_doing_task_counts_and_diff_size() {
         set_task_state(&mut conn, &actor, &was_doing.id, TaskState::Doing, None).unwrap();
         interrupt_session(&mut conn, &dead.id, &actor).unwrap();
         let stopped_reason: Option<String> = conn
-            .query_row("SELECT ending_reason FROM sessions WHERE id = ?1", params![dead.id], |r| r.get(0))
+            .query_row(
+                "SELECT ending_reason FROM sessions WHERE id = ?1",
+                params![dead.id],
+                |r| r.get(0),
+            )
             .unwrap();
 
         // In review: an earlier review sent back at head `aaa`, the open one at head `bbb`.
         let in_review = story(&mut conn, &a.id, "In review");
-        conn.execute("UPDATE stories SET state = 'in_review' WHERE id = ?1", params![in_review]).unwrap();
-        review(&conn, &actor, &project.id, &in_review, Review { opened_at: "2026-10-01T00:00:00Z", head: "aaa", size: (9, 900, 90), outcome: Some("changes_requested") });
-        review(&conn, &actor, &project.id, &in_review, Review { opened_at: "2026-10-02T00:00:00Z", head: "bbb", size: (3, 40, 7), outcome: None });
+        conn.execute(
+            "UPDATE stories SET state = 'in_review' WHERE id = ?1",
+            params![in_review],
+        )
+        .unwrap();
+        review(
+            &conn,
+            &actor,
+            &project.id,
+            &in_review,
+            Review {
+                opened_at: "2026-10-01T00:00:00Z",
+                head: "aaa",
+                size: (9, 900, 90),
+                outcome: Some("changes_requested"),
+            },
+        );
+        review(
+            &conn,
+            &actor,
+            &project.id,
+            &in_review,
+            Review {
+                opened_at: "2026-10-02T00:00:00Z",
+                head: "bbb",
+                size: (3, 40, 7),
+                outcome: None,
+            },
+        );
         let accepted = create_criterion(&mut conn, &actor, &in_review, "Accepted by hand").unwrap();
         accept_criterion(&mut conn, &actor, &accepted.id).unwrap();
-        criterion_with_run(&mut conn, &actor, &in_review, "Passed at the head", CheckResult::Passed, "bbb");
-        criterion_with_run(&mut conn, &actor, &in_review, "Passed, then the branch moved", CheckResult::Passed, "aaa");
-        criterion_with_run(&mut conn, &actor, &in_review, "Failed at the head", CheckResult::Failed, "bbb");
+        criterion_with_run(
+            &mut conn,
+            &actor,
+            &in_review,
+            "Passed at the head",
+            CheckResult::Passed,
+            "bbb",
+        );
+        criterion_with_run(
+            &mut conn,
+            &actor,
+            &in_review,
+            "Passed, then the branch moved",
+            CheckResult::Passed,
+            "aaa",
+        );
+        criterion_with_run(
+            &mut conn,
+            &actor,
+            &in_review,
+            "Failed at the head",
+            CheckResult::Failed,
+            "bbb",
+        );
         create_criterion(&mut conn, &actor, &in_review, "Judged at review").unwrap();
         let finished = add_task(&mut conn, &actor, &in_review, "Everything").unwrap();
         set_task_state(&mut conn, &actor, &finished.id, TaskState::Done, None).unwrap();
@@ -153,10 +234,20 @@ fn one_read_returns_every_rows_attention_doing_task_counts_and_diff_size() {
         let ids: Vec<&str> = rows.iter().map(|r| r.story_id.as_str()).collect();
         assert_eq!(
             ids,
-            vec![waiting.as_str(), stopped.as_str(), in_review.as_str(), ready.as_str(), dropped.as_str()],
+            vec![
+                waiting.as_str(),
+                stopped.as_str(),
+                in_review.as_str(),
+                ready.as_str(),
+                dropped.as_str()
+            ],
             "every Story of the Milestone, Epics in Roadmap order and Stories in rank order"
         );
-        assert_eq!(rows, roster_rows(&conn, &m.id).unwrap(), "the same read twice gives the same rows");
+        assert_eq!(
+            rows,
+            roster_rows(&conn, &m.id).unwrap(),
+            "the same read twice gives the same rows"
+        );
 
         assert_eq!(
             row(&rows, &waiting),
@@ -180,8 +271,15 @@ fn one_read_returns_every_rows_attention_doing_task_counts_and_diff_size() {
         assert_eq!(stopped_row.attention.as_deref(), Some("stopped"));
         assert_eq!(stopped_row.ending_reason, stopped_reason);
         assert!(stopped_row.ending_reason.is_some());
-        assert_eq!(stopped_row.live_session_id, None, "a Stopped Story has no live session");
-        assert_eq!(stopped_row.doing_task_title.as_deref(), Some("Half done"), "what it was doing when it stopped");
+        assert_eq!(
+            stopped_row.live_session_id, None,
+            "a Stopped Story has no live session"
+        );
+        assert_eq!(
+            stopped_row.doing_task_title.as_deref(),
+            Some("Half done"),
+            "what it was doing when it stopped"
+        );
 
         assert_eq!(
             row(&rows, &in_review),
@@ -203,8 +301,23 @@ fn one_read_returns_every_rows_attention_doing_task_counts_and_diff_size() {
 
         for quiet in [&ready, &dropped] {
             let r = row(&rows, quiet);
-            assert_eq!((r.attention.as_deref(), r.live_session_id.as_deref(), r.review), (None, None, None));
-            assert_eq!((r.criteria_met, r.criteria_total, r.tasks_done, r.tasks_total), (0, 0, 0, 0));
+            assert_eq!(
+                (
+                    r.attention.as_deref(),
+                    r.live_session_id.as_deref(),
+                    r.review
+                ),
+                (None, None, None)
+            );
+            assert_eq!(
+                (
+                    r.criteria_met,
+                    r.criteria_total,
+                    r.tasks_done,
+                    r.tasks_total
+                ),
+                (0, 0, 0, 0)
+            );
         }
     });
 }
@@ -214,15 +327,37 @@ fn a_passed_check_counts_until_a_hand_off_moves_the_head_past_it() {
     let (mut conn, actor, project) = common::seeded_project();
     let s = common::new_story(&mut conn, &project.id, &actor, "Checks");
     let milestone: String = conn
-        .query_row("SELECT e.milestone_id FROM epics e WHERE e.id = ?1", params![s.epic_id], |r| r.get(0))
+        .query_row(
+            "SELECT e.milestone_id FROM epics e WHERE e.id = ?1",
+            params![s.epic_id],
+            |r| r.get(0),
+        )
         .unwrap();
-    criterion_with_run(&mut conn, &actor, &s.id, "Passed", CheckResult::Passed, "aaa");
+    criterion_with_run(
+        &mut conn,
+        &actor,
+        &s.id,
+        "Passed",
+        CheckResult::Passed,
+        "aaa",
+    );
 
     // No hand-off yet: no head is known, so the result is not stale.
     assert_eq!(roster_rows(&conn, &milestone).unwrap()[0].criteria_met, 1);
 
     // Handed off at `bbb`: the run at `aaa` is stale.
-    review(&conn, &actor, &project.id, &s.id, Review { opened_at: "2026-10-02T00:00:00Z", head: "bbb", size: (1, 1, 0), outcome: None });
+    review(
+        &conn,
+        &actor,
+        &project.id,
+        &s.id,
+        Review {
+            opened_at: "2026-10-02T00:00:00Z",
+            head: "bbb",
+            size: (1, 1, 0),
+            outcome: None,
+        },
+    );
     let r = &roster_rows(&conn, &milestone).unwrap()[0];
     assert_eq!((r.criteria_met, r.criteria_total), (0, 1));
 }
@@ -230,12 +365,23 @@ fn a_passed_check_counts_until_a_hand_off_moves_the_head_past_it() {
 #[test]
 fn the_roster_query_walks_indexes_only() {
     let (conn, _actor, _project) = common::seeded_project();
-    let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {}", flywheel_core::query::roster::ROSTER_ROWS_SQL)).unwrap();
-    let plan: Vec<String> =
-        stmt.query_map(params!["a-milestone"], |row| row.get::<_, String>(3)).unwrap().collect::<Result<_, _>>().unwrap();
+    let mut stmt = conn
+        .prepare(&format!(
+            "EXPLAIN QUERY PLAN {}",
+            flywheel_core::query::roster::ROSTER_ROWS_SQL
+        ))
+        .unwrap();
+    let plan: Vec<String> = stmt
+        .query_map(params!["a-milestone"], |row| row.get::<_, String>(3))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
     for step in &plan {
         let full_scan = step.starts_with("SCAN ") && !step.contains("USING");
-        assert!(!full_scan, "a full table scan in the roster query: {step}\nplan: {plan:#?}");
+        assert!(
+            !full_scan,
+            "a full table scan in the roster query: {step}\nplan: {plan:#?}"
+        );
     }
 }
 
@@ -259,7 +405,15 @@ fn stage(conn: &Connection, project: &str, epic: &str, kind: &str, rank: i64) ->
 
 /// A Round of `stage` with `questions` questions, the first `answered` of them answered; open until
 /// every one is.
-fn round(conn: &Connection, actor: &str, project: &str, stage: &str, number: i64, questions: i64, answered: i64) {
+fn round(
+    conn: &Connection,
+    actor: &str,
+    project: &str,
+    stage: &str,
+    number: i64,
+    questions: i64,
+    answered: i64,
+) {
     let id = new_id();
     let done = answered == questions;
     conn.execute(
@@ -307,12 +461,34 @@ fn an_epic_in_shaping_carries_its_shaping_marker() {
     round(&conn, &actor, &project.id, &criteria, 1, 3, 3);
 
     let epics = epic_progress(&conn, &m.id).unwrap();
-    let marker = |id: &str| epics.iter().find(|e| e.epic_id == id).unwrap().shaping.clone();
-    let none = ShapingMarker { stage_kind: None, stage_rank: None, round_number: None, round_open: false, answered: 0, questions: 0 };
-    assert_eq!(marker(&never.id), Some(none.clone()), "an Epic in Shaping with no Stage open yet is not shaped yet");
+    let marker = |id: &str| {
+        epics
+            .iter()
+            .find(|e| e.epic_id == id)
+            .unwrap()
+            .shaping
+            .clone()
+    };
+    let none = ShapingMarker {
+        stage_kind: None,
+        stage_rank: None,
+        round_number: None,
+        round_open: false,
+        answered: 0,
+        questions: 0,
+    };
+    assert_eq!(
+        marker(&never.id),
+        Some(none.clone()),
+        "an Epic in Shaping with no Stage open yet is not shaped yet"
+    );
     assert_eq!(
         marker(&no_round.id),
-        Some(ShapingMarker { stage_kind: Some("challenge_spec".into()), stage_rank: Some(1), ..none.clone() })
+        Some(ShapingMarker {
+            stage_kind: Some("challenge_spec".into()),
+            stage_rank: Some(1),
+            ..none.clone()
+        })
     );
     assert_eq!(
         marker(&open.id),
@@ -337,5 +513,9 @@ fn an_epic_in_shaping_carries_its_shaping_marker() {
             questions: 3
         })
     );
-    assert_eq!(marker(&ready.id), None, "an Epic out of Shaping has no marker");
+    assert_eq!(
+        marker(&ready.id),
+        None,
+        "an Epic out of Shaping has no marker"
+    );
 }

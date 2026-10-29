@@ -45,10 +45,16 @@
 use flywheel_core::domain::acceptance_criterion::criteria_for_story;
 use flywheel_core::domain::check::check_for_criterion;
 use flywheel_core::domain::proposal::{accept_proposal_released, proposals_on_epic};
-use flywheel_core::domain::round::{accept_all_recommended, answer_round_question, rounds_for_epic, AnswerOutcome, RoundAnswer};
-use flywheel_core::domain::session::{apply_session_closed, live_shaping_session, start_shaping_session, ShapingSubject};
+use flywheel_core::domain::round::{
+    accept_all_recommended, answer_round_question, rounds_for_epic, AnswerOutcome, RoundAnswer,
+};
+use flywheel_core::domain::session::{
+    apply_session_closed, live_shaping_session, start_shaping_session, ShapingSubject,
+};
 use flywheel_core::domain::session_kind::SessionKind;
-use flywheel_core::domain::shaping_tool::{apply_shaping_tool_call, ShapingToolCall, ShapingToolOutcome};
+use flywheel_core::domain::shaping_tool::{
+    apply_shaping_tool_call, ShapingToolCall, ShapingToolOutcome,
+};
 use flywheel_core::domain::stage::{close_stage, open_stage, stage_status, stages_for_epic};
 use flywheel_core::domain::story::stories_in_epic;
 use flywheel_core::domain::{actor, epic, milestone, project};
@@ -64,9 +70,12 @@ fn open_conn() -> Connection {
     if std::env::var_os("FLYWHEEL_APP_DATA_DIR").is_none() {
         fail("FLYWHEEL_APP_DATA_DIR is not set — refusing to touch the real fleet database. Point it at a scratch directory.");
     }
-    let db_path = flywheel_core::db::default_db_path().unwrap_or_else(|e| fail(&format!("db path: {e:#}")));
-    let backups = flywheel_core::db::default_backups_dir().unwrap_or_else(|e| fail(&format!("backups dir: {e:#}")));
-    flywheel_core::db::open_and_migrate(&db_path, &backups).unwrap_or_else(|e| fail(&format!("open: {e:#}")))
+    let db_path =
+        flywheel_core::db::default_db_path().unwrap_or_else(|e| fail(&format!("db path: {e:#}")));
+    let backups = flywheel_core::db::default_backups_dir()
+        .unwrap_or_else(|e| fail(&format!("backups dir: {e:#}")));
+    flywheel_core::db::open_and_migrate(&db_path, &backups)
+        .unwrap_or_else(|e| fail(&format!("open: {e:#}")))
 }
 
 fn human(conn: &Connection) -> String {
@@ -81,9 +90,18 @@ fn ok<T>(what: &str, r: anyhow::Result<T>) -> T {
 fn seed(repo: &str) -> Value {
     let mut conn = open_conn();
     let h = human(&conn);
-    let p = ok("create_project", project::create_project(&mut conn, &h, "Threadfin", repo, "FLY", "main"));
-    let m = ok("create_milestone", milestone::create_milestone(&mut conn, &p.id, &h, "Shaping", None));
-    let e = ok("create_epic", epic::create_epic(&mut conn, &h, &m.id, "Feed rows show the agent's live verb"));
+    let p = ok(
+        "create_project",
+        project::create_project(&mut conn, &h, "Threadfin", repo, "FLY", "main"),
+    );
+    let m = ok(
+        "create_milestone",
+        milestone::create_milestone(&mut conn, &p.id, &h, "Shaping", None),
+    );
+    let e = ok(
+        "create_epic",
+        epic::create_epic(&mut conn, &h, &m.id, "Feed rows show the agent's live verb"),
+    );
     json!({ "projectId": p.id, "milestoneId": m.id, "epicId": e.id, "epicKey": e.key, "title": e.title })
 }
 
@@ -92,7 +110,11 @@ fn seed(repo: &str) -> Value {
 fn spawn_for(run_id: &str, prompt: String) -> Value {
     let kind = SessionKind::Shaping;
     let policy = kind.launch_policy();
-    let policy_env: serde_json::Map<String, Value> = policy.env.iter().map(|(k, v)| (k.to_string(), json!(v))).collect();
+    let policy_env: serde_json::Map<String, Value> = policy
+        .env
+        .iter()
+        .map(|(k, v)| (k.to_string(), json!(v)))
+        .collect();
     json!({
         "spawn": {
             "op": "spawn",
@@ -113,9 +135,19 @@ fn spawn_for(run_id: &str, prompt: String) -> Value {
 fn start_on(conn: &mut Connection, epic_id: &str) -> Value {
     let h = human(conn);
     let subject = ShapingSubject::Epic(epic_id.to_string());
-    let session =
-        ok("start_shaping_session", start_shaping_session(conn, &subject, SessionKind::Shaping.launch_policy().permission_mode, &h));
-    let prompt = ok("build_shaping_packet", flywheel_core::shaping_packet::build_shaping_packet(conn, &subject));
+    let session = ok(
+        "start_shaping_session",
+        start_shaping_session(
+            conn,
+            &subject,
+            SessionKind::Shaping.launch_policy().permission_mode,
+            &h,
+        ),
+    );
+    let prompt = ok(
+        "build_shaping_packet",
+        flywheel_core::shaping_packet::build_shaping_packet(conn, &subject),
+    );
     spawn_for(&session.id, prompt)
 }
 
@@ -138,7 +170,9 @@ fn continue_shaping(epic_id: &str) -> Value {
 fn tool_call(run_id: &str, request_id: &str, tool: &str, args: &str) -> Value {
     let mut conn = open_conn();
     let args: Value = serde_json::from_str(args).unwrap_or_else(|e| fail(&format!("args: {e}")));
-    let answer = match ShapingToolCall::parse(tool, &args).and_then(|call| apply_shaping_tool_call(&mut conn, run_id, request_id, &call)) {
+    let answer = match ShapingToolCall::parse(tool, &args)
+        .and_then(|call| apply_shaping_tool_call(&mut conn, run_id, request_id, &call))
+    {
         Ok(ShapingToolOutcome::Held { .. }) => Value::Null,
         Ok(ShapingToolOutcome::Answered { result, .. }) => json!({ "result": result }),
         Err(e) => json!({ "error": format!("{e:#}") }),
@@ -160,20 +194,29 @@ fn answer(question_id: &str, how: &str, text: Option<&str>) -> Value {
         ("own", Some(text)) => RoundAnswer::Own(text.to_string()),
         _ => fail("answer: `recommended`, or `own <text>`"),
     };
-    released(ok("answer_round_question", answer_round_question(&mut conn, &h, question_id, &given)))
+    released(ok(
+        "answer_round_question",
+        answer_round_question(&mut conn, &h, question_id, &given),
+    ))
 }
 
 fn accept_all(round_id: &str) -> Value {
     let mut conn = open_conn();
     let h = human(&conn);
-    released(ok("accept_all_recommended", accept_all_recommended(&mut conn, &h, round_id)))
+    released(ok(
+        "accept_all_recommended",
+        accept_all_recommended(&mut conn, &h, round_id),
+    ))
 }
 
 /// The developer accepts a Proposal; a held call it settles comes back as `release`.
 fn decide(proposal_id: &str) -> Value {
     let mut conn = open_conn();
     let h = human(&conn);
-    let decided = ok("accept", accept_proposal_released(&mut conn, &h, proposal_id, None));
+    let decided = ok(
+        "accept",
+        accept_proposal_released(&mut conn, &h, proposal_id, None),
+    );
     let release = decided.release.map(|r| json!({ "sessionId": r.session_id, "requestId": r.request_id, "answer": { "result": r.result } }));
     json!({ "release": release })
 }
@@ -183,10 +226,17 @@ fn decide(proposal_id: &str) -> Value {
 fn close(epic_id: &str) -> Value {
     let mut conn = open_conn();
     let h = human(&conn);
-    let stage = ok("open_stage", open_stage(&conn, &ShapingSubject::Epic(epic_id.to_string())))
-        .unwrap_or_else(|| fail("the Epic has no open Stage"));
+    let stage = ok(
+        "open_stage",
+        open_stage(&conn, &ShapingSubject::Epic(epic_id.to_string())),
+    )
+    .unwrap_or_else(|| fail("the Epic has no open Stage"));
     let closed = ok("close_stage", close_stage(&mut conn, &h, &stage.id));
-    let next = closed.opened.as_ref().and_then(|s| s.epic_id.clone()).map(|id| start_on(&mut conn, &id));
+    let next = closed
+        .opened
+        .as_ref()
+        .and_then(|s| s.epic_id.clone())
+        .map(|id| start_on(&mut conn, &id));
     json!({
         "closed": closed.closed.kind.as_str(),
         "opened": closed.opened.map(|s| s.kind.as_str()),
@@ -200,7 +250,10 @@ fn close(epic_id: &str) -> Value {
 fn session_closed(event: &str) -> Value {
     let mut conn = open_conn();
     let event: Value = serde_json::from_str(event).unwrap_or_else(|e| fail(&format!("event: {e}")));
-    let outcome = ok("apply_session_closed", apply_session_closed(&mut conn, &event));
+    let outcome = ok(
+        "apply_session_closed",
+        apply_session_closed(&mut conn, &event),
+    );
     json!({ "outcome": format!("{outcome:?}") })
 }
 
@@ -214,7 +267,10 @@ fn epic_view(epic_id: &str) -> Value {
         .iter()
         .map(|s| json!({ "kind": s.kind.as_str(), "state": s.state }))
         .collect();
-    let open = match ok("open_stage", open_stage(&conn, &ShapingSubject::Epic(epic_id.to_string()))) {
+    let open = match ok(
+        "open_stage",
+        open_stage(&conn, &ShapingSubject::Epic(epic_id.to_string())),
+    ) {
         Some(stage) => {
             let status = ok("stage_status", stage_status(&conn, &stage.id));
             let items: Vec<String> = status.open_items.iter().map(|i| i.label()).collect();
@@ -268,7 +324,10 @@ fn epic_view(epic_id: &str) -> Value {
             })
         })
         .collect();
-    let live = ok("live_shaping_session", live_shaping_session(&conn, &ShapingSubject::Epic(epic_id.to_string())));
+    let live = ok(
+        "live_shaping_session",
+        live_shaping_session(&conn, &ShapingSubject::Epic(epic_id.to_string())),
+    );
     json!({
         "state": e.state,
         "spec": { "problem": e.spec.problem, "scope": e.spec.scope, "exitTest": e.spec.exit_test },
@@ -284,7 +343,11 @@ fn story_packet(story_id: &str) -> Value {
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let arg = |i: usize| args.get(i).map(String::as_str).unwrap_or_else(|| fail("missing argument; see the usage in this file's header"));
+    let arg = |i: usize| {
+        args.get(i)
+            .map(String::as_str)
+            .unwrap_or_else(|| fail("missing argument; see the usage in this file's header"))
+    };
     let out = match arg(0) {
         "seed" => seed(arg(1)),
         "shape" => shape(arg(1)),

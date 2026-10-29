@@ -24,7 +24,8 @@ use crate::context_packet::{live_adrs, non_blank, section};
 use crate::domain::milestone::{milestone_state, roadmap};
 use crate::domain::proposal::proposals_in_round;
 use crate::domain::roadmap_round::{
-    describe_proposal, noted_triggers, open_roadmap_round, rejected_roadmap_proposals, RoadmapTrigger,
+    describe_proposal, noted_triggers, open_roadmap_round, rejected_roadmap_proposals,
+    RoadmapTrigger,
 };
 
 /// The standing instructions for a roadmap Round.
@@ -63,9 +64,16 @@ developer rejected, listed below, without new evidence.
 /// The Round's scope, from its trigger and any noted since (issue #134, docs/mvp-spec.md §3 "its three
 /// triggers"): a Milestone confirmed Done makes it a Roadmap Round; Epics confirmed Done alone keep it
 /// short, on their Milestones; Revisit roadmap weighs the whole Roadmap.
-fn scope_line(conn: &Connection, trigger: &RoadmapTrigger, noted: &[RoadmapTrigger]) -> anyhow::Result<String> {
+fn scope_line(
+    conn: &Connection,
+    trigger: &RoadmapTrigger,
+    noted: &[RoadmapTrigger],
+) -> anyhow::Result<String> {
     let all: Vec<&RoadmapTrigger> = std::iter::once(trigger).chain(noted).collect();
-    if all.iter().any(|t| matches!(t, RoadmapTrigger::MilestoneDone(_))) {
+    if all
+        .iter()
+        .any(|t| matches!(t, RoadmapTrigger::MilestoneDone(_)))
+    {
         return Ok("This is a Roadmap Round: a Milestone is Done. Weigh the whole Roadmap: is the next Milestone \
                    still right? Should Milestones be reordered, amended, retired or added, and is each exit test \
                    still reachable and observable?\n"
@@ -91,7 +99,10 @@ fn scope_line(conn: &Connection, trigger: &RoadmapTrigger, noted: &[RoadmapTrigg
     }
     let on = match milestones.as_slice() {
         [one] => format!("on one Milestone: {one}, which holds the Epic confirmed Done"),
-        many => format!("on the Milestones {}, which hold the Epics confirmed Done", many.join(" and ")),
+        many => format!(
+            "on the Milestones {}, which hold the Epics confirmed Done",
+            many.join(" and ")
+        ),
     };
     Ok(format!(
         "This Round is short, and {on}. Ask only: is its exit test still reachable, is an Epic missing, or one to \
@@ -126,7 +137,9 @@ fn epics_of(conn: &Connection, milestone_id: &str) -> anyhow::Result<Vec<EpicRow
          FROM epics e WHERE e.milestone_id = ?1 ORDER BY e.rank, e.id",
     )?;
     let rows = stmt
-        .query_map(params![milestone_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?
+        .query_map(params![milestone_id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+        })?
         .collect::<Result<Vec<_>, _>>()
         .context("failed to read the Milestone's Epics")?;
     Ok(rows)
@@ -136,9 +149,14 @@ fn epics_of(conn: &Connection, milestone_id: &str) -> anyhow::Result<Vec<EpicRow
 /// open roadmap Round: the packet answers its trigger.
 pub fn build_roadmap_packet(conn: &Connection, project_id: &str) -> anyhow::Result<String> {
     let (name, repo_path): (String, String) = conn
-        .query_row("SELECT name, repo_path FROM projects WHERE id = ?1", params![project_id], |r| Ok((r.get(0)?, r.get(1)?)))
+        .query_row(
+            "SELECT name, repo_path FROM projects WHERE id = ?1",
+            params![project_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
         .with_context(|| format!("project {project_id:?} not found"))?;
-    let round = open_roadmap_round(conn, project_id)?.context("this project has no open roadmap Round")?;
+    let round =
+        open_roadmap_round(conn, project_id)?.context("this project has no open roadmap Round")?;
     let checkout = PathBuf::from(repo_path);
 
     let mut out = String::new();
@@ -158,12 +176,30 @@ pub fn build_roadmap_packet(conn: &Connection, project_id: &str) -> anyhow::Resu
     if milestones.is_empty() {
         out.push_str("No Milestone yet: the Roadmap is empty.\n");
     }
-    let current = milestones.iter().find(|m| m.state != "done" && m.state != "dropped").map(|m| m.id.clone());
+    let current = milestones
+        .iter()
+        .find(|m| m.state != "done" && m.state != "dropped")
+        .map(|m| m.id.clone());
     for (i, m) in milestones.iter().enumerate() {
         let state = milestone_state(conn, &m.id)?;
-        let marker = if current.as_deref() == Some(m.id.as_str()) { ", Current Milestone" } else { "" };
-        writeln!(out, "\n{}. Milestone \"{}\" ({}{marker}) [milestone_id: {}]", i + 1, m.title, state_words(state.as_str()), m.id)?;
-        writeln!(out, "   Exit test: {}", non_blank(&m.exit_test).unwrap_or("not written"))?;
+        let marker = if current.as_deref() == Some(m.id.as_str()) {
+            ", Current Milestone"
+        } else {
+            ""
+        };
+        writeln!(
+            out,
+            "\n{}. Milestone \"{}\" ({}{marker}) [milestone_id: {}]",
+            i + 1,
+            m.title,
+            state_words(state.as_str()),
+            m.id
+        )?;
+        writeln!(
+            out,
+            "   Exit test: {}",
+            non_blank(&m.exit_test).unwrap_or("not written")
+        )?;
         let epics = epics_of(conn, &m.id)?;
         if epics.is_empty() {
             out.push_str("   Epics: none\n");
@@ -209,7 +245,9 @@ pub fn build_roadmap_packet(conn: &Connection, project_id: &str) -> anyhow::Resu
     if rejected.is_empty() {
         out.push_str("None.\n");
     } else {
-        out.push_str("The developer rejected these; do not propose them again without new evidence:\n");
+        out.push_str(
+            "The developer rejected these; do not propose them again without new evidence:\n",
+        );
         for line in rejected {
             writeln!(out, "- {line}")?;
         }
@@ -224,7 +262,11 @@ pub fn build_roadmap_packet(conn: &Connection, project_id: &str) -> anyhow::Resu
              call `roadmap_holds`, or propose each change with `propose_roadmap_change` and call `round_wait`.\n",
         );
     } else {
-        writeln!(out, "An earlier session filed these Proposals in Round {} and has ended:", round.number)?;
+        writeln!(
+            out,
+            "An earlier session filed these Proposals in Round {} and has ended:",
+            round.number
+        )?;
         for p in &filed {
             let state = match (p.state.as_str(), &p.rejection_reason) {
                 ("pending", _) => "undecided".to_string(),

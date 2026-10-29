@@ -120,7 +120,9 @@ pub fn activity_trail(
         "story" => STORY_TRAIL_SQL,
         "epic" => EPIC_TRAIL_SQL,
         other => {
-            anyhow::bail!("activity_trail: parent_kind must be \"story\" or \"epic\", got {other:?}")
+            anyhow::bail!(
+                "activity_trail: parent_kind must be \"story\" or \"epic\", got {other:?}"
+            )
         }
     };
     let mut stmt = conn.prepare(sql)?;
@@ -232,7 +234,11 @@ const SINCE_LAST_LOOK_SQL: &str = "SELECT * FROM (\
 /// `None` too: the next visit then sets a fresh baseline rather than failing the board.
 pub fn last_looked_sequence(conn: &Connection, project_id: &str) -> anyhow::Result<Option<i64>> {
     let value: Option<String> = conn
-        .query_row("SELECT value FROM settings WHERE key = ?1", params![last_looked_key(project_id)], |r| r.get(0))
+        .query_row(
+            "SELECT value FROM settings WHERE key = ?1",
+            params![last_looked_key(project_id)],
+            |r| r.get(0),
+        )
         .optional()
         .context("failed to read the last-looked cursor")?;
     Ok(value.and_then(|v| v.parse().ok()))
@@ -241,23 +247,43 @@ pub fn last_looked_sequence(conn: &Connection, project_id: &str) -> anyhow::Resu
 /// The meaningful events since the project's last look (issue #167), read only: the cursor stays
 /// where it is (`domain::settings::board_visit` moves it). A project never looked at has no last
 /// look, so nothing is listed.
-pub fn events_since_last_look(conn: &Connection, project_id: &str, limit: i64) -> anyhow::Result<SinceLastLooked> {
+pub fn events_since_last_look(
+    conn: &Connection,
+    project_id: &str,
+    limit: i64,
+) -> anyhow::Result<SinceLastLooked> {
     let Some(after) = last_looked_sequence(conn, project_id)? else {
-        return Ok(SinceLastLooked { total: 0, events: Vec::new() });
+        return Ok(SinceLastLooked {
+            total: 0,
+            events: Vec::new(),
+        });
     };
     events_after(conn, project_id, after, limit)
 }
 
 /// The meaningful events after `after`, as [`events_since_last_look`] lists them.
-pub(crate) fn events_after(conn: &Connection, project_id: &str, after: i64, limit: i64) -> anyhow::Result<SinceLastLooked> {
+pub(crate) fn events_after(
+    conn: &Connection,
+    project_id: &str,
+    after: i64,
+    limit: i64,
+) -> anyhow::Result<SinceLastLooked> {
     let types = serde_json::to_string(MEANINGFUL_EVENT_TYPES)?;
     let total: i64 = conn
-        .query_row(SINCE_LAST_LOOK_COUNT_SQL, params![project_id, after, types], |r| r.get(0))
+        .query_row(
+            SINCE_LAST_LOOK_COUNT_SQL,
+            params![project_id, after, types],
+            |r| r.get(0),
+        )
         .context("failed to count events since the last look")?;
     let mut stmt = conn.prepare(SINCE_LAST_LOOK_SQL)?;
     let events = stmt
         .query_map(params![project_id, after, types, limit], |row| {
-            Ok(LookedEvent { event: row_to_event(row)?, subject_key: row.get(12)?, subject_title: row.get(13)? })
+            Ok(LookedEvent {
+                event: row_to_event(row)?,
+                subject_key: row.get(12)?,
+                subject_title: row.get(13)?,
+            })
         })?
         .collect::<Result<Vec<_>, _>>()
         .context("failed to query events since the last look")?;

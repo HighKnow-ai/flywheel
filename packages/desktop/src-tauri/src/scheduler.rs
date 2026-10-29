@@ -39,7 +39,11 @@ fn emit_git_facts_changed(app: &AppHandle, projects: HashSet<Option<String>>) {
     if projects.is_empty() {
         return;
     }
-    let scope = if projects.len() == 1 { projects.into_iter().next().flatten() } else { None };
+    let scope = if projects.len() == 1 {
+        projects.into_iter().next().flatten()
+    } else {
+        None
+    };
     crate::commands::emit_board_changed(app, scope.as_deref(), "git_facts", None);
 }
 
@@ -49,7 +53,11 @@ fn run_hot_tick(app: &AppHandle) {
     let Some(state) = app.try_state::<AppState>() else {
         return;
     };
-    let focused = state.focused_story.lock().ok().and_then(|focused| focused.clone());
+    let focused = state
+        .focused_story
+        .lock()
+        .ok()
+        .and_then(|focused| focused.clone());
     let story_ids = git_tick::hot_story_ids(&state.db, focused);
     let changed = git_tick::git_facts_tick(&state.db, &story_ids, digests(), "hot");
     emit_git_facts_changed(app, changed);
@@ -80,24 +88,29 @@ pub async fn start_git_truth_scheduler(app: AppHandle) -> anyhow::Result<()> {
     let sched = JobScheduler::new().await?;
 
     let hot_app = app.clone();
-    let hot_job = Job::new_repeated_async(Duration::from_secs(HOT_TICK_SECS), move |_uuid, _lock| {
-        let app = hot_app.clone();
-        Box::pin(async move { run_hot_tick(&app) })
-    })?;
+    let hot_job =
+        Job::new_repeated_async(Duration::from_secs(HOT_TICK_SECS), move |_uuid, _lock| {
+            let app = hot_app.clone();
+            Box::pin(async move { run_hot_tick(&app) })
+        })?;
     sched.add(hot_job).await?;
 
     let cold_app = app.clone();
-    let cold_job = Job::new_repeated_async(Duration::from_secs(COLD_TICK_SECS), move |_uuid, _lock| {
-        let app = cold_app.clone();
-        Box::pin(async move { run_cold_tick(&app) })
-    })?;
+    let cold_job =
+        Job::new_repeated_async(Duration::from_secs(COLD_TICK_SECS), move |_uuid, _lock| {
+            let app = cold_app.clone();
+            Box::pin(async move { run_cold_tick(&app) })
+        })?;
     sched.add(cold_job).await?;
 
     let fetch_app = app.clone();
-    let fetch_job = Job::new_repeated_async(Duration::from_secs(FETCH_INTERVAL_SECS), move |_uuid, _lock| {
-        let app = fetch_app.clone();
-        Box::pin(async move { run_fetch_tick(&app) })
-    })?;
+    let fetch_job = Job::new_repeated_async(
+        Duration::from_secs(FETCH_INTERVAL_SECS),
+        move |_uuid, _lock| {
+            let app = fetch_app.clone();
+            Box::pin(async move { run_fetch_tick(&app) })
+        },
+    )?;
     sched.add(fetch_job).await?;
 
     sched.start().await?;

@@ -37,7 +37,9 @@ fn interrupt_and_lock_indices(source: &str) -> (Option<usize>, Option<usize>, Ve
     let fn_idx = lines
         .iter()
         .position(|line| line.contains("fn session_stop_blocking("))
-        .unwrap_or_else(|| panic!("expected to find `fn session_stop_blocking` in the given source"));
+        .unwrap_or_else(|| {
+            panic!("expected to find `fn session_stop_blocking` in the given source")
+        });
 
     let window_end = (fn_idx + 30).min(lines.len());
     let window: Vec<&str> = lines[fn_idx..window_end].to_vec();
@@ -53,7 +55,11 @@ fn interrupt_and_lock_indices(source: &str) -> (Option<usize>, Option<usize>, Ve
         .find(|(_, line)| !is_whole_line_comment(line) && line.contains(".lock()"))
         .map(|(idx, _)| idx);
 
-    (interrupt_idx, lock_idx, window.iter().map(|s| s.to_string()).collect())
+    (
+        interrupt_idx,
+        lock_idx,
+        window.iter().map(|s| s.to_string()).collect(),
+    )
 }
 
 #[test]

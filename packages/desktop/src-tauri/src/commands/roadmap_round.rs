@@ -19,10 +19,10 @@ use flywheel_core::domain::roadmap_round::{describe_proposal, RoadmapRound};
 use flywheel_core::domain::session::ShapingSubject;
 use flywheel_core::domain::session_kind::SessionKind;
 
+use super::emit_board_changed;
 use super::proposal::ProposalDto;
 use super::session::{fail_launch, send_gated_spawn, spawn_request_in};
 use super::task::send_board_tool_answer;
-use super::emit_board_changed;
 use crate::state::AppState;
 
 /// The roadmap session Revisit roadmap started.
@@ -78,9 +78,16 @@ fn anchor_of(conn: &Connection, p: &flywheel_core::domain::proposal::Proposal) -
     match (p.verb.as_str(), p.target_type.as_str()) {
         ("create", "milestone") => None,
         (_, "milestone") => p.target_id.clone(),
-        ("create", "epic") => p.payload.get("milestone_id").and_then(|v| v.as_str()).map(str::to_string),
+        ("create", "epic") => p
+            .payload
+            .get("milestone_id")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
         ("retire", "epic") => p.target_id.as_deref().and_then(|id| {
-            conn.query_row("SELECT milestone_id FROM epics WHERE id = ?1", [id], |r| r.get(0)).ok()
+            conn.query_row("SELECT milestone_id FROM epics WHERE id = ?1", [id], |r| {
+                r.get(0)
+            })
+            .ok()
         }),
         _ => None,
     }
@@ -100,7 +107,11 @@ pub struct RoadmapRoundViewDto {
 
 fn round_dto(conn: &Connection, r: RoadmapRound) -> Result<RoadmapRoundDto, String> {
     let proposals_filed: i64 = conn
-        .query_row("SELECT COUNT(*) FROM proposals WHERE round_id = ?1", [&r.id], |row| row.get(0))
+        .query_row(
+            "SELECT COUNT(*) FROM proposals WHERE round_id = ?1",
+            [&r.id],
+            |row| row.get(0),
+        )
         .map_err(|e| e.to_string())?;
     let noted_triggers = flywheel_core::domain::roadmap_round::noted_triggers(conn, &r.id)
         .map_err(|e| e.to_string())?
@@ -125,7 +136,10 @@ fn round_dto(conn: &Connection, r: RoadmapRound) -> Result<RoadmapRoundDto, Stri
 
 /// Revisit roadmap (issue #133): start the roadmap Round's session.
 #[tauri::command]
-pub async fn roadmap_revisit(app: AppHandle, project_id: String) -> Result<RoadmapSessionDto, String> {
+pub async fn roadmap_revisit(
+    app: AppHandle,
+    project_id: String,
+) -> Result<RoadmapSessionDto, String> {
     // Waits on the sidecar (the spawn floor, an acknowledgement or a probe): on the blocking
     // pool, never the thread IPC dispatches on (issue #235).
     tauri::async_runtime::spawn_blocking(move || {
@@ -137,16 +151,26 @@ pub async fn roadmap_revisit(app: AppHandle, project_id: String) -> Result<Roadm
 }
 
 /// [`roadmap_revisit`]'s body, on the blocking pool.
-fn roadmap_revisit_blocking(state: &AppState, app: &AppHandle, project_id: String) -> Result<RoadmapSessionDto, String> {
-    let run_id = revisit_roadmap(&state.db, &project_id, flywheel_core::login_path::claude_bin, |repo_path, request| {
-        send_gated_spawn(state, repo_path, request)
-    })?;
+fn roadmap_revisit_blocking(
+    state: &AppState,
+    app: &AppHandle,
+    project_id: String,
+) -> Result<RoadmapSessionDto, String> {
+    let run_id = revisit_roadmap(
+        &state.db,
+        &project_id,
+        flywheel_core::login_path::claude_bin,
+        |repo_path, request| send_gated_spawn(state, repo_path, request),
+    )?;
     emit_board_changed(app, Some(&project_id), "session", Some(&run_id));
     Ok(RoadmapSessionDto {
         id: run_id,
         project_id,
         status: "running".to_string(),
-        permission_mode: SessionKind::Shaping.launch_policy().permission_mode.to_string(),
+        permission_mode: SessionKind::Shaping
+            .launch_policy()
+            .permission_mode
+            .to_string(),
     })
 }
 
@@ -162,9 +186,14 @@ pub(crate) fn revisit_roadmap(
     send: impl FnOnce(&str, &serde_json::Value) -> Result<(), String>,
 ) -> Result<String, String> {
     let mut conn = db.lock().map_err(|e| e.to_string())?;
-    let human = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    let human =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     let repo_path: String = conn
-        .query_row("SELECT repo_path FROM projects WHERE id = ?1", [project_id], |row| row.get(0))
+        .query_row(
+            "SELECT repo_path FROM projects WHERE id = ?1",
+            [project_id],
+            |row| row.get(0),
+        )
         .map_err(|_| format!("project {project_id:?} not found"))?;
     find_claude()?;
     let env = crate::sidecar::resolved_env_for_run(&conn, project_id).map_err(|e| e.to_string())?;
@@ -236,14 +265,21 @@ pub async fn epic_confirm_done(app: AppHandle, epic_id: String) -> Result<Confir
 }
 
 /// [`epic_confirm_done`]'s body, on the blocking pool.
-fn epic_confirm_done_blocking(state: &AppState, app: &AppHandle, epic_id: String) -> Result<ConfirmDoneDto, String> {
+fn epic_confirm_done_blocking(
+    state: &AppState,
+    app: &AppHandle,
+    epic_id: String,
+) -> Result<ConfirmDoneDto, String> {
     confirm_command(state, app, Confirm::Epic(&epic_id))
 }
 
 /// Confirm a Milestone's exit test (issue #134): the Milestone moves to Done and a Roadmap Round
 /// starts, with its session. Human-only.
 #[tauri::command]
-pub async fn milestone_confirm_done(app: AppHandle, milestone_id: String) -> Result<ConfirmDoneDto, String> {
+pub async fn milestone_confirm_done(
+    app: AppHandle,
+    milestone_id: String,
+) -> Result<ConfirmDoneDto, String> {
     // Waits on the sidecar (the spawn floor, an acknowledgement or a probe): on the blocking
     // pool, never the thread IPC dispatches on (issue #235).
     tauri::async_runtime::spawn_blocking(move || {
@@ -255,14 +291,25 @@ pub async fn milestone_confirm_done(app: AppHandle, milestone_id: String) -> Res
 }
 
 /// [`milestone_confirm_done`]'s body, on the blocking pool.
-fn milestone_confirm_done_blocking(state: &AppState, app: &AppHandle, milestone_id: String) -> Result<ConfirmDoneDto, String> {
+fn milestone_confirm_done_blocking(
+    state: &AppState,
+    app: &AppHandle,
+    milestone_id: String,
+) -> Result<ConfirmDoneDto, String> {
     confirm_command(state, app, Confirm::Milestone(&milestone_id))
 }
 
-fn confirm_command(state: &AppState, app: &AppHandle, which: Confirm) -> Result<ConfirmDoneDto, String> {
-    let (project_id, dto) = confirm_done(&state.db, which, flywheel_core::login_path::claude_bin, |repo_path, request| {
-        send_gated_spawn(state, repo_path, request)
-    })?;
+fn confirm_command(
+    state: &AppState,
+    app: &AppHandle,
+    which: Confirm,
+) -> Result<ConfirmDoneDto, String> {
+    let (project_id, dto) = confirm_done(
+        &state.db,
+        which,
+        flywheel_core::login_path::claude_bin,
+        |repo_path, request| send_gated_spawn(state, repo_path, request),
+    )?;
     emit_board_changed(app, Some(&project_id), "round", None);
     Ok(dto)
 }
@@ -278,10 +325,13 @@ pub(crate) fn confirm_done(
     find_claude: impl FnOnce() -> Result<std::path::PathBuf, String>,
     send: impl FnOnce(&str, &serde_json::Value) -> Result<(), String>,
 ) -> Result<(String, ConfirmDoneDto), String> {
-    use flywheel_core::domain::confirm_done::{confirm_epic_done, confirm_milestone_done, DoneTrigger};
+    use flywheel_core::domain::confirm_done::{
+        confirm_epic_done, confirm_milestone_done, DoneTrigger,
+    };
     let outcome = {
         let mut conn = db.lock().map_err(|e| e.to_string())?;
-        let human = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+        let human =
+            flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
         match which {
             Confirm::Epic(id) => confirm_epic_done(&mut conn, &human, id),
             Confirm::Milestone(id) => confirm_milestone_done(&mut conn, &human, id),
@@ -291,7 +341,12 @@ pub(crate) fn confirm_done(
     let round = outcome.round();
     let project_id = round.project_id.clone();
     let mut dto = ConfirmDoneDto {
-        outcome: if matches!(outcome, DoneTrigger::Opened(_)) { "opened" } else { "noted" }.to_string(),
+        outcome: if matches!(outcome, DoneTrigger::Opened(_)) {
+            "opened"
+        } else {
+            "noted"
+        }
+        .to_string(),
         round_number: round.number,
         session_id: None,
         session_error: None,
@@ -307,12 +362,18 @@ pub(crate) fn confirm_done(
 
 /// The open roadmap Round with its Proposals, or the latest one once none is open.
 #[tauri::command]
-pub fn roadmap_round_read(state: State<AppState>, project_id: String) -> Result<RoadmapRoundViewDto, String> {
+pub fn roadmap_round_read(
+    state: State<AppState>,
+    project_id: String,
+) -> Result<RoadmapRoundViewDto, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     read_roadmap_round(&conn, &project_id)
 }
 
-pub(crate) fn read_roadmap_round(conn: &Connection, project_id: &str) -> Result<RoadmapRoundViewDto, String> {
+pub(crate) fn read_roadmap_round(
+    conn: &Connection,
+    project_id: &str,
+) -> Result<RoadmapRoundViewDto, String> {
     use flywheel_core::domain::roadmap_round::{latest_roadmap_round, open_roadmap_round};
     let open = open_roadmap_round(conn, project_id).map_err(|e| e.to_string())?;
     let proposals = match &open {
@@ -340,15 +401,25 @@ pub(crate) fn read_roadmap_round(conn: &Connection, project_id: &str) -> Result<
 
 /// Dismiss the open roadmap Round (issue #133): it closes with no change. Human-only.
 #[tauri::command]
-pub fn roadmap_round_dismiss(state: State<AppState>, app: AppHandle, round_id: String) -> Result<(), String> {
+pub fn roadmap_round_dismiss(
+    state: State<AppState>,
+    app: AppHandle,
+    round_id: String,
+) -> Result<(), String> {
     let outcome = {
         let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-        let human = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+        let human =
+            flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
         flywheel_core::domain::roadmap_round::dismiss_roadmap_round(&mut conn, &human, &round_id)
             .map_err(|e| format!("{e:#}"))?
     };
     if let Some(release) = &outcome.release {
-        send_board_tool_answer(&app, &release.session_id, &release.request_id, &super::shaping::release_answer(release));
+        send_board_tool_answer(
+            &app,
+            &release.session_id,
+            &release.request_id,
+            &super::shaping::release_answer(release),
+        );
     }
     emit_board_changed(&app, Some(&outcome.project_id), "round", Some(&round_id));
     Ok(())
@@ -362,8 +433,11 @@ mod tests {
     fn project() -> (std::sync::Mutex<Connection>, String, tempfile::TempDir) {
         let checkout = tempfile::tempdir().unwrap();
         let dir = tempfile::tempdir().unwrap();
-        let mut conn =
-            flywheel_core::db::open_and_migrate(&dir.path().join("flywheel.db"), &dir.path().join("backups")).unwrap();
+        let mut conn = flywheel_core::db::open_and_migrate(
+            &dir.path().join("flywheel.db"),
+            &dir.path().join("backups"),
+        )
+        .unwrap();
         std::mem::forget(dir);
         let human = flywheel_core::domain::actor::local_human_actor_id(&conn).unwrap();
         let project = flywheel_core::domain::project::create_project(
@@ -375,7 +449,14 @@ mod tests {
             "main",
         )
         .unwrap();
-        flywheel_core::domain::milestone::create_milestone(&mut conn, &project.id, &human, "Shaping", Some("It shapes")).unwrap();
+        flywheel_core::domain::milestone::create_milestone(
+            &mut conn,
+            &project.id,
+            &human,
+            "Shaping",
+            Some("It shapes"),
+        )
+        .unwrap();
         (std::sync::Mutex::new(conn), project.id, checkout)
     }
 
@@ -411,15 +492,29 @@ mod tests {
             assert_eq!(request["permissionMode"], "dontAsk");
             assert_eq!(request["runId"], serde_json::json!(run_id));
             let prompt = request["prompt"].as_str().unwrap();
-            assert!(prompt.starts_with("# Roadmap packet: Threadfin"), "{prompt}");
-            let allowed: Vec<String> = serde_json::from_value(request["allowedTools"].clone()).unwrap();
+            assert!(
+                prompt.starts_with("# Roadmap packet: Threadfin"),
+                "{prompt}"
+            );
+            let allowed: Vec<String> =
+                serde_json::from_value(request["allowedTools"].clone()).unwrap();
             for tool in ["propose_roadmap_change", "roadmap_holds", "round_wait"] {
-                assert!(allowed.contains(&format!("mcp__flywheel-board__{tool}")), "{allowed:?}");
+                assert!(
+                    allowed.contains(&format!("mcp__flywheel-board__{tool}")),
+                    "{allowed:?}"
+                );
             }
 
             let view = read_roadmap_round(&db.lock().unwrap(), &project_id).unwrap();
             let open = view.open.expect("the Round is open");
-            assert_eq!((open.number, open.trigger_type.as_str(), open.trigger_label.as_str()), (1, "revisit", "Revisit roadmap"));
+            assert_eq!(
+                (
+                    open.number,
+                    open.trigger_type.as_str(),
+                    open.trigger_label.as_str()
+                ),
+                (1, "revisit", "Revisit roadmap")
+            );
             assert!(open.session_live);
             assert!(!open.waiting_on_you, "the agent is working, not waiting");
             assert!(view.last.is_none());
@@ -431,10 +526,17 @@ mod tests {
         use flywheel_core::domain::{epic, story};
         let mut conn = db.lock().unwrap();
         let human = flywheel_core::domain::actor::local_human_actor_id(&conn).unwrap();
-        let m = flywheel_core::domain::milestone::roadmap(&conn, project_id).unwrap().remove(0);
+        let m = flywheel_core::domain::milestone::roadmap(&conn, project_id)
+            .unwrap()
+            .remove(0);
         let e = epic::create_epic(&mut conn, &human, &m.id, title).unwrap();
         let s = story::create_story(&mut conn, &human, &e.id, "Only story").unwrap();
-        for to in [story::StoryState::Ready, story::StoryState::Running, story::StoryState::InReview, story::StoryState::Merged] {
+        for to in [
+            story::StoryState::Ready,
+            story::StoryState::Running,
+            story::StoryState::InReview,
+            story::StoryState::Merged,
+        ] {
             story::set_story_state(&mut conn, &human, &s.id, to).unwrap();
         }
         epic::set_epic_state(&mut conn, &human, &e.id, epic::EpicState::Ready).unwrap();
@@ -448,18 +550,42 @@ mod tests {
             let first = closed_epic(&db, &project_id, "Rounds");
             let second = closed_epic(&db, &project_id, "Roadmap");
             let mut sent = None;
-            let (pid, dto) = confirm_done(&db, Confirm::Epic(&first), found_claude, |_, request| {
-                sent = Some(request.clone());
-                Ok(())
+            let (pid, dto) =
+                confirm_done(&db, Confirm::Epic(&first), found_claude, |_, request| {
+                    sent = Some(request.clone());
+                    Ok(())
+                })
+                .unwrap();
+            assert_eq!(pid, project_id);
+            assert_eq!(
+                (
+                    dto.outcome.as_str(),
+                    dto.round_number,
+                    dto.session_error.as_deref()
+                ),
+                ("opened", 1, None)
+            );
+            let prompt = sent.expect("the Round's session starts")["prompt"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            assert!(
+                prompt.contains("This Round is short, and on one Milestone: \"Shaping\""),
+                "{prompt}"
+            );
+
+            let (_, dto) = confirm_done(&db, Confirm::Epic(&second), found_claude, |_, _| {
+                panic!("no second session")
             })
             .unwrap();
-            assert_eq!(pid, project_id);
-            assert_eq!((dto.outcome.as_str(), dto.round_number, dto.session_error.as_deref()), ("opened", 1, None));
-            let prompt = sent.expect("the Round's session starts")["prompt"].as_str().unwrap().to_string();
-            assert!(prompt.contains("This Round is short, and on one Milestone: \"Shaping\""), "{prompt}");
-
-            let (_, dto) = confirm_done(&db, Confirm::Epic(&second), found_claude, |_, _| panic!("no second session")).unwrap();
-            assert_eq!((dto.outcome.as_str(), dto.round_number, dto.session_id.as_deref()), ("noted", 1, None));
+            assert_eq!(
+                (
+                    dto.outcome.as_str(),
+                    dto.round_number,
+                    dto.session_id.as_deref()
+                ),
+                ("noted", 1, None)
+            );
             let view = read_roadmap_round(&db.lock().unwrap(), &project_id).unwrap();
             assert_eq!(view.open.unwrap().noted_triggers, ["Epic FLY-3 done"]);
         });
@@ -470,7 +596,13 @@ mod tests {
         with_scratch(|| {
             let (db, project_id, _checkout) = project();
             let epic = closed_epic(&db, &project_id, "Rounds");
-            let (_, dto) = confirm_done(&db, Confirm::Epic(&epic), || Err("claude is not on PATH".to_string()), |_, _| Ok(())).unwrap();
+            let (_, dto) = confirm_done(
+                &db,
+                Confirm::Epic(&epic),
+                || Err("claude is not on PATH".to_string()),
+                |_, _| Ok(()),
+            )
+            .unwrap();
             assert_eq!(dto.outcome, "opened");
             assert_eq!(dto.session_error.as_deref(), Some("claude is not on PATH"));
             let view = read_roadmap_round(&db.lock().unwrap(), &project_id).unwrap();
@@ -516,13 +648,19 @@ mod tests {
             let outcome = {
                 let mut conn = db.lock().unwrap();
                 let human = flywheel_core::domain::actor::local_human_actor_id(&conn).unwrap();
-                flywheel_core::domain::roadmap_round::dismiss_roadmap_round(&mut conn, &human, &round_id).unwrap()
+                flywheel_core::domain::roadmap_round::dismiss_roadmap_round(
+                    &mut conn, &human, &round_id,
+                )
+                .unwrap()
             };
             assert_eq!(outcome.release.unwrap().request_id, "req-2");
             let view = read_roadmap_round(&db.lock().unwrap(), &project_id).unwrap();
             assert!(view.open.is_none());
             let last = view.last.expect("the dismissed Round is the last one");
-            assert_eq!((last.state.as_str(), last.proposals_filed), ("dismissed", 1));
+            assert_eq!(
+                (last.state.as_str(), last.proposals_filed),
+                ("dismissed", 1)
+            );
         });
     }
 }

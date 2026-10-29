@@ -68,7 +68,10 @@ pub const EVENT_OUTSIDE_COMMIT: &str = "story.outside_commit_detected";
 
 /// Read every session window for `story_id` once (D-129's coverage predicate), as
 /// `(started_at, ended_at)` RFC3339-string pairs.
-fn session_windows(conn: &Connection, story_id: &str) -> anyhow::Result<Vec<(String, Option<String>)>> {
+fn session_windows(
+    conn: &Connection,
+    story_id: &str,
+) -> anyhow::Result<Vec<(String, Option<String>)>> {
     let mut stmt = conn.prepare(SESSION_COVERAGE_SQL)?;
     let rows = stmt
         .query_map(params![story_id], |row| Ok((row.get(0)?, row.get(1)?)))?
@@ -201,12 +204,21 @@ pub fn read_git_facts(plan: &GitFactsPlan) -> anyhow::Result<GitFacts> {
     let branch = plan.branch.clone();
 
     let target_resolves = git::rev_parse_verify(worktree_path, target_ref)?;
-    let commit_range =
-        if target_resolves { format!("{target_ref}..HEAD") } else { "HEAD".to_string() };
+    let commit_range = if target_resolves {
+        format!("{target_ref}..HEAD")
+    } else {
+        "HEAD".to_string()
+    };
     let max_count = (COMMIT_WINDOW + 1).to_string();
     let log_output = git::git_at(
         worktree_path,
-        &["log", "--max-count", &max_count, "--format=%H%x1f%h%x1f%s%x1f%cI", &commit_range],
+        &[
+            "log",
+            "--max-count",
+            &max_count,
+            "--format=%H%x1f%h%x1f%s%x1f%cI",
+            &commit_range,
+        ],
     )?;
     let log_text = String::from_utf8_lossy(&log_output.stdout).into_owned();
     let mut commits: Vec<CommitRow> = log_text
@@ -225,7 +237,8 @@ pub fn read_git_facts(plan: &GitFactsPlan) -> anyhow::Result<GitFacts> {
         .collect();
 
     for commit in &mut commits {
-        commit.made_outside_flywheel = !is_covered_by_session(&commit.committed_at, &plan.session_windows);
+        commit.made_outside_flywheel =
+            !is_covered_by_session(&commit.committed_at, &plan.session_windows);
     }
 
     let commits_truncated = commits.len().saturating_sub(COMMIT_WINDOW);
@@ -256,7 +269,10 @@ pub fn read_git_facts(plan: &GitFactsPlan) -> anyhow::Result<GitFacts> {
 /// set. When `hot_only` is true, restricts to rows whose Story has a session in status `running`
 /// or `blocked` — D-114's "live agent session" half of the hot tier; the "focused Story" half is
 /// supplied by the caller (`AppState.focused_story`).
-pub fn tracked_worktrees(conn: &Connection, hot_only: bool) -> anyhow::Result<Vec<TrackedWorktree>> {
+pub fn tracked_worktrees(
+    conn: &Connection,
+    hot_only: bool,
+) -> anyhow::Result<Vec<TrackedWorktree>> {
     let sql = if hot_only {
         "SELECT w.story_id, w.project_id, w.path, w.branch \
          FROM worktrees w \
@@ -296,7 +312,11 @@ pub fn tracked_worktrees(conn: &Connection, hot_only: bool) -> anyhow::Result<Ve
 /// and calls no state writer (`set_story_state` or otherwise) — D-115's two rejected
 /// alternatives (a persistent board-card indicator, an acknowledgement requirement) are not
 /// reachable from here, because there is no second write path for them to attach to.
-pub fn record_outside_commits(conn: &mut Connection, story_id: &str, actor_id: &str) -> anyhow::Result<usize> {
+pub fn record_outside_commits(
+    conn: &mut Connection,
+    story_id: &str,
+    actor_id: &str,
+) -> anyhow::Result<usize> {
     let Some(facts) = git_facts_for_story(conn, story_id)? else {
         return Ok(0);
     };
@@ -334,7 +354,8 @@ pub fn record_outside_commits_in(
             .context("failed to check for an existing outside-commit event")?;
 
         if already_noticed.is_some() {
-            tx.commit().context("failed to commit no-op record_outside_commits transaction")?;
+            tx.commit()
+                .context("failed to commit no-op record_outside_commits transaction")?;
             continue;
         }
 
@@ -364,10 +385,10 @@ pub fn record_outside_commits_in(
             &commit.committed_at,
         )?;
 
-        tx.commit().context("failed to commit record_outside_commits transaction")?;
+        tx.commit()
+            .context("failed to commit record_outside_commits transaction")?;
         appended += 1;
     }
 
     Ok(appended)
 }
-

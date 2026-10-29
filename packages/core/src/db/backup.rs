@@ -17,10 +17,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// Returns `Ok(None)` when `db_path` does not exist yet (a brand-new database has nothing to
 /// back up, and no `backups_dir` is created in that case). Otherwise returns the path of the
 /// newly written backup file.
-pub fn backup_database_file(
-    db_path: &Path,
-    backups_dir: &Path,
-) -> anyhow::Result<Option<PathBuf>> {
+pub fn backup_database_file(db_path: &Path, backups_dir: &Path) -> anyhow::Result<Option<PathBuf>> {
     if !db_path.exists() {
         return Ok(None);
     }
@@ -36,8 +33,7 @@ pub fn backup_database_file(
         .unwrap_or_default()
         .as_millis();
 
-    let backup_path =
-        backups_dir.join(format!("pre-migration-{user_version}-{unix_millis}.db"));
+    let backup_path = backups_dir.join(format!("pre-migration-{user_version}-{unix_millis}.db"));
 
     fs::copy(db_path, &backup_path).with_context(|| {
         format!("failed to copy {db_path:?} to {backup_path:?} before migrating")

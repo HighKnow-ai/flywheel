@@ -88,7 +88,9 @@ pub fn resolved_env_for_run(
             rusqlite::params![project_id],
             |row| row.get(0),
         )
-        .context("failed to resolve the project's default_branch for a spawned session's environment")?;
+        .context(
+            "failed to resolve the project's default_branch for a spawned session's environment",
+        )?;
     env.insert("FLYWHEEL_DEFAULT_BRANCH".to_string(), default_branch);
 
     // D-47/D-50 (plan 03-02): the seam the watchdog wrapper (`packages/sidecar/src/watchdog.ts`)
@@ -428,7 +430,11 @@ impl SidecarHandle {
     /// Relay the developer's answers to an agent's question (issue #100) to its held call: an
     /// `allow` carrying `answers`, which the permission-prompt tool turns into the questions plus
     /// answers Claude Code reads. Same lookup and no-op contract as [`Self::relay_permission_answer`].
-    pub fn relay_question_answer(&self, db_request_id: &str, answers: &serde_json::Value) -> anyhow::Result<()> {
+    pub fn relay_question_answer(
+        &self,
+        db_request_id: &str,
+        answers: &serde_json::Value,
+    ) -> anyhow::Result<()> {
         let entry = {
             let mut map = self
                 .pending_permission_requests
@@ -699,7 +705,12 @@ fn handle_inbound_git_lock_exhausted(app: &AppHandle, event: &serde_json::Value)
 
     match result {
         Ok(()) => {
-            crate::commands::emit_board_changed(app, project_id.as_deref(), "session", Some(run_id));
+            crate::commands::emit_board_changed(
+                app,
+                project_id.as_deref(),
+                "session",
+                Some(run_id),
+            );
         }
         Err(err) => {
             eprintln!("failed to record a git lock exhaustion for run {run_id}: {err:#}");
@@ -847,7 +858,6 @@ mod persist_tests {
             );
         }
     }
-
 }
 
 /// [`push_bounded_stderr_tail`]'s own behavior cases (plan 03-15, T-03-15-04): a `String::truncate`
@@ -859,20 +869,29 @@ mod stderr_tail_tests {
     use super::*;
 
     #[test]
-    fn stderr_tail_appending_bytes_whose_decoded_form_crosses_the_cap_keeps_at_most_the_cap_and_never_panics()
-    {
+    fn stderr_tail_appending_bytes_whose_decoded_form_crosses_the_cap_keeps_at_most_the_cap_and_never_panics(
+    ) {
         let mut tail = String::new();
         push_bounded_stderr_tail(&mut tail, b"0123456789ABCDEF", 10);
-        assert!(tail.len() <= 10, "tail must never exceed the cap, got {} bytes", tail.len());
+        assert!(
+            tail.len() <= 10,
+            "tail must never exceed the cap, got {} bytes",
+            tail.len()
+        );
     }
 
     #[test]
-    fn stderr_tail_multi_byte_characters_overrunning_the_cap_stay_valid_utf8_with_no_partial_char() {
+    fn stderr_tail_multi_byte_characters_overrunning_the_cap_stay_valid_utf8_with_no_partial_char()
+    {
         let mut tail = String::new();
         // "é" is 2 bytes in UTF-8 — ten of them (20 bytes) comfortably overrun a 10-byte cap.
         let multi_byte_line: String = std::iter::repeat_n('é', 10).collect();
         push_bounded_stderr_tail(&mut tail, multi_byte_line.as_bytes(), 10);
-        assert!(tail.len() <= 10, "tail must never exceed the cap, got {} bytes", tail.len());
+        assert!(
+            tail.len() <= 10,
+            "tail must never exceed the cap, got {} bytes",
+            tail.len()
+        );
         // `tail` is a `String` — if the cut had landed mid-character, this line is unreachable:
         // `push_bounded_stderr_tail` would have already panicked before returning.
         assert!(std::str::from_utf8(tail.as_bytes()).is_ok());
@@ -886,7 +905,11 @@ mod stderr_tail_tests {
         // total, straddling a 4-byte cap right through the middle of a replacement character.
         let invalid_utf8: [u8; 3] = [0x80, 0x80, 0x80];
         push_bounded_stderr_tail(&mut tail, &invalid_utf8, 4);
-        assert!(tail.len() <= 4, "tail must never exceed the cap, got {} bytes", tail.len());
+        assert!(
+            tail.len() <= 4,
+            "tail must never exceed the cap, got {} bytes",
+            tail.len()
+        );
     }
 
     #[test]
@@ -901,7 +924,10 @@ mod stderr_tail_tests {
         let mut tail = "a".repeat(10);
         let before = tail.clone();
         push_bounded_stderr_tail(&mut tail, b"more text that should never be appended", 10);
-        assert_eq!(tail, before, "once the tail has reached the cap, further appends must be no-ops");
+        assert_eq!(
+            tail, before,
+            "once the tail has reached the cap, further appends must be no-ops"
+        );
     }
 }
 
@@ -1245,4 +1271,3 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
 
     Ok(handle)
 }
-

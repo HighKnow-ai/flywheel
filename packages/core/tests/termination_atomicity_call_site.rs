@@ -42,9 +42,10 @@ fn is_whole_line_comment(line: &str) -> bool {
 /// unindented). Resilient to unrelated edits elsewhere in the file, unlike a fixed line-count
 /// window.
 fn function_region<'a>(lines: &'a [&'a str], signature_substr: &str) -> &'a [&'a str] {
-    let start_idx = lines.iter().position(|line| line.contains(signature_substr)).unwrap_or_else(|| {
-        panic!("expected to find `{signature_substr}` in the given source")
-    });
+    let start_idx = lines
+        .iter()
+        .position(|line| line.contains(signature_substr))
+        .unwrap_or_else(|| panic!("expected to find `{signature_substr}` in the given source"));
     let end_idx = lines[start_idx..]
         .iter()
         .position(|line| line.trim_end() == "}")
@@ -67,13 +68,20 @@ fn calls_connection_level_interrupt(region: &[&str]) -> bool {
 /// Property 2: within `region` (expected to be `stop_session_recording_first`'s own body), count
 /// non-comment lines that open a transaction on the connection (`conn.transaction()`).
 fn connection_transaction_open_count(region: &[&str]) -> usize {
-    region.iter().filter(|line| !is_whole_line_comment(line)).filter(|line| line.contains("conn.transaction()")).count()
+    region
+        .iter()
+        .filter(|line| !is_whole_line_comment(line))
+        .filter(|line| line.contains("conn.transaction()"))
+        .count()
 }
 
 /// Property 3: within `region` (expected to be `interrupt_session`'s own body), does a
 /// non-comment line reference the in-tx sibling?
 fn references_in_tx_sibling(region: &[&str]) -> bool {
-    region.iter().filter(|line| !is_whole_line_comment(line)).any(|line| line.contains("interrupt_session_in_tx"))
+    region
+        .iter()
+        .filter(|line| !is_whole_line_comment(line))
+        .any(|line| line.contains("interrupt_session_in_tx"))
 }
 
 #[test]
@@ -167,7 +175,9 @@ pub(crate) fn stop_session_in_tx(tx: &Transaction, session_id: &str, actor_id: &
     Ok(String::new())
 }
 ";
-    assert!(!calls_connection_level_interrupt(&correct.lines().collect::<Vec<_>>()));
+    assert!(!calls_connection_level_interrupt(
+        &correct.lines().collect::<Vec<_>>()
+    ));
 
     let reverted = "\
 pub(crate) fn stop_session_recording_first(

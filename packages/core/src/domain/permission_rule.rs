@@ -15,7 +15,9 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use crate::domain::event::{append_event, next_sequence};
 use crate::ids::new_id;
-use crate::permission_pattern::{call_is_gated, covers_gated_action, format_rule, matches, parse_pattern};
+use crate::permission_pattern::{
+    call_is_gated, covers_gated_action, format_rule, matches, parse_pattern,
+};
 
 pub use crate::permission_pattern::WHOLE_TOOL;
 
@@ -68,9 +70,13 @@ const RULES_FOR_PROJECT_SQL: &str = "SELECT id, project_id, tool, pattern, creat
     FROM permission_rules WHERE project_id = ?1 ORDER BY created_at ASC, id ASC";
 
 fn default_branch(conn: &Connection, project_id: &str) -> anyhow::Result<Option<String>> {
-    conn.query_row("SELECT default_branch FROM projects WHERE id = ?1", params![project_id], |row| row.get(0))
-        .optional()
-        .context("failed to read the project's default branch")
+    conn.query_row(
+        "SELECT default_branch FROM projects WHERE id = ?1",
+        params![project_id],
+        |row| row.get(0),
+    )
+    .optional()
+    .context("failed to read the project's default branch")
 }
 
 /// The first rule of `project_id` allowing a call of `tool` with `input`, if one exists. The
@@ -100,11 +106,19 @@ pub fn matching_rule(
 /// Refuse a rule Flywheel would not store: an unreadable pattern, or one that could match a Gated
 /// action ([`GatedRuleRefused`]). [`upsert_rule`] calls this first; a caller can call it before
 /// any other write so a refused rule changes nothing.
-pub fn check_rule(conn: &Connection, project_id: &str, tool: &str, pattern: &str) -> anyhow::Result<()> {
+pub fn check_rule(
+    conn: &Connection,
+    project_id: &str,
+    tool: &str,
+    pattern: &str,
+) -> anyhow::Result<()> {
     parse_pattern(tool, pattern)?;
     let branch = default_branch(conn, project_id)?;
     if covers_gated_action(tool, pattern.trim(), branch.as_deref()) {
-        return Err(GatedRuleRefused { rule: format_rule(tool, pattern.trim()) }.into());
+        return Err(GatedRuleRefused {
+            rule: format_rule(tool, pattern.trim()),
+        }
+        .into());
     }
     Ok(())
 }
@@ -124,7 +138,11 @@ pub fn upsert_rule(
     let tx = conn.transaction()?;
 
     if let Some(existing) = tx
-        .query_row(EXISTING_RULE_SQL, params![project_id, tool, pattern], row_to_rule)
+        .query_row(
+            EXISTING_RULE_SQL,
+            params![project_id, tool, pattern],
+            row_to_rule,
+        )
         .optional()
         .context("failed to look up an existing permission rule")?
     {
@@ -140,7 +158,10 @@ pub fn upsert_rule(
     )
     .context("failed to insert permission rule")?;
 
-    let label = format!("Allowed {} for this project from now on", format_rule(tool, pattern));
+    let label = format!(
+        "Allowed {} for this project from now on",
+        format_rule(tool, pattern)
+    );
     let sequence = next_sequence(&tx, project_id, "local")?;
     let payload = serde_json::json!({
         "field": "permission_rule",
@@ -164,7 +185,8 @@ pub fn upsert_rule(
         &payload,
         &now,
     )?;
-    tx.commit().context("failed to commit upsert_rule transaction")?;
+    tx.commit()
+        .context("failed to commit upsert_rule transaction")?;
 
     Ok(PermissionRule {
         id,
@@ -191,12 +213,16 @@ pub fn revoke_rule(conn: &mut Connection, rule_id: &str, actor_id: &str) -> anyh
         .context("failed to read permission rule before revoke")?;
 
     let Some((project_id, tool, pattern)) = existing else {
-        tx.commit().context("failed to commit no-op revoke_rule transaction")?;
+        tx.commit()
+            .context("failed to commit no-op revoke_rule transaction")?;
         return Ok(());
     };
 
-    tx.execute("DELETE FROM permission_rules WHERE id = ?1", params![rule_id])
-        .context("failed to delete permission rule")?;
+    tx.execute(
+        "DELETE FROM permission_rules WHERE id = ?1",
+        params![rule_id],
+    )
+    .context("failed to delete permission rule")?;
 
     let sequence = next_sequence(&tx, &project_id, "local")?;
     let payload = serde_json::json!({
@@ -221,13 +247,19 @@ pub fn revoke_rule(conn: &mut Connection, rule_id: &str, actor_id: &str) -> anyh
         &now,
     )?;
 
-    tx.commit().context("failed to commit revoke_rule transaction")?;
+    tx.commit()
+        .context("failed to commit revoke_rule transaction")?;
     Ok(())
 }
 
 /// Every rule of `project_id`, oldest first.
-pub fn rules_for_project(conn: &Connection, project_id: &str) -> anyhow::Result<Vec<PermissionRule>> {
+pub fn rules_for_project(
+    conn: &Connection,
+    project_id: &str,
+) -> anyhow::Result<Vec<PermissionRule>> {
     let mut stmt = conn.prepare(RULES_FOR_PROJECT_SQL)?;
-    let rows = stmt.query_map(params![project_id], row_to_rule)?.collect::<Result<Vec<_>, _>>();
+    let rows = stmt
+        .query_map(params![project_id], row_to_rule)?
+        .collect::<Result<Vec<_>, _>>();
     rows.context("failed to list permission rules for project")
 }

@@ -26,11 +26,11 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use crate::domain::acceptance_criterion::criteria_for_story;
 use crate::domain::actor::assert_human_actor_in_tx;
 use crate::domain::epic::{set_epic_state_in_tx, EpicState};
-use crate::domain::proposal::count_undecided_proposals_in_stage;
 use crate::domain::milestone::{set_milestone_state_in_tx, MilestoneState};
+use crate::domain::proposal::count_undecided_proposals_in_stage;
 use crate::domain::proposal_apply::{NewCriterion, NewStory, SpecChange};
-use crate::domain::story::{get_story, set_story_state_in_tx, stories_in_epic, StoryState};
 use crate::domain::session::{interrupt_session_in_tx, live_shaping_session, ShapingSubject};
+use crate::domain::story::{get_story, set_story_state_in_tx, stories_in_epic, StoryState};
 use crate::domain::{now, record_event, EventScope};
 use crate::ids::new_id;
 
@@ -50,7 +50,11 @@ pub enum StageKind {
 
 impl StageKind {
     /// An Epic's Stages, in order.
-    pub const EPIC: [StageKind; 3] = [StageKind::ChallengeSpec, StageKind::Slice, StageKind::Criteria];
+    pub const EPIC: [StageKind; 3] = [
+        StageKind::ChallengeSpec,
+        StageKind::Slice,
+        StageKind::Criteria,
+    ];
 
     /// The `stages.kind` value.
     pub fn as_str(self) -> &'static str {
@@ -64,10 +68,15 @@ impl StageKind {
 
     /// The kind a `stages.kind` value names.
     pub fn parse(value: &str) -> anyhow::Result<StageKind> {
-        [StageKind::ChallengeSpec, StageKind::Slice, StageKind::Criteria, StageKind::ExitTest]
-            .into_iter()
-            .find(|kind| kind.as_str() == value)
-            .with_context(|| format!("{value:?} is not a Stage kind"))
+        [
+            StageKind::ChallengeSpec,
+            StageKind::Slice,
+            StageKind::Criteria,
+            StageKind::ExitTest,
+        ]
+        .into_iter()
+        .find(|kind| kind.as_str() == value)
+        .with_context(|| format!("{value:?} is not a Stage kind"))
     }
 
     /// The Stage's name as the developer reads it.
@@ -152,7 +161,8 @@ pub struct Stage {
     pub closed_at: Option<String>,
 }
 
-const STAGE_COLUMNS: &str = "id, project_id, epic_id, milestone_id, kind, state, rank, opened_at, closed_at";
+const STAGE_COLUMNS: &str =
+    "id, project_id, epic_id, milestone_id, kind, state, rank, opened_at, closed_at";
 
 fn stage_from_row(row: &rusqlite::Row) -> rusqlite::Result<Stage> {
     let kind: String = row.get(4)?;
@@ -161,8 +171,9 @@ fn stage_from_row(row: &rusqlite::Row) -> rusqlite::Result<Stage> {
         project_id: row.get(1)?,
         epic_id: row.get(2)?,
         milestone_id: row.get(3)?,
-        kind: StageKind::parse(&kind)
-            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(4, rusqlite::types::Type::Text, e.into()))?,
+        kind: StageKind::parse(&kind).map_err(|e| {
+            rusqlite::Error::FromSqlConversionFailure(4, rusqlite::types::Type::Text, e.into())
+        })?,
         state: row.get(5)?,
         rank: row.get(6)?,
         opened_at: row.get(7)?,
@@ -173,35 +184,55 @@ fn stage_from_row(row: &rusqlite::Row) -> rusqlite::Result<Stage> {
 /// The subject's open Stage, or `None`.
 pub fn open_stage(conn: &Connection, subject: &ShapingSubject) -> anyhow::Result<Option<Stage>> {
     let (sql, id) = match subject {
-        ShapingSubject::Epic(id) => (format!("SELECT {STAGE_COLUMNS} FROM stages WHERE epic_id = ?1 AND state = 'open'"), id),
-        ShapingSubject::Milestone(id) => {
-            (format!("SELECT {STAGE_COLUMNS} FROM stages WHERE milestone_id = ?1 AND state = 'open'"), id)
-        }
+        ShapingSubject::Epic(id) => (
+            format!("SELECT {STAGE_COLUMNS} FROM stages WHERE epic_id = ?1 AND state = 'open'"),
+            id,
+        ),
+        ShapingSubject::Milestone(id) => (
+            format!(
+                "SELECT {STAGE_COLUMNS} FROM stages WHERE milestone_id = ?1 AND state = 'open'"
+            ),
+            id,
+        ),
         // Issue #133: the Roadmap is shaped in roadmap Rounds, which have no Stage.
         ShapingSubject::Roadmap(_) => return Ok(None),
     };
-    conn.query_row(&sql, params![id], stage_from_row).optional().context("failed to read the open Stage")
+    conn.query_row(&sql, params![id], stage_from_row)
+        .optional()
+        .context("failed to read the open Stage")
 }
 
 /// Every Stage of an Epic, in order.
 pub fn stages_for_epic(conn: &Connection, epic_id: &str) -> anyhow::Result<Vec<Stage>> {
-    let mut stmt = conn.prepare(&format!("SELECT {STAGE_COLUMNS} FROM stages WHERE epic_id = ?1 ORDER BY rank, id"))?;
-    let rows = stmt.query_map(params![epic_id], stage_from_row)?.collect::<Result<Vec<_>, _>>();
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {STAGE_COLUMNS} FROM stages WHERE epic_id = ?1 ORDER BY rank, id"
+    ))?;
+    let rows = stmt
+        .query_map(params![epic_id], stage_from_row)?
+        .collect::<Result<Vec<_>, _>>();
     rows.context("failed to read the Epic's Stages")
 }
 
 /// Every Stage of a Milestone, in order: at most its one Exit test (issue #132).
 pub fn stages_for_milestone(conn: &Connection, milestone_id: &str) -> anyhow::Result<Vec<Stage>> {
-    let mut stmt = conn.prepare(&format!("SELECT {STAGE_COLUMNS} FROM stages WHERE milestone_id = ?1 ORDER BY rank, id"))?;
-    let rows = stmt.query_map(params![milestone_id], stage_from_row)?.collect::<Result<Vec<_>, _>>();
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {STAGE_COLUMNS} FROM stages WHERE milestone_id = ?1 ORDER BY rank, id"
+    ))?;
+    let rows = stmt
+        .query_map(params![milestone_id], stage_from_row)?
+        .collect::<Result<Vec<_>, _>>();
     rows.context("failed to read the Milestone's Stages")
 }
 
 /// One `stages` row, or `None`.
 pub fn get_stage(conn: &Connection, stage_id: &str) -> anyhow::Result<Option<Stage>> {
-    conn.query_row(&format!("SELECT {STAGE_COLUMNS} FROM stages WHERE id = ?1"), params![stage_id], stage_from_row)
-        .optional()
-        .context("failed to read the Stage")
+    conn.query_row(
+        &format!("SELECT {STAGE_COLUMNS} FROM stages WHERE id = ?1"),
+        params![stage_id],
+        stage_from_row,
+    )
+    .optional()
+    .context("failed to read the Stage")
 }
 
 /// One thing still open in a Stage, which keeps it from closing.
@@ -209,13 +240,26 @@ pub fn get_stage(conn: &Connection, stage_id: &str) -> anyhow::Result<Option<Sta
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum OpenItem {
     /// A question of the Stage's open Round, not answered yet.
-    Question { question_id: String, round_id: String, round: i64, number: i64, title: String },
+    Question {
+        question_id: String,
+        round_id: String,
+        round: i64,
+        number: i64,
+        title: String,
+    },
     /// A Proposal filed in the Stage, still pending.
-    Proposal { proposal_id: String, summary: String },
+    Proposal {
+        proposal_id: String,
+        summary: String,
+    },
     /// Issue #128, the Criteria Stage only: a Story of the Epic still in Shaping with no Acceptance
     /// criterion yet. Closing would make it Ready with nothing to judge it by. A Dropped Story does
     /// not count.
-    StoryWithoutCriterion { story_id: String, key: String, title: String },
+    StoryWithoutCriterion {
+        story_id: String,
+        key: String,
+        title: String,
+    },
     /// Issue #128, the Criteria Stage only: the Epic has no Story left to make Ready, every one of
     /// them dropped or none sliced.
     NoStory,
@@ -225,11 +269,18 @@ impl OpenItem {
     /// The item as the developer reads it in the Close Stage list and in a refusal.
     pub fn label(&self) -> String {
         match self {
-            OpenItem::Question { round, number, title, .. } => {
+            OpenItem::Question {
+                round,
+                number,
+                title,
+                ..
+            } => {
                 format!("Question {number} of Round {round} is unanswered: {title}")
             }
             OpenItem::Proposal { summary, .. } => format!("A Proposal to {summary} is undecided"),
-            OpenItem::StoryWithoutCriterion { key, title, .. } => format!("{key} “{title}” has no Acceptance criterion"),
+            OpenItem::StoryWithoutCriterion { key, title, .. } => {
+                format!("{key} “{title}” has no Acceptance criterion")
+            }
             OpenItem::NoStory => "The Epic has no Story to make Ready".to_string(),
         }
     }
@@ -254,7 +305,9 @@ impl StageStatus {
     /// Whether the developer may close the Stage now: it is open, nothing in it is open, and closing
     /// it either opens a next Stage or makes the record Ready.
     pub fn closable(&self) -> bool {
-        self.stage.state == "open" && self.open_items.is_empty() && (self.next.is_some() || self.closes_the_record())
+        self.stage.state == "open"
+            && self.open_items.is_empty()
+            && (self.next.is_some() || self.closes_the_record())
     }
 
     /// Whether closing this Stage finishes shaping its record and makes it Ready: a Milestone's Exit
@@ -267,8 +320,15 @@ impl StageStatus {
 
 /// What a Proposal in a Stage would do, in words: "change the Problem", "add the Story “Feed
 /// row”", "move FLY-3 “Feed row” in the order", "retire FLY-3 “Feed row”", or its verb and target.
-fn proposal_summary(conn: &Connection, verb: &str, target_type: &str, target_id: Option<&str>, payload: &str) -> String {
-    let payload: serde_json::Value = serde_json::from_str(payload).unwrap_or(serde_json::Value::Null);
+fn proposal_summary(
+    conn: &Connection,
+    verb: &str,
+    target_type: &str,
+    target_id: Option<&str>,
+    payload: &str,
+) -> String {
+    let payload: serde_json::Value =
+        serde_json::from_str(payload).unwrap_or(serde_json::Value::Null);
     if target_type == "epic" {
         if let Ok(change) = SpecChange::from_payload(&payload) {
             return format!("change the {}", change.field.label());
@@ -291,14 +351,25 @@ fn proposal_summary(conn: &Connection, verb: &str, target_type: &str, target_id:
         }
     }
     // Issue #132: an exit test proposed in a Milestone's shaping (an Amend Milestone with only it set).
-    if verb == "amend" && target_type == "milestone" && payload.get("exit_test").is_some_and(|t| t.is_string()) {
+    if verb == "amend"
+        && target_type == "milestone"
+        && payload.get("exit_test").is_some_and(|t| t.is_string())
+    {
         let title = payload.get("title").and_then(|t| t.as_str());
-        return if title.is_some() { "change the title and the exit test".to_string() } else { "change the exit test".to_string() };
+        return if title.is_some() {
+            "change the title and the exit test".to_string()
+        } else {
+            "change the exit test".to_string()
+        };
     }
     if target_type == "criterion" && verb == "create" {
         // Issue #128: a New criterion names its statement and the Story it is for.
         if let Ok(criterion) = NewCriterion::from_payload(&payload) {
-            let key = get_story(conn, &criterion.story_id).ok().flatten().map(|s| s.key).unwrap_or(criterion.story_id);
+            let key = get_story(conn, &criterion.story_id)
+                .ok()
+                .flatten()
+                .map(|s| s.key)
+                .unwrap_or(criterion.story_id);
             return format!("add the criterion “{}” to {key}", criterion.statement);
         }
     }
@@ -308,7 +379,8 @@ fn proposal_summary(conn: &Connection, verb: &str, target_type: &str, target_id:
 /// What is still open in Stage `stage_id` (issue #126): the unanswered questions of its open Round,
 /// its undecided Proposals, the empty spec fields as warnings, and the Stage closing it opens.
 pub fn stage_status(conn: &Connection, stage_id: &str) -> anyhow::Result<StageStatus> {
-    let stage = get_stage(conn, stage_id)?.with_context(|| format!("Stage {stage_id:?} not found"))?;
+    let stage =
+        get_stage(conn, stage_id)?.with_context(|| format!("Stage {stage_id:?} not found"))?;
     let mut open_items = Vec::new();
 
     let mut stmt = conn.prepare(
@@ -335,20 +407,32 @@ pub fn stage_status(conn: &Connection, stage_id: &str) -> anyhow::Result<StageSt
     )?;
     let proposals = stmt
         .query_map(params![stage_id], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, Option<String>>(3)?, r.get::<_, String>(4)?))
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, Option<String>>(3)?,
+                r.get::<_, String>(4)?,
+            ))
         })?
         .collect::<Result<Vec<_>, _>>()
         .context("failed to read the Stage's undecided Proposals")?;
     for (proposal_id, verb, target, target_id, payload) in proposals {
         let summary = proposal_summary(conn, &verb, &target, target_id.as_deref(), &payload);
-        open_items.push(OpenItem::Proposal { proposal_id, summary });
+        open_items.push(OpenItem::Proposal {
+            proposal_id,
+            summary,
+        });
     }
 
     // Issue #128: closing the Criteria Stage makes every Story still in Shaping Ready, so each needs
     // a criterion first, and there must be one to make Ready. A Dropped Story does not count.
     if stage.kind == StageKind::Criteria {
         if let Some(epic_id) = &stage.epic_id {
-            let open: Vec<_> = stories_in_epic(conn, epic_id)?.into_iter().filter(|s| s.state != "dropped").collect();
+            let open: Vec<_> = stories_in_epic(conn, epic_id)?
+                .into_iter()
+                .filter(|s| s.state != "dropped")
+                .collect();
             if open.is_empty() {
                 open_items.push(OpenItem::NoStory);
             }
@@ -361,9 +445,16 @@ pub fn stage_status(conn: &Connection, stage_id: &str) -> anyhow::Result<StageSt
                 .filter_map(|p| NewCriterion::from_payload(&serde_json::from_str(&p).unwrap_or_default()).ok())
                 .map(|c| c.story_id)
                 .collect();
-            for s in open.into_iter().filter(|s| s.state == "shaping" && !proposed.contains(&s.id)) {
+            for s in open
+                .into_iter()
+                .filter(|s| s.state == "shaping" && !proposed.contains(&s.id))
+            {
                 if criteria_for_story(conn, &s.id)?.is_empty() {
-                    open_items.push(OpenItem::StoryWithoutCriterion { story_id: s.id, key: s.key, title: s.title });
+                    open_items.push(OpenItem::StoryWithoutCriterion {
+                        story_id: s.id,
+                        key: s.key,
+                        title: s.title,
+                    });
                 }
             }
         }
@@ -372,25 +463,39 @@ pub fn stage_status(conn: &Connection, stage_id: &str) -> anyhow::Result<StageSt
     let mut warnings = Vec::new();
     let blank = |v: &Option<String>| v.as_deref().is_none_or(|v| v.trim().is_empty());
     if let Some(epic_id) = &stage.epic_id {
-        let (problem, scope, exit_test): (Option<String>, Option<String>, Option<String>) = conn.query_row(
-            "SELECT problem, scope, exit_test FROM epics WHERE id = ?1",
-            params![epic_id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        )?;
-        for (label, value) in [("Problem", problem), ("Scope", scope), ("Exit test", exit_test)] {
+        let (problem, scope, exit_test): (Option<String>, Option<String>, Option<String>) = conn
+            .query_row(
+                "SELECT problem, scope, exit_test FROM epics WHERE id = ?1",
+                params![epic_id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )?;
+        for (label, value) in [
+            ("Problem", problem),
+            ("Scope", scope),
+            ("Exit test", exit_test),
+        ] {
             if blank(&value) {
                 warnings.push(format!("The {label} is not written yet"));
             }
         }
     } else if let Some(milestone_id) = &stage.milestone_id {
-        let exit_test: Option<String> =
-            conn.query_row("SELECT exit_test FROM milestones WHERE id = ?1", params![milestone_id], |r| r.get(0))?;
+        let exit_test: Option<String> = conn.query_row(
+            "SELECT exit_test FROM milestones WHERE id = ?1",
+            params![milestone_id],
+            |r| r.get(0),
+        )?;
         if blank(&exit_test) {
             warnings.push("The exit test is not written yet".to_string());
         }
     }
 
-    Ok(StageStatus { next: stage.kind.next(), stage, open_items, undecided_proposals, warnings })
+    Ok(StageStatus {
+        next: stage.kind.next(),
+        stage,
+        open_items,
+        undecided_proposals,
+        warnings,
+    })
 }
 
 /// What closing a Stage did.
@@ -416,19 +521,38 @@ pub struct StageClosed {
 /// worked the closed Stage, so it ends here too:
 /// the next Stage starts from a fresh session and packet. No held `round_post` call is left behind:
 /// a call is held only on an open Round, and an open Round always has an unanswered question.
-pub fn close_stage(conn: &mut Connection, actor_id: &str, stage_id: &str) -> anyhow::Result<StageClosed> {
+pub fn close_stage(
+    conn: &mut Connection,
+    actor_id: &str,
+    stage_id: &str,
+) -> anyhow::Result<StageClosed> {
     let at = now();
     let tx = conn.transaction()?;
     assert_human_actor_in_tx(&tx, actor_id)?;
     let status = stage_status(&tx, stage_id)?;
     let stage = &status.stage;
-    anyhow::ensure!(stage.state == "open", "the {} Stage is already closed", stage.kind.label());
+    anyhow::ensure!(
+        stage.state == "open",
+        "the {} Stage is already closed",
+        stage.kind.label()
+    );
     if !status.open_items.is_empty() {
-        let items: Vec<String> = status.open_items.iter().map(|i| format!("- {}", i.label())).collect();
-        anyhow::bail!("the {} Stage still has open items:\n{}", stage.kind.label(), items.join("\n"));
+        let items: Vec<String> = status
+            .open_items
+            .iter()
+            .map(|i| format!("- {}", i.label()))
+            .collect();
+        anyhow::bail!(
+            "the {} Stage still has open items:\n{}",
+            stage.kind.label(),
+            items.join("\n")
+        );
     }
     if status.next.is_none() && !status.closes_the_record() {
-        anyhow::bail!("the {} Stage is the last one; closing it is not available yet", stage.kind.label());
+        anyhow::bail!(
+            "the {} Stage is the last one; closing it is not available yet",
+            stage.kind.label()
+        );
     }
 
     tx.execute(
@@ -441,7 +565,10 @@ pub fn close_stage(conn: &mut Connection, actor_id: &str, stage_id: &str) -> any
         &stage.project_id,
         "stage",
         stage_id,
-        EventScope { story_id: None, epic_id: stage.epic_id.as_deref() },
+        EventScope {
+            story_id: None,
+            epic_id: stage.epic_id.as_deref(),
+        },
         actor_id,
         "stage.closed",
         &serde_json::json!({
@@ -464,7 +591,10 @@ pub fn close_stage(conn: &mut Connection, actor_id: &str, stage_id: &str) -> any
         }
         None => {
             // Issue #132: the Milestone's Exit test was its only Stage, so its shaping is done.
-            let milestone_id = stage.milestone_id.as_deref().context("the Exit test Stage shapes a Milestone")?;
+            let milestone_id = stage
+                .milestone_id
+                .as_deref()
+                .context("the Exit test Stage shapes a Milestone")?;
             set_milestone_state_in_tx(
                 &tx,
                 actor_id,
@@ -492,17 +622,32 @@ pub fn close_stage(conn: &mut Connection, actor_id: &str, stage_id: &str) -> any
         None => None,
     };
     tx.commit().context("failed to commit close_stage")?;
-    Ok(StageClosed { closed, opened, made_ready, ended_session })
+    Ok(StageClosed {
+        closed,
+        opened,
+        made_ready,
+        ended_session,
+    })
 }
 
 /// Issue #128: closing an Epic's Criteria Stage moves every Story of the Epic still in Shaping to
 /// Ready, in execution order, then the Epic, through their own state writers and inside the close's
 /// transaction, so a refusal from any of them refuses the close. A Dropped Story stays dropped. The
 /// Stories made Ready, by id.
-fn make_ready_in_tx(tx: &Transaction, closed: &Stage, actor_id: &str) -> anyhow::Result<Vec<String>> {
-    let epic_id = closed.epic_id.as_deref().context("only an Epic's Stage makes its Stories Ready")?;
+fn make_ready_in_tx(
+    tx: &Transaction,
+    closed: &Stage,
+    actor_id: &str,
+) -> anyhow::Result<Vec<String>> {
+    let epic_id = closed
+        .epic_id
+        .as_deref()
+        .context("only an Epic's Stage makes its Stories Ready")?;
     let mut made_ready = Vec::new();
-    for story in stories_in_epic(tx, epic_id)?.into_iter().filter(|s| s.state == "shaping") {
+    for story in stories_in_epic(tx, epic_id)?
+        .into_iter()
+        .filter(|s| s.state == "shaping")
+    {
         set_story_state_in_tx(tx, actor_id, &story.id, StoryState::Ready)?;
         made_ready.push(story.id);
     }
@@ -517,13 +662,27 @@ fn make_ready_in_tx(tx: &Transaction, closed: &Stage, actor_id: &str) -> anyhow:
 }
 
 /// Open `next`, the Stage after `closed`, at the next rank, and append `stage.opened`. Returns its id.
-fn open_next_stage_in_tx(tx: &Transaction, closed: &Stage, next: StageKind, actor_id: &str, at: &str) -> anyhow::Result<String> {
+fn open_next_stage_in_tx(
+    tx: &Transaction,
+    closed: &Stage,
+    next: StageKind,
+    actor_id: &str,
+    at: &str,
+) -> anyhow::Result<String> {
     // The next Stage takes the next rank: unique per (subject, kind), one open per subject.
     let opened_id = new_id();
     tx.execute(
         "INSERT INTO stages (id, project_id, epic_id, milestone_id, kind, state, rank, opened_at)
          VALUES (?1, ?2, ?3, ?4, ?5, 'open', ?6, ?7)",
-        params![opened_id, closed.project_id, closed.epic_id, closed.milestone_id, next.as_str(), closed.rank + 1, at],
+        params![
+            opened_id,
+            closed.project_id,
+            closed.epic_id,
+            closed.milestone_id,
+            next.as_str(),
+            closed.rank + 1,
+            at
+        ],
     )
     .context("failed to open the next Stage")?;
     record_event(
@@ -531,7 +690,10 @@ fn open_next_stage_in_tx(tx: &Transaction, closed: &Stage, next: StageKind, acto
         &closed.project_id,
         "stage",
         &opened_id,
-        EventScope { story_id: None, epic_id: closed.epic_id.as_deref() },
+        EventScope {
+            story_id: None,
+            epic_id: closed.epic_id.as_deref(),
+        },
         actor_id,
         "stage.opened",
         &serde_json::json!({
@@ -561,14 +723,19 @@ pub(crate) fn ensure_open_stage_in_tx(
     let (epic_id, milestone_id, kind) = match subject {
         ShapingSubject::Epic(id) => (Some(id.as_str()), None, StageKind::ChallengeSpec),
         ShapingSubject::Milestone(id) => (None, Some(id.as_str()), StageKind::ExitTest),
-        ShapingSubject::Roadmap(_) => anyhow::bail!("the Roadmap has no Stages: it is shaped in roadmap Rounds"),
+        ShapingSubject::Roadmap(_) => {
+            anyhow::bail!("the Roadmap has no Stages: it is shaped in roadmap Rounds")
+        }
     };
     let existing: i64 = tx.query_row(
         "SELECT COUNT(*) FROM stages WHERE epic_id IS ?1 AND milestone_id IS ?2",
         params![epic_id, milestone_id],
         |r| r.get(0),
     )?;
-    anyhow::ensure!(existing == 0, "every Stage of this record is closed; there is nothing left to shape");
+    anyhow::ensure!(
+        existing == 0,
+        "every Stage of this record is closed; there is nothing left to shape"
+    );
 
     let id = new_id();
     let at = now();
@@ -583,7 +750,10 @@ pub(crate) fn ensure_open_stage_in_tx(
         project_id,
         "stage",
         &id,
-        EventScope { story_id: None, epic_id },
+        EventScope {
+            story_id: None,
+            epic_id,
+        },
         actor_id,
         "stage.opened",
         &serde_json::json!({

@@ -45,10 +45,16 @@ pub struct AcceptanceCriterionDto {
 /// The head of `story_id`'s branch, read once per listing to tell stale results; `None` when it
 /// can't be read. The lock is held only to find the worktree (issue #215), and git reads its head
 /// on the blocking pool, never the thread IPC dispatches on (issue #220).
-async fn head_of_story_branch(db: &std::sync::Mutex<rusqlite::Connection>, story_id: &str) -> Result<Option<String>, String> {
+async fn head_of_story_branch(
+    db: &std::sync::Mutex<rusqlite::Connection>,
+    story_id: &str,
+) -> Result<Option<String>, String> {
     let worktree_path = {
         let conn = db.lock().map_err(|e| e.to_string())?;
-        flywheel_core::domain::worktree::worktree_for_story(&conn, story_id).ok().flatten().map(|w| w.path)
+        flywheel_core::domain::worktree::worktree_for_story(&conn, story_id)
+            .ok()
+            .flatten()
+            .map(|w| w.path)
     };
     tauri::async_runtime::spawn_blocking(move || {
         worktree_path
@@ -65,9 +71,12 @@ fn to_dto(
     c: flywheel_core::domain::acceptance_criterion::AcceptanceCriterion,
     head: Option<&str>,
 ) -> Result<AcceptanceCriterionDto, String> {
-    let check = match flywheel_core::domain::check::check_for_criterion(conn, &c.id).map_err(|e| e.to_string())? {
+    let check = match flywheel_core::domain::check::check_for_criterion(conn, &c.id)
+        .map_err(|e| e.to_string())?
+    {
         Some(check) => {
-            let current = flywheel_core::domain::check::current_result(conn, &check.id).map_err(|e| e.to_string())?;
+            let current = flywheel_core::domain::check::current_result(conn, &check.id)
+                .map_err(|e| e.to_string())?;
             Some(CheckDto {
                 id: check.id,
                 command: check.command,
@@ -99,7 +108,8 @@ fn mutate(
     write: impl FnOnce(&mut rusqlite::Connection, &str) -> anyhow::Result<()>,
 ) -> Result<(), String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     let project_id = super::project_of(&conn, "acceptance_criteria", criterion_id);
     write(&mut conn, &actor_id).map_err(|e| e.to_string())?;
     drop(conn);
@@ -117,9 +127,12 @@ pub fn criterion_create(
 ) -> Result<AcceptanceCriterionDto, String> {
     validate_text("statement", &statement, MAX_PROSE_LEN)?;
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    let c = flywheel_core::domain::acceptance_criterion::create_criterion(&mut conn, &actor_id, &story_id, &statement)
-        .map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    let c = flywheel_core::domain::acceptance_criterion::create_criterion(
+        &mut conn, &actor_id, &story_id, &statement,
+    )
+    .map_err(|e| e.to_string())?;
     let dto = to_dto(&conn, c, None)?;
     let project_id = super::project_of(&conn, "stories", &story_id);
     drop(conn);
@@ -129,7 +142,10 @@ pub fn criterion_create(
 
 /// A Story's criteria, in order, each with its Check and current result.
 #[tauri::command]
-pub async fn criterion_list(state: State<'_, AppState>, story_id: String) -> Result<Vec<AcceptanceCriterionDto>, String> {
+pub async fn criterion_list(
+    state: State<'_, AppState>,
+    story_id: String,
+) -> Result<Vec<AcceptanceCriterionDto>, String> {
     let head = head_of_story_branch(&state.db, &story_id).await?;
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     flywheel_core::domain::acceptance_criterion::criteria_for_story(&conn, &story_id)
@@ -141,16 +157,30 @@ pub async fn criterion_list(state: State<'_, AppState>, story_id: String) -> Res
 
 /// Rewrite a criterion's statement (clears an acceptance already recorded).
 #[tauri::command]
-pub fn criterion_amend(state: State<AppState>, app: AppHandle, criterion_id: String, statement: String) -> Result<(), String> {
+pub fn criterion_amend(
+    state: State<AppState>,
+    app: AppHandle,
+    criterion_id: String,
+    statement: String,
+) -> Result<(), String> {
     validate_text("statement", &statement, MAX_PROSE_LEN)?;
     mutate(&state, &app, &criterion_id, |conn, actor| {
-        flywheel_core::domain::acceptance_criterion::amend_criterion(conn, actor, &criterion_id, &statement)
+        flywheel_core::domain::acceptance_criterion::amend_criterion(
+            conn,
+            actor,
+            &criterion_id,
+            &statement,
+        )
     })
 }
 
 /// Accept a criterion at review. Human-only, enforced by the domain writer.
 #[tauri::command]
-pub fn criterion_accept(state: State<AppState>, app: AppHandle, criterion_id: String) -> Result<(), String> {
+pub fn criterion_accept(
+    state: State<AppState>,
+    app: AppHandle,
+    criterion_id: String,
+) -> Result<(), String> {
     mutate(&state, &app, &criterion_id, |conn, actor| {
         flywheel_core::domain::acceptance_criterion::accept_criterion(conn, actor, &criterion_id)
     })
@@ -158,7 +188,11 @@ pub fn criterion_accept(state: State<AppState>, app: AppHandle, criterion_id: St
 
 /// Withdraw a criterion's acceptance. Human-only, enforced by the domain writer.
 #[tauri::command]
-pub fn criterion_unaccept(state: State<AppState>, app: AppHandle, criterion_id: String) -> Result<(), String> {
+pub fn criterion_unaccept(
+    state: State<AppState>,
+    app: AppHandle,
+    criterion_id: String,
+) -> Result<(), String> {
     mutate(&state, &app, &criterion_id, |conn, actor| {
         flywheel_core::domain::acceptance_criterion::unaccept_criterion(conn, actor, &criterion_id)
     })
@@ -166,7 +200,11 @@ pub fn criterion_unaccept(state: State<AppState>, app: AppHandle, criterion_id: 
 
 /// Delete a criterion and its Check.
 #[tauri::command]
-pub fn criterion_delete(state: State<AppState>, app: AppHandle, criterion_id: String) -> Result<(), String> {
+pub fn criterion_delete(
+    state: State<AppState>,
+    app: AppHandle,
+    criterion_id: String,
+) -> Result<(), String> {
     mutate(&state, &app, &criterion_id, |conn, actor| {
         flywheel_core::domain::acceptance_criterion::delete_criterion(conn, actor, &criterion_id)
     })
@@ -183,13 +221,18 @@ pub fn check_set(
 ) -> Result<(), String> {
     validate_text("command", &command, MAX_CHECK_COMMAND_LEN)?;
     mutate(&state, &app, &criterion_id, |conn, actor| {
-        flywheel_core::domain::check::set_check(conn, actor, &criterion_id, &command, timeout_secs).map(|_| ())
+        flywheel_core::domain::check::set_check(conn, actor, &criterion_id, &command, timeout_secs)
+            .map(|_| ())
     })
 }
 
 /// Remove the Check from a criterion, which is then judged at review. Human-only.
 #[tauri::command]
-pub fn check_remove(state: State<AppState>, app: AppHandle, criterion_id: String) -> Result<(), String> {
+pub fn check_remove(
+    state: State<AppState>,
+    app: AppHandle,
+    criterion_id: String,
+) -> Result<(), String> {
     mutate(&state, &app, &criterion_id, |conn, actor| {
         flywheel_core::domain::check::remove_check(conn, actor, &criterion_id)
     })

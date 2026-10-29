@@ -34,7 +34,9 @@ static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// hook` call ever touches the real `~/Flywheel` worktree root or the real app-data runtime
 /// directory.
 fn with_scratch_envs<T>(worktree_root: &Path, runtime_dir: &Path, f: impl FnOnce() -> T) -> T {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     // SAFETY: the mutex above serializes every caller in this binary, so no other thread reads or
     // mutates these vars while they're set, and this helper always clears them before returning.
     unsafe {
@@ -75,8 +77,14 @@ fn fresh_repo(root: &Path) -> PathBuf {
     let dir = tempfile::tempdir_in(root).expect("failed to create scratch repo dir");
     let repo = dir.path().to_path_buf();
     std::mem::forget(dir);
-    run_git_ok(root, &["init", "--initial-branch", "main", repo.to_str().unwrap()]);
-    run_git_ok(&repo, &["config", "user.email", "git-hooks-test@flywheel.invalid"]);
+    run_git_ok(
+        root,
+        &["init", "--initial-branch", "main", repo.to_str().unwrap()],
+    );
+    run_git_ok(
+        &repo,
+        &["config", "user.email", "git-hooks-test@flywheel.invalid"],
+    );
     run_git_ok(&repo, &["config", "user.name", "Flywheel Git Hooks Test"]);
     repo
 }
@@ -94,15 +102,44 @@ fn create_repo_with_remote(root: &Path, extra_branches: &[&str]) -> RemoteFixtur
     let remote_path = root.join("remote.git");
     let work_path = root.join("work");
 
-    run_git_ok(root, &["init", "--bare", "--initial-branch", "main", remote_path.to_str().unwrap()]);
-    run_git_ok(root, &["init", "--initial-branch", "main", work_path.to_str().unwrap()]);
-    run_git_ok(&work_path, &["config", "user.email", "git-hooks-test@flywheel.invalid"]);
-    run_git_ok(&work_path, &["config", "user.name", "Flywheel Git Hooks Test"]);
-    std::fs::write(work_path.join("README.md"), "# git_hooks_pre_push.rs scratch repo\n")
-        .expect("failed to write README");
+    run_git_ok(
+        root,
+        &[
+            "init",
+            "--bare",
+            "--initial-branch",
+            "main",
+            remote_path.to_str().unwrap(),
+        ],
+    );
+    run_git_ok(
+        root,
+        &[
+            "init",
+            "--initial-branch",
+            "main",
+            work_path.to_str().unwrap(),
+        ],
+    );
+    run_git_ok(
+        &work_path,
+        &["config", "user.email", "git-hooks-test@flywheel.invalid"],
+    );
+    run_git_ok(
+        &work_path,
+        &["config", "user.name", "Flywheel Git Hooks Test"],
+    );
+    std::fs::write(
+        work_path.join("README.md"),
+        "# git_hooks_pre_push.rs scratch repo\n",
+    )
+    .expect("failed to write README");
     run_git_ok(&work_path, &["add", "README.md"]);
     run_git_ok(&work_path, &["commit", "-m", "initial commit"]);
-    run_git_ok(&work_path, &["remote", "add", "origin", remote_path.to_str().unwrap()]);
+    run_git_ok(
+        &work_path,
+        &["remote", "add", "origin", remote_path.to_str().unwrap()],
+    );
     run_git_ok(&work_path, &["push", "-u", "origin", "main"]);
 
     for branch in extra_branches {
@@ -110,11 +147,17 @@ fn create_repo_with_remote(root: &Path, extra_branches: &[&str]) -> RemoteFixtur
         run_git_ok(&work_path, &["push", "origin", branch]);
     }
 
-    RemoteFixture { remote_path, work_path }
+    RemoteFixture {
+        remote_path,
+        work_path,
+    }
 }
 
 fn remote_ref(remote_path: &Path, branch: &str) -> Option<String> {
-    let output = run_git(remote_path, &["rev-parse", "--verify", &format!("refs/heads/{branch}")]);
+    let output = run_git(
+        remote_path,
+        &["rev-parse", "--verify", &format!("refs/heads/{branch}")],
+    );
     if output.status.success() {
         Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
     } else {
@@ -124,16 +167,28 @@ fn remote_ref(remote_path: &Path, branch: &str) -> Option<String> {
 
 /// Register `work_path` as a real Flywheel project (so the `pre-push` hook arrives by the real
 /// install path, never a test-only shortcut) and return the project id.
-fn register(worktree_root: &Path, runtime_dir: &Path, work_path: &Path, key_prefix: &str) -> String {
+fn register(
+    worktree_root: &Path,
+    runtime_dir: &Path,
+    work_path: &Path,
+    key_prefix: &str,
+) -> String {
     with_scratch_envs(worktree_root, runtime_dir, || {
         let db_dir = tempfile::tempdir().expect("failed to create scratch db dir");
         let db_path = db_dir.path().join("flywheel.db");
         let backups_dir = db_dir.path().join("backups");
         std::mem::forget(db_dir);
-        let mut conn = flywheel_core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
+        let mut conn =
+            flywheel_core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
         let actor_id = local_human_actor_id(&conn).expect("seeded human actor should exist");
-        let project = register_project(&mut conn, &actor_id, work_path, "Git Hooks Fixture", key_prefix)
-            .expect("register_project should succeed");
+        let project = register_project(
+            &mut conn,
+            &actor_id,
+            work_path,
+            "Git Hooks Fixture",
+            key_prefix,
+        )
+        .expect("register_project should succeed");
         project.id
     })
 }
@@ -148,7 +203,8 @@ const HOSTILE_PATH: &str = "/usr/bin:/bin";
 /// `FLYWHEEL_PERMISSION_SOCKET` removed from the child's environment — proving the refusal below
 /// does not depend on either.
 fn run_git_hostile(repo: &Path, args: &[&str]) -> Output {
-    let real_git = flywheel_core::shim::resolve_real_git().expect("resolve_real_git should succeed in this environment");
+    let real_git = flywheel_core::shim::resolve_real_git()
+        .expect("resolve_real_git should succeed in this environment");
     Command::new(&real_git)
         .current_dir(repo)
         .env("PATH", HOSTILE_PATH)
@@ -162,7 +218,8 @@ fn run_git_hostile(repo: &Path, args: &[&str]) -> Output {
 /// Task 2's own socket arms set this to a mock server's bound path, still with the hostile `PATH`
 /// so every socket arm continues to prove the gate does not depend on PATH at all.
 fn run_git_hostile_with_socket(repo: &Path, args: &[&str], socket_path: &Path) -> Output {
-    let real_git = flywheel_core::shim::resolve_real_git().expect("resolve_real_git should succeed in this environment");
+    let real_git = flywheel_core::shim::resolve_real_git()
+        .expect("resolve_real_git should succeed in this environment");
     Command::new(&real_git)
         .current_dir(repo)
         .env("PATH", HOSTILE_PATH)
@@ -190,19 +247,29 @@ fn spawn_mock_permission_server(
     socket_path: PathBuf,
     decision: &'static str,
 ) -> std::thread::JoinHandle<serde_json::Value> {
-    let listener = UnixListener::bind(&socket_path).expect("failed to bind the mock permission socket");
+    let listener =
+        UnixListener::bind(&socket_path).expect("failed to bind the mock permission socket");
     std::thread::spawn(move || {
-        let (stream, _) = listener.accept().expect("failed to accept the shim's connection");
+        let (stream, _) = listener
+            .accept()
+            .expect("failed to accept the shim's connection");
         let mut reader = BufReader::new(stream.try_clone().expect("failed to clone the socket"));
         let mut line = String::new();
-        reader.read_line(&mut line).expect("failed to read the shim's request line");
+        reader
+            .read_line(&mut line)
+            .expect("failed to read the shim's request line");
         let parsed: serde_json::Value =
             serde_json::from_str(line.trim()).expect("the shim's request must be valid JSON");
-        assert_eq!(parsed["toolName"], "Bash", "the shim always names the tool Bash");
+        assert_eq!(
+            parsed["toolName"], "Bash",
+            "the shim always names the tool Bash"
+        );
 
         let mut stream = stream;
         let response = format!("{{\"decision\":\"{decision}\"}}\n");
-        stream.write_all(response.as_bytes()).expect("failed to write the mock decision");
+        stream
+            .write_all(response.as_bytes())
+            .expect("failed to write the mock decision");
         parsed
     })
 }
@@ -218,9 +285,15 @@ fn branch_deletion_push_is_refused_and_the_remote_ref_survives() {
     register(scratch.path(), runtime.path(), &fixture.work_path, "GHP1");
 
     let before = remote_ref(&fixture.remote_path, DOOMED_BRANCH);
-    assert!(before.is_some(), "expected the extra branch to exist on the remote before the refused push");
+    assert!(
+        before.is_some(),
+        "expected the extra branch to exist on the remote before the refused push"
+    );
 
-    let output = run_git_hostile(&fixture.work_path, &["push", "origin", "--delete", DOOMED_BRANCH]);
+    let output = run_git_hostile(
+        &fixture.work_path,
+        &["push", "origin", "--delete", DOOMED_BRANCH],
+    );
     assert!(
         !output.status.success(),
         "expected `git push origin --delete {DOOMED_BRANCH}` to be refused, but it exited 0. stdout={} stderr={}",
@@ -248,16 +321,28 @@ fn force_push_is_refused_and_the_remote_ref_is_unchanged() {
     let fixture = create_repo_with_remote(scratch.path(), &[REWRITE_BRANCH]);
     register(scratch.path(), runtime.path(), &fixture.work_path, "GHP2");
 
-    let before = remote_ref(&fixture.remote_path, REWRITE_BRANCH).expect("branch should exist on the remote");
+    let before = remote_ref(&fixture.remote_path, REWRITE_BRANCH)
+        .expect("branch should exist on the remote");
 
     // Rewrite history on the branch so the new tip does not descend from the remote's tip: amend
     // the branch's current (root) commit in place, producing a new object name with the same
     // parent — a sibling of the old tip, not a descendant of it.
     run_git_ok(&fixture.work_path, &["checkout", REWRITE_BRANCH]);
-    run_git_ok(&fixture.work_path, &["commit", "--amend", "--allow-empty", "-m", "rewritten history"]);
+    run_git_ok(
+        &fixture.work_path,
+        &[
+            "commit",
+            "--amend",
+            "--allow-empty",
+            "-m",
+            "rewritten history",
+        ],
+    );
 
-    let output =
-        run_git_hostile(&fixture.work_path, &["push", "--force", "origin", REWRITE_BRANCH]);
+    let output = run_git_hostile(
+        &fixture.work_path,
+        &["push", "--force", "origin", REWRITE_BRANCH],
+    );
     assert!(
         !output.status.success(),
         "expected the force-push to be refused, but it exited 0. stdout={} stderr={}",
@@ -299,8 +384,12 @@ fn ordinary_fast_forward_push_succeeds_and_the_remote_ref_advances() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let after = remote_ref(&fixture.remote_path, "main").expect("main should still exist on the remote");
-    assert_ne!(before, after, "the remote's main ref should have advanced to the new object name");
+    let after =
+        remote_ref(&fixture.remote_path, "main").expect("main should still exist on the remote");
+    assert_ne!(
+        before, after,
+        "the remote's main ref should have advanced to the new object name"
+    );
 }
 
 #[test]
@@ -319,7 +408,10 @@ fn status_and_version_exit_zero_with_no_flywheel_refusal_text() {
             String::from_utf8_lossy(&output.stderr)
         );
         let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(!stderr.contains("flywheel"), "expected no Flywheel refusal text on stderr for `git {args:?}`, got: {stderr}");
+        assert!(
+            !stderr.contains("flywheel"),
+            "expected no Flywheel refusal text on stderr for `git {args:?}`, got: {stderr}"
+        );
     }
 }
 
@@ -332,7 +424,10 @@ fn branch_deletion_push_from_outside_the_worktree_root_is_not_gated() {
     let hooks_path_value = {
         register(scratch.path(), runtime.path(), &fixture.work_path, "GHP5");
         let output = run_git(&fixture.work_path, &["config", "--get", "core.hooksPath"]);
-        assert!(output.status.success(), "expected core.hooksPath to be configured after registration");
+        assert!(
+            output.status.success(),
+            "expected core.hooksPath to be configured after registration"
+        );
         String::from_utf8_lossy(&output.stdout).trim().to_string()
     };
 
@@ -340,9 +435,15 @@ fn branch_deletion_push_from_outside_the_worktree_root_is_not_gated() {
     // root, never nested under `scratch`), configured with the SAME core.hooksPath.
     let outside_scratch = tempfile::tempdir().expect("outside scratch dir");
     let outside = create_repo_with_remote(outside_scratch.path(), &[DOOMED_BRANCH]);
-    run_git_ok(&outside.work_path, &["config", "core.hooksPath", &hooks_path_value]);
+    run_git_ok(
+        &outside.work_path,
+        &["config", "core.hooksPath", &hooks_path_value],
+    );
 
-    let output = run_git_hostile(&outside.work_path, &["push", "origin", "--delete", DOOMED_BRANCH]);
+    let output = run_git_hostile(
+        &outside.work_path,
+        &["push", "origin", "--delete", DOOMED_BRANCH],
+    );
     assert!(
         output.status.success(),
         "expected a branch-deletion push from OUTSIDE the worktree root to exit 0 (the developer's own terminal is never gated). stdout={} stderr={}",
@@ -359,14 +460,23 @@ fn generated_script_shape_is_posix_and_carries_the_marker() {
         Path::new("/tmp/flywheel-worktrees"),
     );
 
-    assert!(script.starts_with("#!/bin/sh\n"), "expected the script's first line to be #!/bin/sh, got: {script}");
-    assert!(script.contains(PRE_PUSH_MARKER), "expected the header comment to carry {PRE_PUSH_MARKER}");
+    assert!(
+        script.starts_with("#!/bin/sh\n"),
+        "expected the script's first line to be #!/bin/sh, got: {script}"
+    );
+    assert!(
+        script.contains(PRE_PUSH_MARKER),
+        "expected the header comment to carry {PRE_PUSH_MARKER}"
+    );
     // "[[ " and "=~" are unambiguous bash-only syntax; "local"/"function" are deliberately NOT
     // checked here — this script's own English comments use both words in ordinary prose ("the
     // local object name", "this function is...") and a substring check would false-positive on
     // its own documentation, not on actual shell syntax.
     for bashism in ["[[ ", "=~"] {
-        assert!(!script.contains(bashism), "expected no bash-only syntax ({bashism:?}) in the generated script");
+        assert!(
+            !script.contains(bashism),
+            "expected no bash-only syntax ({bashism:?}) in the generated script"
+        );
     }
 }
 
@@ -392,7 +502,9 @@ fn install_fails_loudly_when_the_hook_file_is_removed_before_verification() {
     let project_id = "GHP-RACE-1";
 
     with_scratch_envs(scratch.path(), runtime.path(), || {
-        let hook_path = hooks_dir_for_repo(project_id).expect("hooks_dir_for_repo").join("pre-push");
+        let hook_path = hooks_dir_for_repo(project_id)
+            .expect("hooks_dir_for_repo")
+            .join("pre-push");
 
         // Watches for the hook file install writes and deletes it the instant it appears — the
         // config write that follows (step 5) spawns a `git` subprocess, which comfortably
@@ -414,9 +526,14 @@ fn install_fails_loudly_when_the_hook_file_is_removed_before_verification() {
 
         let result = install_pre_push_hook(&repo, project_id);
         let deleted = watcher.join().expect("watcher thread should not panic");
-        assert!(deleted, "the watcher never observed the hook file being written — test setup is broken");
+        assert!(
+            deleted,
+            "the watcher never observed the hook file being written — test setup is broken"
+        );
 
-        let err = result.expect_err("install_pre_push_hook should fail when the hook file disappears before verification");
+        let err = result.expect_err(
+            "install_pre_push_hook should fail when the hook file disappears before verification",
+        );
         let rendered = format!("{err:#}");
         assert!(
             rendered.contains("pre-push gate install verification failed"),
@@ -438,21 +555,35 @@ fn relocating_to_a_fresh_clone_installs_the_pre_push_gate_at_the_new_path() {
         let db_path = db_dir.path().join("flywheel.db");
         let backups_dir = db_dir.path().join("backups");
         std::mem::forget(db_dir);
-        let mut conn = flywheel_core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
+        let mut conn =
+            flywheel_core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
         let actor_id = local_human_actor_id(&conn).expect("seeded human actor should exist");
 
-        let project = register_project(&mut conn, &actor_id, &fixture.work_path, "Relocate Fixture", "GHP13")
-            .expect("register_project should succeed");
+        let project = register_project(
+            &mut conn,
+            &actor_id,
+            &fixture.work_path,
+            "Relocate Fixture",
+            "GHP13",
+        )
+        .expect("register_project should succeed");
 
         // The marker register_project wrote is tracked content (D-15) — commit it so it travels
         // with a fresh clone, exactly the scenario a developer hits after re-cloning.
         run_git_ok(&fixture.work_path, &["add", ".flywheel/project.json"]);
-        run_git_ok(&fixture.work_path, &["commit", "-m", "track the flywheel marker"]);
+        run_git_ok(
+            &fixture.work_path,
+            &["commit", "-m", "track the flywheel marker"],
+        );
 
         let clone_path = scratch.path().join("relocate-clone");
         run_git_ok(
             scratch.path(),
-            &["clone", fixture.work_path.to_str().unwrap(), clone_path.to_str().unwrap()],
+            &[
+                "clone",
+                fixture.work_path.to_str().unwrap(),
+                clone_path.to_str().unwrap(),
+            ],
         );
 
         // Precondition the gap turns on: a fresh clone's .git/config has no core.hooksPath at
@@ -476,9 +607,10 @@ fn relocating_to_a_fresh_clone_installs_the_pre_push_gate_at_the_new_path() {
             "expected the clone's core.hooksPath to point at the project's hooks directory after relocation"
         );
 
-        let hook_contents = std::fs::read_to_string(expected_hooks_dir.join("pre-push")).unwrap_or_else(|e| {
-            panic!("expected a pre-push script installed at {expected_hooks_dir:?}: {e}")
-        });
+        let hook_contents = std::fs::read_to_string(expected_hooks_dir.join("pre-push"))
+            .unwrap_or_else(|e| {
+                panic!("expected a pre-push script installed at {expected_hooks_dir:?}: {e}")
+            });
         assert!(
             hook_contents.contains(PRE_PUSH_MARKER),
             "expected the installed pre-push script to carry {PRE_PUSH_MARKER}, got: {hook_contents}"
@@ -499,28 +631,54 @@ fn a_refusal_never_fails_relocation() {
         let db_path = db_dir.path().join("flywheel.db");
         let backups_dir = db_dir.path().join("backups");
         std::mem::forget(db_dir);
-        let mut conn = flywheel_core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
+        let mut conn =
+            flywheel_core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
         let actor_id = local_human_actor_id(&conn).expect("seeded human actor should exist");
 
-        let project = register_project(&mut conn, &actor_id, &fixture.work_path, "Relocate Refusal Fixture", "GHP14")
-            .expect("register_project should succeed");
+        let project = register_project(
+            &mut conn,
+            &actor_id,
+            &fixture.work_path,
+            "Relocate Refusal Fixture",
+            "GHP14",
+        )
+        .expect("register_project should succeed");
 
         run_git_ok(&fixture.work_path, &["add", ".flywheel/project.json"]);
-        run_git_ok(&fixture.work_path, &["commit", "-m", "track the flywheel marker"]);
+        run_git_ok(
+            &fixture.work_path,
+            &["commit", "-m", "track the flywheel marker"],
+        );
 
         let clone_path = scratch.path().join("refusal-clone");
-        run_git_ok(scratch.path(), &["clone", fixture.work_path.to_str().unwrap(), clone_path.to_str().unwrap()]);
+        run_git_ok(
+            scratch.path(),
+            &[
+                "clone",
+                fixture.work_path.to_str().unwrap(),
+                clone_path.to_str().unwrap(),
+            ],
+        );
 
         // A foreign core.hooksPath, carrying no marker-bearing pre-push -- trips install's Step 1
         // refusal (`RefusedPreexistingHooksPath`) when relocate_project re-installs.
         let foreign_hooks_dir = scratch.path().join("foreign-relocation-hooks");
         std::fs::create_dir_all(&foreign_hooks_dir).expect("failed to create foreign hooks dir");
-        run_git_ok(&clone_path, &["config", "core.hooksPath", foreign_hooks_dir.to_str().unwrap()]);
+        run_git_ok(
+            &clone_path,
+            &[
+                "config",
+                "core.hooksPath",
+                foreign_hooks_dir.to_str().unwrap(),
+            ],
+        );
 
         let relocated = relocate_project(&mut conn, &actor_id, &project.id, &clone_path)
             .expect("relocate_project must succeed even when the pre-push install refuses");
 
-        let expected_path = clone_path.canonicalize().expect("canonicalize should succeed");
+        let expected_path = clone_path
+            .canonicalize()
+            .expect("canonicalize should succeed");
         assert_eq!(relocated.repo_path, expected_path.to_str().unwrap());
         assert_eq!(relocated.status, "active");
 
@@ -544,28 +702,41 @@ fn an_install_error_never_fails_relocation() {
         let db_path = db_dir.path().join("flywheel.db");
         let backups_dir = db_dir.path().join("backups");
         std::mem::forget(db_dir);
-        let mut conn = flywheel_core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
+        let mut conn =
+            flywheel_core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
         let actor_id = local_human_actor_id(&conn).expect("seeded human actor should exist");
 
-        let project = register_project(&mut conn, &actor_id, &fixture.work_path, "Relocate Error Fixture", "GHP15")
-            .expect("register_project should succeed");
+        let project = register_project(
+            &mut conn,
+            &actor_id,
+            &fixture.work_path,
+            "Relocate Error Fixture",
+            "GHP15",
+        )
+        .expect("register_project should succeed");
 
         // A plain, non-git directory carrying a matching marker -- install_pre_push_hook's `Err`
         // arm, reached through default_hooks_pre_push's failed `git rev-parse`. This is the exact
         // shape project_reconciliation.rs's own relocation test already exercises (its scratch
         // repos are plain directories), so this is also what keeps that test honest.
         let non_git_dir = scratch.path().join("relocate-error-target");
-        std::fs::create_dir_all(&non_git_dir).expect("failed to create the non-git relocation target");
+        std::fs::create_dir_all(&non_git_dir)
+            .expect("failed to create the non-git relocation target");
         flywheel_core::marker::write_marker(
             &non_git_dir,
-            &flywheel_core::marker::ProjectMarker { project_id: project.id.clone(), project_key: project.key_prefix.clone() },
+            &flywheel_core::marker::ProjectMarker {
+                project_id: project.id.clone(),
+                project_key: project.key_prefix.clone(),
+            },
         )
         .expect("write_marker should succeed");
 
         let relocated = relocate_project(&mut conn, &actor_id, &project.id, &non_git_dir)
             .expect("relocate_project must succeed even when the pre-push install errors");
 
-        let expected_path = non_git_dir.canonicalize().expect("canonicalize should succeed");
+        let expected_path = non_git_dir
+            .canonicalize()
+            .expect("canonicalize should succeed");
         assert_eq!(relocated.repo_path, expected_path.to_str().unwrap());
     });
 }
@@ -581,36 +752,60 @@ fn relocating_twice_to_the_same_clone_is_idempotent() {
         let db_path = db_dir.path().join("flywheel.db");
         let backups_dir = db_dir.path().join("backups");
         std::mem::forget(db_dir);
-        let mut conn = flywheel_core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
+        let mut conn =
+            flywheel_core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
         let actor_id = local_human_actor_id(&conn).expect("seeded human actor should exist");
 
-        let project = register_project(&mut conn, &actor_id, &fixture.work_path, "Relocate Idempotency Fixture", "GHP16")
-            .expect("register_project should succeed");
+        let project = register_project(
+            &mut conn,
+            &actor_id,
+            &fixture.work_path,
+            "Relocate Idempotency Fixture",
+            "GHP16",
+        )
+        .expect("register_project should succeed");
 
         run_git_ok(&fixture.work_path, &["add", ".flywheel/project.json"]);
-        run_git_ok(&fixture.work_path, &["commit", "-m", "track the flywheel marker"]);
+        run_git_ok(
+            &fixture.work_path,
+            &["commit", "-m", "track the flywheel marker"],
+        );
 
         let clone_path = scratch.path().join("idempotent-clone");
-        run_git_ok(scratch.path(), &["clone", fixture.work_path.to_str().unwrap(), clone_path.to_str().unwrap()]);
+        run_git_ok(
+            scratch.path(),
+            &[
+                "clone",
+                fixture.work_path.to_str().unwrap(),
+                clone_path.to_str().unwrap(),
+            ],
+        );
 
         relocate_project(&mut conn, &actor_id, &project.id, &clone_path)
             .expect("the first relocate_project call should succeed");
 
         let hooks_dir = hooks_dir_for_repo(&project.id).expect("hooks_dir_for_repo");
         let hooks_path_before = run_git_ok(&clone_path, &["config", "--get", "core.hooksPath"]);
-        let hooks_path_before = String::from_utf8_lossy(&hooks_path_before.stdout).trim().to_string();
-        let script_before =
-            std::fs::read(hooks_dir.join("pre-push")).expect("pre-push script should exist after the first relocation");
+        let hooks_path_before = String::from_utf8_lossy(&hooks_path_before.stdout)
+            .trim()
+            .to_string();
+        let script_before = std::fs::read(hooks_dir.join("pre-push"))
+            .expect("pre-push script should exist after the first relocation");
 
         relocate_project(&mut conn, &actor_id, &project.id, &clone_path)
             .expect("the second relocate_project call should succeed");
 
         let hooks_path_after = run_git_ok(&clone_path, &["config", "--get", "core.hooksPath"]);
-        let hooks_path_after = String::from_utf8_lossy(&hooks_path_after.stdout).trim().to_string();
-        let script_after =
-            std::fs::read(hooks_dir.join("pre-push")).expect("pre-push script should exist after the second relocation");
+        let hooks_path_after = String::from_utf8_lossy(&hooks_path_after.stdout)
+            .trim()
+            .to_string();
+        let script_after = std::fs::read(hooks_dir.join("pre-push"))
+            .expect("pre-push script should exist after the second relocation");
 
-        assert_eq!(hooks_path_before, hooks_path_after, "core.hooksPath must be unchanged across the second relocation");
+        assert_eq!(
+            hooks_path_before, hooks_path_after,
+            "core.hooksPath must be unchanged across the second relocation"
+        );
         assert_eq!(
             script_before, script_after,
             "the installed pre-push script's bytes must be unchanged across the second relocation"
@@ -642,12 +837,19 @@ fn install_refuses_a_preexisting_non_flywheel_hooks_path_without_displacing_it()
     let repo = fresh_repo(scratch.path());
     let developer_hooks_dir = scratch.path().join("developer-own-hooks");
     std::fs::create_dir_all(&developer_hooks_dir).expect("failed to create developer hooks dir");
-    run_git_ok(&repo, &["config", "core.hooksPath", developer_hooks_dir.to_str().unwrap()]);
+    run_git_ok(
+        &repo,
+        &[
+            "config",
+            "core.hooksPath",
+            developer_hooks_dir.to_str().unwrap(),
+        ],
+    );
 
     let project_id = "GHP-REFUSE-1";
     with_scratch_envs(scratch.path(), runtime.path(), || {
-        let result =
-            install_pre_push_hook(&repo, project_id).expect("install_pre_push_hook should not error on a refusal path");
+        let result = install_pre_push_hook(&repo, project_id)
+            .expect("install_pre_push_hook should not error on a refusal path");
         match result {
             PrePushInstall::RefusedPreexistingHooksPath { existing } => {
                 assert_eq!(existing, developer_hooks_dir.to_string_lossy());
@@ -680,24 +882,31 @@ fn install_refuses_a_preexisting_non_sample_pre_push_without_displacing_it() {
         let output = run_git_ok(&repo, &["rev-parse", "--git-path", "hooks"]);
         let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
         let p = Path::new(&raw);
-        if p.is_absolute() { p.to_path_buf() } else { repo.join(p) }
+        if p.is_absolute() {
+            p.to_path_buf()
+        } else {
+            repo.join(p)
+        }
     };
     std::fs::create_dir_all(&default_hooks_dir).expect("failed to create default hooks dir");
     let developer_hook_path = default_hooks_dir.join("pre-push");
     let developer_hook_contents = "#!/bin/sh\necho 'the developer wrote this hook'\nexit 0\n";
-    std::fs::write(&developer_hook_path, developer_hook_contents).expect("failed to write developer hook");
+    std::fs::write(&developer_hook_path, developer_hook_contents)
+        .expect("failed to write developer hook");
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(&developer_hook_path).unwrap().permissions();
+        let mut perms = std::fs::metadata(&developer_hook_path)
+            .unwrap()
+            .permissions();
         perms.set_mode(0o755);
         std::fs::set_permissions(&developer_hook_path, perms).unwrap();
     }
 
     let project_id = "GHP-REFUSE-2";
     with_scratch_envs(scratch.path(), runtime.path(), || {
-        let result =
-            install_pre_push_hook(&repo, project_id).expect("install_pre_push_hook should not error on a refusal path");
+        let result = install_pre_push_hook(&repo, project_id)
+            .expect("install_pre_push_hook should not error on a refusal path");
         match result {
             PrePushInstall::RefusedPreexistingPrePush { path } => {
                 assert_eq!(path, developer_hook_path);
@@ -711,8 +920,12 @@ fn install_refuses_a_preexisting_non_sample_pre_push_without_displacing_it() {
             "core.hooksPath must remain unset when the install refuses over a pre-existing pre-push"
         );
 
-        let after = std::fs::read_to_string(&developer_hook_path).expect("developer hook should still exist");
-        assert_eq!(after, developer_hook_contents, "the developer's hook file must be byte-identical afterwards");
+        let after = std::fs::read_to_string(&developer_hook_path)
+            .expect("developer hook should still exist");
+        assert_eq!(
+            after, developer_hook_contents,
+            "the developer's hook file must be byte-identical afterwards"
+        );
     });
 }
 
@@ -721,7 +934,14 @@ fn a_refusal_never_fails_registration() {
     let scratch = tempfile::tempdir().expect("scratch dir");
     let runtime = tempfile::tempdir().expect("runtime dir");
     let fixture = create_repo_with_remote(scratch.path(), &[]);
-    run_git_ok(&fixture.work_path, &["config", "core.hooksPath", scratch.path().join("developer-hooks").to_str().unwrap()]);
+    run_git_ok(
+        &fixture.work_path,
+        &[
+            "config",
+            "core.hooksPath",
+            scratch.path().join("developer-hooks").to_str().unwrap(),
+        ],
+    );
     std::fs::create_dir_all(scratch.path().join("developer-hooks")).unwrap();
 
     with_scratch_envs(scratch.path(), runtime.path(), || {
@@ -729,16 +949,29 @@ fn a_refusal_never_fails_registration() {
         let db_path = db_dir.path().join("flywheel.db");
         let backups_dir = db_dir.path().join("backups");
         std::mem::forget(db_dir);
-        let mut conn = flywheel_core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
+        let mut conn =
+            flywheel_core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
         let actor_id = local_human_actor_id(&conn).expect("seeded human actor should exist");
 
-        let project = register_project(&mut conn, &actor_id, &fixture.work_path, "Refused Project", "GHP6")
-            .expect("register_project must succeed even when the pre-push install refuses");
+        let project = register_project(
+            &mut conn,
+            &actor_id,
+            &fixture.work_path,
+            "Refused Project",
+            "GHP6",
+        )
+        .expect("register_project must succeed even when the pre-push install refuses");
 
-        assert!(!project.id.is_empty(), "expected a fully populated project id");
+        assert!(
+            !project.id.is_empty(),
+            "expected a fully populated project id"
+        );
         assert_eq!(project.key_prefix, "GHP6");
         assert_eq!(project.name, "Refused Project");
-        assert!(!project.repo_path.is_empty(), "expected a fully populated repo_path");
+        assert!(
+            !project.repo_path.is_empty(),
+            "expected a fully populated repo_path"
+        );
         assert_eq!(project.status, "active");
     });
 }
@@ -757,15 +990,22 @@ fn a_refusal_never_fails_registration_over_a_preexisting_pre_push() {
         let output = run_git_ok(&fixture.work_path, &["rev-parse", "--git-path", "hooks"]);
         let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
         let p = Path::new(&raw);
-        if p.is_absolute() { p.to_path_buf() } else { fixture.work_path.join(p) }
+        if p.is_absolute() {
+            p.to_path_buf()
+        } else {
+            fixture.work_path.join(p)
+        }
     };
     std::fs::create_dir_all(&default_hooks_dir).expect("failed to create default hooks dir");
     let developer_hook_path = default_hooks_dir.join("pre-push");
-    std::fs::write(&developer_hook_path, "#!/bin/sh\nexit 0\n").expect("failed to write developer hook");
+    std::fs::write(&developer_hook_path, "#!/bin/sh\nexit 0\n")
+        .expect("failed to write developer hook");
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(&developer_hook_path).unwrap().permissions();
+        let mut perms = std::fs::metadata(&developer_hook_path)
+            .unwrap()
+            .permissions();
         perms.set_mode(0o755);
         std::fs::set_permissions(&developer_hook_path, perms).unwrap();
     }
@@ -775,16 +1015,23 @@ fn a_refusal_never_fails_registration_over_a_preexisting_pre_push() {
         let db_path = db_dir.path().join("flywheel.db");
         let backups_dir = db_dir.path().join("backups");
         std::mem::forget(db_dir);
-        let mut conn = flywheel_core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
+        let mut conn =
+            flywheel_core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
         let actor_id = local_human_actor_id(&conn).expect("seeded human actor should exist");
 
         let project = register_project(&mut conn, &actor_id, &fixture.work_path, "Refused Project 2", "GHP8")
             .expect("register_project must succeed even when the pre-push install refuses over a pre-existing pre-push");
 
-        assert!(!project.id.is_empty(), "expected a fully populated project id");
+        assert!(
+            !project.id.is_empty(),
+            "expected a fully populated project id"
+        );
         assert_eq!(project.key_prefix, "GHP8");
         assert_eq!(project.name, "Refused Project 2");
-        assert!(!project.repo_path.is_empty(), "expected a fully populated repo_path");
+        assert!(
+            !project.repo_path.is_empty(),
+            "expected a fully populated repo_path"
+        );
         assert_eq!(project.status, "active");
     });
 }
@@ -801,14 +1048,20 @@ fn uninstall_unsets_core_hooks_path_it_wrote_and_is_a_no_op_for_a_foreign_value(
     register(scratch.path(), runtime.path(), &fixture.work_path, "GHP7");
 
     let before = run_git_ok(&fixture.work_path, &["config", "--get", "core.hooksPath"]);
-    assert!(!String::from_utf8_lossy(&before.stdout).trim().is_empty(), "expected core.hooksPath to be set after registration");
+    assert!(
+        !String::from_utf8_lossy(&before.stdout).trim().is_empty(),
+        "expected core.hooksPath to be set after registration"
+    );
 
     // phase 7, plan 07-02: register_project now installs the commit-msg trailer hook beside
     // pre-push in the same directory, and each uninstall function removes only its own hook file
     // — core.hooksPath is unset only once NEITHER marked hook remains. Removing pre-push alone
     // must therefore leave core.hooksPath set (commit-msg still lives there).
     let result = uninstall_pre_push_hook(&fixture.work_path);
-    assert!(result.is_ok(), "uninstall_pre_push_hook should succeed: {result:?}");
+    assert!(
+        result.is_ok(),
+        "uninstall_pre_push_hook should succeed: {result:?}"
+    );
 
     let mid = run_git_ok(&fixture.work_path, &["config", "--get", "core.hooksPath"]);
     assert!(
@@ -817,7 +1070,10 @@ fn uninstall_unsets_core_hooks_path_it_wrote_and_is_a_no_op_for_a_foreign_value(
     );
 
     let result = uninstall_commit_msg_hook(&fixture.work_path);
-    assert!(result.is_ok(), "uninstall_commit_msg_hook should succeed: {result:?}");
+    assert!(
+        result.is_ok(),
+        "uninstall_commit_msg_hook should succeed: {result:?}"
+    );
 
     let after = run_git(&fixture.work_path, &["config", "--get", "core.hooksPath"]);
     assert!(
@@ -829,10 +1085,16 @@ fn uninstall_unsets_core_hooks_path_it_wrote_and_is_a_no_op_for_a_foreign_value(
     // script) must never be unset by this function.
     let foreign_dir = scratch.path().join("foreign-hooks");
     std::fs::create_dir_all(&foreign_dir).unwrap();
-    run_git_ok(&fixture.work_path, &["config", "core.hooksPath", foreign_dir.to_str().unwrap()]);
+    run_git_ok(
+        &fixture.work_path,
+        &["config", "core.hooksPath", foreign_dir.to_str().unwrap()],
+    );
 
     let result = uninstall_pre_push_hook(&fixture.work_path);
-    assert!(result.is_ok(), "uninstall_pre_push_hook should return Ok on the no-op arm too: {result:?}");
+    assert!(
+        result.is_ok(),
+        "uninstall_pre_push_hook should return Ok on the no-op arm too: {result:?}"
+    );
 
     let readback = run_git_ok(&fixture.work_path, &["config", "--get", "core.hooksPath"]);
     assert_eq!(
@@ -854,7 +1116,11 @@ fn a_pre_push_sample_file_alone_does_not_trigger_the_refusal() {
         let output = run_git_ok(&repo, &["rev-parse", "--git-path", "hooks"]);
         let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
         let p = Path::new(&raw);
-        if p.is_absolute() { p.to_path_buf() } else { repo.join(p) }
+        if p.is_absolute() {
+            p.to_path_buf()
+        } else {
+            repo.join(p)
+        }
     };
     assert!(
         default_hooks_dir.join("pre-push.sample").is_file(),
@@ -867,10 +1133,13 @@ fn a_pre_push_sample_file_alone_does_not_trigger_the_refusal() {
 
     let project_id = "GHP-SAMPLE-1";
     with_scratch_envs(scratch.path(), runtime.path(), || {
-        let result = install_pre_push_hook(&repo, project_id).expect("install_pre_push_hook should succeed");
+        let result =
+            install_pre_push_hook(&repo, project_id).expect("install_pre_push_hook should succeed");
         match result {
             PrePushInstall::Installed { .. } => {}
-            other => panic!("expected Installed (a .sample file must never trigger the refusal), got {other:?}"),
+            other => panic!(
+                "expected Installed (a .sample file must never trigger the refusal), got {other:?}"
+            ),
         }
     });
 }
@@ -887,7 +1156,10 @@ fn branch_deletion_push_with_an_allow_answer_completes_and_the_request_names_it_
     register(scratch.path(), runtime.path(), &fixture.work_path, "GHP9");
 
     let before = remote_ref(&fixture.remote_path, DOOMED_BRANCH);
-    assert!(before.is_some(), "expected the extra branch to exist on the remote before the allowed push");
+    assert!(
+        before.is_some(),
+        "expected the extra branch to exist on the remote before the allowed push"
+    );
 
     let socket_path = scratch_socket_path("allow");
     let server = spawn_mock_permission_server(socket_path.clone(), "allow");
@@ -911,8 +1183,13 @@ fn branch_deletion_push_with_an_allow_answer_completes_and_the_request_names_it_
         "an allowed branch-deletion push must actually have deleted the remote ref -- before={before:?} after={after:?}"
     );
 
-    let parsed = server.join().expect("the mock server thread should not panic");
-    assert_eq!(parsed["toolName"], "Bash", "the shim always names the tool Bash, got: {parsed}");
+    let parsed = server
+        .join()
+        .expect("the mock server thread should not panic");
+    assert_eq!(
+        parsed["toolName"], "Bash",
+        "the shim always names the tool Bash, got: {parsed}"
+    );
     assert_eq!(
         parsed["input"]["destructiveCategory"],
         DestructiveCategory::BranchDeletion.as_str(),
@@ -921,7 +1198,10 @@ fn branch_deletion_push_with_an_allow_answer_completes_and_the_request_names_it_
     let command = parsed["input"]["command"]
         .as_str()
         .unwrap_or_else(|| panic!("expected input.command to be a string, got: {parsed}"));
-    assert!(command.contains("origin"), "expected the request's command to name the remote, got: {command:?}");
+    assert!(
+        command.contains("origin"),
+        "expected the request's command to name the remote, got: {command:?}"
+    );
     assert!(
         command.contains(DOOMED_BRANCH),
         "expected the request's command to name the ref being deleted, got: {command:?}"
@@ -939,7 +1219,10 @@ fn branch_deletion_push_with_a_deny_answer_is_refused_and_the_remote_ref_survive
     register(scratch.path(), runtime.path(), &fixture.work_path, "GHP10");
 
     let before = remote_ref(&fixture.remote_path, DOOMED_BRANCH);
-    assert!(before.is_some(), "expected the extra branch to exist on the remote before the denied push");
+    assert!(
+        before.is_some(),
+        "expected the extra branch to exist on the remote before the denied push"
+    );
 
     let socket_path = scratch_socket_path("deny");
     let server = spawn_mock_permission_server(socket_path.clone(), "deny");
@@ -967,7 +1250,9 @@ fn branch_deletion_push_with_a_deny_answer_is_refused_and_the_remote_ref_survive
         "the remote ref must still resolve unchanged after the denied deletion -- before={before:?} after={after:?}"
     );
 
-    server.join().expect("the mock server thread should not panic");
+    server
+        .join()
+        .expect("the mock server thread should not panic");
     let _ = std::fs::remove_file(&socket_path);
 }
 
@@ -983,9 +1268,15 @@ fn branch_deletion_push_with_no_socket_is_still_refused() {
     register(scratch.path(), runtime.path(), &fixture.work_path, "GHP11");
 
     let before = remote_ref(&fixture.remote_path, DOOMED_BRANCH);
-    assert!(before.is_some(), "expected the extra branch to exist on the remote before the refused push");
+    assert!(
+        before.is_some(),
+        "expected the extra branch to exist on the remote before the refused push"
+    );
 
-    let output = run_git_hostile(&fixture.work_path, &["push", "origin", "--delete", DOOMED_BRANCH]);
+    let output = run_git_hostile(
+        &fixture.work_path,
+        &["push", "origin", "--delete", DOOMED_BRANCH],
+    );
     assert!(
         !output.status.success(),
         "expected the push to be refused with no supervisor available, but it exited 0. stdout={} stderr={}",
@@ -1017,16 +1308,26 @@ fn an_ordinary_push_raises_no_permission_request_at_all() {
 
     let before = remote_ref(&fixture.remote_path, "main").expect("main should exist on the remote");
 
-    std::fs::write(fixture.work_path.join("ordinary.txt"), "an ordinary commit\n")
-        .expect("failed to write the ordinary commit's file");
+    std::fs::write(
+        fixture.work_path.join("ordinary.txt"),
+        "an ordinary commit\n",
+    )
+    .expect("failed to write the ordinary commit's file");
     run_git_ok(&fixture.work_path, &["add", "ordinary.txt"]);
     run_git_ok(&fixture.work_path, &["commit", "-m", "an ordinary commit"]);
 
     let socket_path = scratch_socket_path("benign");
-    let listener = UnixListener::bind(&socket_path).expect("failed to bind the mock permission socket");
-    listener.set_nonblocking(true).expect("failed to set the listener non-blocking");
+    let listener =
+        UnixListener::bind(&socket_path).expect("failed to bind the mock permission socket");
+    listener
+        .set_nonblocking(true)
+        .expect("failed to set the listener non-blocking");
 
-    let output = run_git_hostile_with_socket(&fixture.work_path, &["push", "origin", "main"], &socket_path);
+    let output = run_git_hostile_with_socket(
+        &fixture.work_path,
+        &["push", "origin", "main"],
+        &socket_path,
+    );
     assert!(
         output.status.success(),
         "expected an ordinary fast-forward push to succeed. stdout={} stderr={}",
@@ -1034,8 +1335,12 @@ fn an_ordinary_push_raises_no_permission_request_at_all() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let after = remote_ref(&fixture.remote_path, "main").expect("main should still exist on the remote");
-    assert_ne!(before, after, "the remote's main ref should have advanced to the new object name");
+    let after =
+        remote_ref(&fixture.remote_path, "main").expect("main should still exist on the remote");
+    assert_ne!(
+        before, after,
+        "the remote's main ref should have advanced to the new object name"
+    );
 
     match listener.accept() {
         Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {}

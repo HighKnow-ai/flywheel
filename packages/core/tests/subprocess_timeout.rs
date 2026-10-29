@@ -29,7 +29,10 @@ fn hung_child_is_killed_within_its_ceiling_and_reports_timed_out() {
     let elapsed = start.elapsed();
 
     assert_eq!(err.kind(), std::io::ErrorKind::TimedOut);
-    assert!(elapsed >= SHORT_CEILING, "returned before its own ceiling: {elapsed:?}");
+    assert!(
+        elapsed >= SHORT_CEILING,
+        "returned before its own ceiling: {elapsed:?}"
+    );
     assert!(
         elapsed < SHORT_CEILING + Duration::from_millis(700),
         "returned long after its ceiling, not within a small margin: {elapsed:?}"
@@ -37,8 +40,14 @@ fn hung_child_is_killed_within_its_ceiling_and_reports_timed_out() {
 
     // The timeout error never carries the child's captured output (T-07-10-04).
     let message = err.to_string();
-    assert!(!message.contains("stdout"), "timeout error leaked a stdout reference: {message}");
-    assert!(!message.contains("stderr"), "timeout error leaked a stderr reference: {message}");
+    assert!(
+        !message.contains("stdout"),
+        "timeout error leaked a stdout reference: {message}"
+    );
+    assert!(
+        !message.contains("stderr"),
+        "timeout error leaked a stderr reference: {message}"
+    );
 }
 
 #[test]
@@ -91,7 +100,10 @@ fn git_at_still_succeeds_normally_on_a_real_repository() {
         .args(["init", "--quiet"])
         .status()
         .expect("failed to spawn git init for the test fixture");
-    assert!(status.success(), "git init should succeed for the test fixture");
+    assert!(
+        status.success(),
+        "git init should succeed for the test fixture"
+    );
 
     let output = flywheel_core::git::git_at(repo.path(), &["rev-parse", "--is-inside-work-tree"])
         .expect("git_at should still succeed on a real repository after routing through the guard");

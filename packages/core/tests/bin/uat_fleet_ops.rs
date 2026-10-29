@@ -56,8 +56,10 @@ use serde_json::json;
 fn new_story(conn: &mut Connection, project_id: &str, actor_id: &str, title: &str) -> story::Story {
     let m = milestone::create_milestone(conn, project_id, actor_id, "UAT milestone", None)
         .unwrap_or_else(|e| fail(&format!("create_milestone: {e:#}")));
-    let e = epic::create_epic(conn, actor_id, &m.id, "UAT epic").unwrap_or_else(|e| fail(&format!("create_epic: {e:#}")));
-    story::create_story(conn, actor_id, &e.id, title).unwrap_or_else(|e| fail(&format!("create_story: {e:#}")))
+    let e = epic::create_epic(conn, actor_id, &m.id, "UAT epic")
+        .unwrap_or_else(|e| fail(&format!("create_epic: {e:#}")));
+    story::create_story(conn, actor_id, &e.id, title)
+        .unwrap_or_else(|e| fail(&format!("create_story: {e:#}")))
 }
 
 fn fail(message: &str) -> ! {
@@ -72,7 +74,10 @@ fn require_env(name: &str, why: &str) {
 }
 
 fn epoch_ms() -> u128 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0)
 }
 
 /// The writing open: migrates, like every other harness bridge.
@@ -81,9 +86,12 @@ fn open_conn() -> Connection {
         "FLYWHEEL_APP_DATA_DIR",
         "refusing to touch the real fleet database. Point it at a scratch directory.",
     );
-    let db_path = flywheel_core::db::default_db_path().unwrap_or_else(|e| fail(&format!("db path: {e:#}")));
-    let backups = flywheel_core::db::default_backups_dir().unwrap_or_else(|e| fail(&format!("backups dir: {e:#}")));
-    flywheel_core::db::open_and_migrate(&db_path, &backups).unwrap_or_else(|e| fail(&format!("open: {e:#}")))
+    let db_path =
+        flywheel_core::db::default_db_path().unwrap_or_else(|e| fail(&format!("db path: {e:#}")));
+    let backups = flywheel_core::db::default_backups_dir()
+        .unwrap_or_else(|e| fail(&format!("backups dir: {e:#}")));
+    flywheel_core::db::open_and_migrate(&db_path, &backups)
+        .unwrap_or_else(|e| fail(&format!("open: {e:#}")))
 }
 
 /// The reading open: a plain connection with the app's pragmas, never migrating. This is how
@@ -93,7 +101,8 @@ fn open_plain() -> Connection {
         "FLYWHEEL_APP_DATA_DIR",
         "refusing to touch the real fleet database. Point it at a scratch directory.",
     );
-    let db_path = flywheel_core::db::default_db_path().unwrap_or_else(|e| fail(&format!("db path: {e:#}")));
+    let db_path =
+        flywheel_core::db::default_db_path().unwrap_or_else(|e| fail(&format!("db path: {e:#}")));
     let conn = Connection::open(&db_path).unwrap_or_else(|e| fail(&format!("open: {e}")));
     flywheel_core::db::apply_pragmas(&conn).unwrap_or_else(|e| fail(&format!("pragmas: {e:#}")));
     conn
@@ -104,7 +113,9 @@ fn human(conn: &Connection) -> String {
 }
 
 fn arg(args: &[String], i: usize, usage: &str) -> String {
-    args.get(i).cloned().unwrap_or_else(|| fail(&format!("usage: uat_fleet_ops {usage}")))
+    args.get(i)
+        .cloned()
+        .unwrap_or_else(|| fail(&format!("usage: uat_fleet_ops {usage}")))
 }
 
 /// `commands/fleet.rs::is_live`.

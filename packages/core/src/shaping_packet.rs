@@ -34,17 +34,17 @@ use anyhow::Context;
 use rusqlite::{params, Connection};
 
 use crate::context_packet::{live_adrs, non_blank, rejected_proposals, section};
+use crate::domain::acceptance_criterion::criteria_for_story;
 use crate::domain::adr_link::{adr_links_for_project, AdrLinkTarget};
+use crate::domain::check::check_for_criterion;
 use crate::domain::epic::get_epic;
 use crate::domain::milestone::{get_milestone, milestone_state, roadmap, MilestoneState};
 use crate::domain::proposal::proposals_on_epic;
-use crate::domain::acceptance_criterion::criteria_for_story;
-use crate::domain::check::check_for_criterion;
 use crate::domain::proposal_apply::{NewCriterion, NewStory, RunsAfter};
-use crate::domain::story::stories_in_epic;
 use crate::domain::round::{rounds_for_epic, rounds_for_milestone, Round};
 use crate::domain::session::ShapingSubject;
 use crate::domain::stage::{open_stage, StageKind};
+use crate::domain::story::stories_in_epic;
 
 /// The standing shaping instructions: the grilling prompt of mattpocock/skills, adapted to Rounds
 /// on a Flywheel board, read-only sessions and the Epic's three Stages.
@@ -134,10 +134,13 @@ fn epic_state_words(state: &str) -> &str {
 /// Build the packet a shaping session on `epic_id` starts from.
 pub fn build_epic_shaping_packet(conn: &Connection, epic_id: &str) -> anyhow::Result<String> {
     let epic = get_epic(conn, epic_id)?.with_context(|| format!("Epic {epic_id:?} not found"))?;
-    let milestone =
-        get_milestone(conn, &epic.milestone_id)?.with_context(|| format!("Milestone {:?} not found", epic.milestone_id))?;
-    let repo_path: String =
-        conn.query_row("SELECT repo_path FROM projects WHERE id = ?1", params![epic.project_id], |r| r.get(0))?;
+    let milestone = get_milestone(conn, &epic.milestone_id)?
+        .with_context(|| format!("Milestone {:?} not found", epic.milestone_id))?;
+    let repo_path: String = conn.query_row(
+        "SELECT repo_path FROM projects WHERE id = ?1",
+        params![epic.project_id],
+        |r| r.get(0),
+    )?;
     let checkout = PathBuf::from(repo_path);
 
     // Issue #126: the instructions follow the open Stage. Before shaping starts there is none yet,
@@ -161,7 +164,11 @@ pub fn build_epic_shaping_packet(conn: &Connection, epic_id: &str) -> anyhow::Re
     section(&mut out, "Milestone and Epic");
     match non_blank(&milestone.exit_test) {
         Some(exit) => writeln!(out, "Milestone: {}. Exit test: {}", milestone.title, exit)?,
-        None => writeln!(out, "Milestone: {}. Exit test: none written", milestone.title)?,
+        None => writeln!(
+            out,
+            "Milestone: {}. Exit test: none written",
+            milestone.title
+        )?,
     }
     writeln!(out, "\n### Epic {} {}", epic.key, epic.title)?;
     for (label, value) in [
@@ -170,7 +177,11 @@ pub fn build_epic_shaping_packet(conn: &Connection, epic_id: &str) -> anyhow::Re
         ("Out of scope", &epic.spec.out_of_scope),
         ("Exit test", &epic.spec.exit_test),
     ] {
-        writeln!(out, "\n{label}:\n{}", non_blank(value).unwrap_or("(not written)"))?;
+        writeln!(
+            out,
+            "\n{label}:\n{}",
+            non_blank(value).unwrap_or("(not written)")
+        )?;
     }
     let rejected = rejected_proposals(conn, &epic.id)?;
     if !rejected.is_empty() {
@@ -203,7 +214,13 @@ pub fn build_epic_shaping_packet(conn: &Connection, epic_id: &str) -> anyhow::Re
             if linked.is_empty() {
                 writeln!(out, "- {}: {}", adr.path, adr.title)?;
             } else {
-                writeln!(out, "- {}: {} (linked to {})", adr.path, adr.title, linked.join(", "))?;
+                writeln!(
+                    out,
+                    "- {}: {} (linked to {})",
+                    adr.path,
+                    adr.title,
+                    linked.join(", ")
+                )?;
             }
         }
     }
@@ -236,8 +253,10 @@ pub fn build_epic_shaping_packet(conn: &Connection, epic_id: &str) -> anyhow::Re
 
     // 7. Closing instruction: wait on the open Round, post the next one, or post the first
     section(&mut out, "Closing instruction");
-    let in_stage: Vec<&Round> =
-        rounds.iter().filter(|r| stage.as_ref().is_some_and(|s| s.id == r.stage_id)).collect();
+    let in_stage: Vec<&Round> = rounds
+        .iter()
+        .filter(|r| stage.as_ref().is_some_and(|s| s.id == r.stage_id))
+        .collect();
     let closing = match in_stage.iter().find(|r| r.state == "open") {
         Some(open) => CLOSING_OPEN_ROUND
             .replace("{round}", &open.number.to_string())
@@ -251,7 +270,11 @@ pub fn build_epic_shaping_packet(conn: &Connection, epic_id: &str) -> anyhow::Re
 }
 
 fn answered_count(round: &Round) -> usize {
-    round.questions.iter().filter(|q| q.answer.is_some()).count()
+    round
+        .questions
+        .iter()
+        .filter(|q| q.answer.is_some())
+        .count()
 }
 
 /// Every Round, grouped under its Stage's name, each question with its grounding, the recommendation
@@ -273,18 +296,34 @@ answer is settled once its Round is answered; an open Round's missing answers ar
             writeln!(out, "\n### {}", round.stage_kind.label())?;
         }
         let state = if round.state == "open" {
-            format!("open, {} of {} answered", answered_count(round), round.questions.len())
+            format!(
+                "open, {} of {} answered",
+                answered_count(round),
+                round.questions.len()
+            )
         } else {
             "answered".to_string()
         };
-        writeln!(out, "\n#### Round {} ({state})\n\nNote: {}", round.number, round.note)?;
+        writeln!(
+            out,
+            "\n#### Round {} ({state})\n\nNote: {}",
+            round.number, round.note
+        )?;
         for q in &round.questions {
             writeln!(out, "\n{}. {}: {}", q.number, q.title, q.question)?;
             writeln!(out, "   Grounding: {}", q.grounding)?;
-            writeln!(out, "   Recommended: {} (because {})", q.recommended_answer, q.because)?;
+            writeln!(
+                out,
+                "   Recommended: {} (because {})",
+                q.recommended_answer, q.because
+            )?;
             match (q.answer.as_deref(), q.answered_with.as_deref()) {
-                (Some(answer), Some("recommended")) => writeln!(out, "   Answer (your recommendation, accepted): {answer}")?,
-                (Some(answer), _) => writeln!(out, "   Answer (the developer's own words): {answer}")?,
+                (Some(answer), Some("recommended")) => {
+                    writeln!(out, "   Answer (your recommendation, accepted): {answer}")?
+                }
+                (Some(answer), _) => {
+                    writeln!(out, "   Answer (the developer's own words): {answer}")?
+                }
                 (None, _) => out.push_str("   Answer: not answered yet\n"),
             }
         }
@@ -311,13 +350,24 @@ fn story_state_words(state: &str) -> &str {
 /// the pending criterion Proposals follow (issue #128).
 fn write_stories(out: &mut String, conn: &Connection, epic_id: &str) -> anyhow::Result<()> {
     let stories = stories_in_epic(conn, epic_id)?;
-    let key_of = |id: &str| stories.iter().find(|s| s.id == id).map_or(id.to_string(), |s| s.key.clone());
+    let key_of = |id: &str| {
+        stories
+            .iter()
+            .find(|s| s.id == id)
+            .map_or(id.to_string(), |s| s.key.clone())
+    };
     if stories.is_empty() {
         out.push_str("No Story on this Epic yet.\n");
     } else {
         out.push_str("The Epic's Stories in execution order:\n");
         for s in &stories {
-            write!(out, "- {} {} ({})", s.key, s.title, story_state_words(&s.state))?;
+            write!(
+                out,
+                "- {} {} ({})",
+                s.key,
+                s.title,
+                story_state_words(&s.state)
+            )?;
             if let Some(after) = &s.runs_after_story_id {
                 write!(out, "; runs after {}", key_of(after))?;
                 if let Some(reason) = &s.runs_after_reason {
@@ -328,24 +378,42 @@ fn write_stories(out: &mut String, conn: &Connection, epic_id: &str) -> anyhow::
             // Issue #128: each criterion under its Story, with its Check or judged at review.
             for c in criteria_for_story(conn, &s.id)? {
                 write!(out, "  - {}", c.statement)?;
-                write_check(out, check_for_criterion(conn, &c.id)?.map(|check| check.command).as_deref())?;
+                write_check(
+                    out,
+                    check_for_criterion(conn, &c.id)?
+                        .map(|check| check.command)
+                        .as_deref(),
+                )?;
                 out.push('\n');
             }
         }
     }
     let proposals = proposals_on_epic(conn, epic_id)?;
-    let pending: Vec<_> = proposals.iter().filter(|p| p.state == "pending" && p.target_type == "story").collect();
+    let pending: Vec<_> = proposals
+        .iter()
+        .filter(|p| p.state == "pending" && p.target_type == "story")
+        .collect();
     if !pending.is_empty() {
         out.push_str("\nStory Proposals waiting on the developer, oldest first:\n");
     }
     for p in pending {
         match p.verb.as_str() {
             "create" => {
-                let Ok(story) = NewStory::from_payload(&p.payload) else { continue };
-                write!(out, "- New Story \"{}\" (proposal_id {})", story.title, p.id)?;
+                let Ok(story) = NewStory::from_payload(&p.payload) else {
+                    continue;
+                };
+                write!(
+                    out,
+                    "- New Story \"{}\" (proposal_id {})",
+                    story.title, p.id
+                )?;
                 match &story.runs_after {
-                    Some((RunsAfter::Story(id), reason)) => write!(out, "; runs after {}: {reason}", key_of(id))?,
-                    Some((RunsAfter::Proposal(id), reason)) => write!(out, "; runs after the New Story {id}: {reason}")?,
+                    Some((RunsAfter::Story(id), reason)) => {
+                        write!(out, "; runs after {}: {reason}", key_of(id))?
+                    }
+                    Some((RunsAfter::Proposal(id), reason)) => {
+                        write!(out, "; runs after the New Story {id}: {reason}")?
+                    }
                     None => {}
                 }
                 out.push('\n');
@@ -353,7 +421,11 @@ fn write_stories(out: &mut String, conn: &Connection, epic_id: &str) -> anyhow::
             verb @ ("reorder" | "retire") => {
                 let key = p.target_id.as_deref().map(key_of).unwrap_or_default();
                 let what = if verb == "reorder" { "Move" } else { "Retire" };
-                writeln!(out, "- {what} {key}: {}", p.rationale.as_deref().unwrap_or("no reason given"))?;
+                writeln!(
+                    out,
+                    "- {what} {key}: {}",
+                    p.rationale.as_deref().unwrap_or("no reason given")
+                )?;
             }
             _ => {}
         }
@@ -368,7 +440,12 @@ fn write_stories(out: &mut String, conn: &Connection, epic_id: &str) -> anyhow::
         out.push_str("\nCriterion Proposals waiting on the developer, oldest first:\n");
     }
     for (p, c) in criteria {
-        write!(out, "- Criterion on {}: \"{}\"", key_of(&c.story_id), c.statement)?;
+        write!(
+            out,
+            "- Criterion on {}: \"{}\"",
+            key_of(&c.story_id),
+            c.statement
+        )?;
         write_check(out, c.check_command.as_deref())?;
         writeln!(out, " (proposal_id {})", p.id)?;
     }
@@ -384,7 +461,11 @@ fn write_check(out: &mut String, command: Option<&str>) -> std::fmt::Result {
 }
 
 /// `(key, title, state)` of every other Epic in `milestone_id`, by rank then id.
-fn sibling_epics(conn: &Connection, milestone_id: &str, epic_id: &str) -> anyhow::Result<Vec<(String, String, String)>> {
+fn sibling_epics(
+    conn: &Connection,
+    milestone_id: &str,
+    epic_id: &str,
+) -> anyhow::Result<Vec<(String, String, String)>> {
     let mut stmt = conn.prepare(
         "SELECT e.key, e.title,
             CASE WHEN e.state = 'ready' AND EXISTS (SELECT 1 FROM stories s WHERE s.epic_id = e.id
@@ -393,7 +474,9 @@ fn sibling_epics(conn: &Connection, milestone_id: &str, epic_id: &str) -> anyhow
          FROM epics e WHERE e.milestone_id = ?1 AND e.id != ?2 ORDER BY e.rank, e.id",
     )?;
     let rows = stmt
-        .query_map(params![milestone_id, epic_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        .query_map(params![milestone_id, epic_id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })?
         .collect::<Result<Vec<_>, _>>()
         .context("failed to read the sibling Epics")?;
     Ok(rows)
@@ -475,11 +558,17 @@ fn milestone_state_words(state: MilestoneState) -> &'static str {
 }
 
 /// Build the packet a shaping session on `milestone_id` starts from (issue #132).
-pub fn build_milestone_shaping_packet(conn: &Connection, milestone_id: &str) -> anyhow::Result<String> {
-    let milestone =
-        get_milestone(conn, milestone_id)?.with_context(|| format!("Milestone {milestone_id:?} not found"))?;
-    let repo_path: String =
-        conn.query_row("SELECT repo_path FROM projects WHERE id = ?1", params![milestone.project_id], |r| r.get(0))?;
+pub fn build_milestone_shaping_packet(
+    conn: &Connection,
+    milestone_id: &str,
+) -> anyhow::Result<String> {
+    let milestone = get_milestone(conn, milestone_id)?
+        .with_context(|| format!("Milestone {milestone_id:?} not found"))?;
+    let repo_path: String = conn.query_row(
+        "SELECT repo_path FROM projects WHERE id = ?1",
+        params![milestone.project_id],
+        |r| r.get(0),
+    )?;
     let checkout = PathBuf::from(repo_path);
     let subject = ShapingSubject::Milestone(milestone.id.clone());
     let stage = open_stage(conn, &subject)?;
@@ -491,7 +580,9 @@ pub fn build_milestone_shaping_packet(conn: &Connection, milestone_id: &str) -> 
     // 1. Standing instructions
     section(&mut out, "Standing instructions");
     out.push_str(
-        &MILESTONE_STANDING_INSTRUCTIONS.replace("{stage}", stage_kind.label()).replace("{purpose}", stage_kind.purpose()),
+        &MILESTONE_STANDING_INSTRUCTIONS
+            .replace("{stage}", stage_kind.label())
+            .replace("{purpose}", stage_kind.purpose()),
     );
 
     // 2. The Roadmap: every Milestone in order with its state and exit test, this one marked, then
@@ -500,9 +591,18 @@ pub fn build_milestone_shaping_packet(conn: &Connection, milestone_id: &str) -> 
     out.push_str("Every Milestone in Roadmap order, with its state and exit test:\n");
     for (i, m) in roadmap(conn, &milestone.project_id)?.iter().enumerate() {
         let state = milestone_state_words(milestone_state(conn, &m.id)?);
-        let this = if m.id == milestone.id { ", the Milestone you are shaping" } else { "" };
+        let this = if m.id == milestone.id {
+            ", the Milestone you are shaping"
+        } else {
+            ""
+        };
         let exit = non_blank(&m.exit_test).unwrap_or("none written");
-        writeln!(out, "{}. {} ({state}){this}. Exit test: {exit}", i + 1, m.title)?;
+        writeln!(
+            out,
+            "{}. {} ({state}){this}. Exit test: {exit}",
+            i + 1,
+            m.title
+        )?;
     }
     let rejected = rejected_exit_tests(conn, &milestone.id)?;
     if !rejected.is_empty() {
@@ -520,7 +620,11 @@ pub fn build_milestone_shaping_packet(conn: &Connection, milestone_id: &str) -> 
     }
     for (key, title, state, exit_test) in epics {
         let exit = non_blank(&exit_test).unwrap_or("none written");
-        writeln!(out, "- {key} {title} ({}). Exit test: {exit}", epic_state_words(&state))?;
+        writeln!(
+            out,
+            "- {key} {title} ({}). Exit test: {exit}",
+            epic_state_words(&state)
+        )?;
     }
 
     // 4. ADRs and the glossary, from the project's checkout
@@ -532,11 +636,16 @@ pub fn build_milestone_shaping_packet(conn: &Connection, milestone_id: &str) -> 
     } else {
         out.push_str("Every live ADR in the project, superseded ones left out:\n");
         for adr in &adrs {
-            let linked = links
-                .iter()
-                .any(|l| l.path == adr.path && matches!(&l.target, AdrLinkTarget::Milestone(id) if *id == milestone.id));
+            let linked = links.iter().any(|l| {
+                l.path == adr.path
+                    && matches!(&l.target, AdrLinkTarget::Milestone(id) if *id == milestone.id)
+            });
             if linked {
-                writeln!(out, "- {}: {} (linked to this Milestone)", adr.path, adr.title)?;
+                writeln!(
+                    out,
+                    "- {}: {} (linked to this Milestone)",
+                    adr.path, adr.title
+                )?;
             } else {
                 writeln!(out, "- {}: {}", adr.path, adr.title)?;
             }
@@ -555,11 +664,16 @@ pub fn build_milestone_shaping_packet(conn: &Connection, milestone_id: &str) -> 
 
     // 6. Closing instruction: wait on the open Round, post the next one, or post the first
     section(&mut out, "Closing instruction");
-    let in_stage: Vec<&Round> =
-        rounds.iter().filter(|r| stage.as_ref().is_some_and(|s| s.id == r.stage_id)).collect();
+    let in_stage: Vec<&Round> = rounds
+        .iter()
+        .filter(|r| stage.as_ref().is_some_and(|s| s.id == r.stage_id))
+        .collect();
     let closing = match in_stage.iter().find(|r| r.state == "open") {
         Some(open) => CLOSING_OPEN_ROUND
-            .replace("the Epic and the Rounds above", "the Milestone and the Rounds above")
+            .replace(
+                "the Epic and the Rounds above",
+                "the Milestone and the Rounds above",
+            )
             .replace("{round}", &open.number.to_string())
             .replace("{answered}", &answered_count(open).to_string())
             .replace("{total}", &open.questions.len().to_string()),
@@ -575,7 +689,9 @@ pub fn build_shaping_packet(conn: &Connection, subject: &ShapingSubject) -> anyh
     match subject {
         ShapingSubject::Epic(id) => build_epic_shaping_packet(conn, id),
         ShapingSubject::Milestone(id) => build_milestone_shaping_packet(conn, id),
-        ShapingSubject::Roadmap(project_id) => crate::roadmap_packet::build_roadmap_packet(conn, project_id),
+        ShapingSubject::Roadmap(project_id) => {
+            crate::roadmap_packet::build_roadmap_packet(conn, project_id)
+        }
     }
 }
 
@@ -594,7 +710,9 @@ fn milestone_epics(conn: &Connection, milestone_id: &str) -> anyhow::Result<Vec<
          FROM epics e WHERE e.milestone_id = ?1 ORDER BY e.rank, e.id",
     )?;
     let rows = stmt
-        .query_map(params![milestone_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+        .query_map(params![milestone_id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+        })?
         .collect::<Result<Vec<_>, _>>()
         .context("failed to read the Milestone's Epics")?;
     Ok(rows)
@@ -608,8 +726,15 @@ fn rejected_exit_tests(conn: &Connection, milestone_id: &str) -> anyhow::Result<
         .into_iter()
         .filter(|p| p.state == "rejected")
         .map(|p| {
-            let text = p.payload.get("text").and_then(|t| t.as_str()).unwrap_or_default().to_string();
-            let reason = p.rejection_reason.unwrap_or_else(|| "no reason given".to_string());
+            let text = p
+                .payload
+                .get("text")
+                .and_then(|t| t.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let reason = p
+                .rejection_reason
+                .unwrap_or_else(|| "no reason given".to_string());
             format!("amend Exit test: \"{text}\"; rejected: {reason}")
         })
         .collect())

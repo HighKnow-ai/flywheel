@@ -63,7 +63,6 @@ macro_rules! can_make_ready {
 }
 pub(crate) use can_make_ready;
 
-pub mod sessions;
 pub mod events;
 pub mod fleet;
 pub mod needs_you;
@@ -71,3 +70,4 @@ pub mod permissions;
 pub mod progress;
 pub mod recovery;
 pub mod roster;
+pub mod sessions;

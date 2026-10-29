@@ -30,7 +30,9 @@ fn reader_loop_region(contents: &str) -> Vec<&str> {
     let spawn_idx = lines
         .iter()
         .position(|line| line.contains("tauri::async_runtime::spawn"))
-        .unwrap_or_else(|| panic!("expected to find the reader task's own spawn call in sidecar.rs"));
+        .unwrap_or_else(|| {
+            panic!("expected to find the reader task's own spawn call in sidecar.rs")
+        });
     lines[spawn_idx..].to_vec()
 }
 
@@ -40,11 +42,19 @@ fn reader_loop_region(contents: &str) -> Vec<&str> {
 /// handler_after_emit)` so callers can build a precise failure message for whichever piece is
 /// missing.
 fn call_site_shape(region: &[&str]) -> (bool, bool, bool, bool) {
-    let non_comment: Vec<(usize, &&str)> =
-        region.iter().enumerate().filter(|(_, line)| !is_whole_line_comment(line)).collect();
+    let non_comment: Vec<(usize, &&str)> = region
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| !is_whole_line_comment(line))
+        .collect();
 
-    let emit_idx = non_comment.iter().find(|(_, line)| line.contains(r#"emit("agent:event""#)).map(|(idx, _)| *idx);
-    let has_type_string = non_comment.iter().any(|(_, line)| line.contains("session_closed"));
+    let emit_idx = non_comment
+        .iter()
+        .find(|(_, line)| line.contains(r#"emit("agent:event""#))
+        .map(|(idx, _)| *idx);
+    let has_type_string = non_comment
+        .iter()
+        .any(|(_, line)| line.contains("session_closed"));
     let handler_idx = non_comment
         .iter()
         .find(|(_, line)| line.contains("handle_inbound_session_closed"))
@@ -55,7 +65,12 @@ fn call_site_shape(region: &[&str]) -> (bool, bool, bool, bool) {
         _ => false,
     };
 
-    (emit_idx.is_some(), has_type_string, handler_idx.is_some(), handler_after_emit)
+    (
+        emit_idx.is_some(),
+        has_type_string,
+        handler_idx.is_some(),
+        handler_after_emit,
+    )
 }
 
 #[test]
@@ -66,7 +81,8 @@ fn the_reader_loop_dispatches_the_terminal_event_to_the_handler() {
     let region = reader_loop_region(&contents);
     let region_text = region.join("\n");
 
-    let (has_emit, has_type_string, has_handler_call, handler_after_emit) = call_site_shape(&region);
+    let (has_emit, has_type_string, has_handler_call, handler_after_emit) =
+        call_site_shape(&region);
 
     assert!(
         has_emit,
@@ -121,7 +137,8 @@ tauri::async_runtime::spawn(async move {
     }
 });
 ";
-    let (_, has_type_string_missing, has_handler_call_missing, _) = call_site_shape(&reader_loop_region(missing));
+    let (_, has_type_string_missing, has_handler_call_missing, _) =
+        call_site_shape(&reader_loop_region(missing));
     assert!(
         !has_handler_call_missing,
         "the fixture deliberately omits the handler call — the gate must detect its absence"

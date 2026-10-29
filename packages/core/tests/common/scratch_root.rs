@@ -21,7 +21,9 @@ pub static WORKTREE_ROOT_ENV_LOCK: Mutex<()> = Mutex::new(());
 /// directory deleted before the lock is released.
 #[allow(dead_code)]
 pub fn with_scratch_worktree_root<T>(f: impl FnOnce(&Path) -> T) -> T {
-    let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = WORKTREE_ROOT_ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let dir = tempfile::tempdir().expect("failed to create scratch worktree root");
     // SAFETY: the lock above serialises every caller in this process, and this helper always
     // clears the var before the lock is released.

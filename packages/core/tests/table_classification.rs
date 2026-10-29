@@ -47,7 +47,9 @@ fn database_tables(conn: &Connection) -> Vec<String> {
 
     let search_indexes: Vec<&str> = TABLE_CLASSES
         .iter()
-        .filter(|(_, class)| *class == flywheel_core::schema_classification::TableClass::SearchIndex)
+        .filter(|(_, class)| {
+            *class == flywheel_core::schema_classification::TableClass::SearchIndex
+        })
         .map(|(name, _)| *name)
         .collect();
 
@@ -59,7 +61,9 @@ fn database_tables(conn: &Connection) -> Vec<String> {
             }
             // An FTS5 shadow table of an already-classified search index.
             !search_indexes.iter().any(|fts| {
-                FTS_SHADOW_SUFFIXES.iter().any(|suffix| *name == format!("{fts}{suffix}"))
+                FTS_SHADOW_SUFFIXES
+                    .iter()
+                    .any(|suffix| *name == format!("{fts}{suffix}"))
             })
         })
         .collect()
@@ -71,10 +75,16 @@ fn offenders(conn: &Connection) -> (Vec<String>, Vec<String>) {
     let in_db = database_tables(conn);
     let listed = classified_names();
 
-    let mut unclassified: Vec<String> =
-        in_db.iter().filter(|n| !listed.contains(&n.as_str())).cloned().collect();
-    let mut stale: Vec<String> =
-        listed.iter().filter(|n| !in_db.iter().any(|d| d == *n)).map(|n| n.to_string()).collect();
+    let mut unclassified: Vec<String> = in_db
+        .iter()
+        .filter(|n| !listed.contains(&n.as_str()))
+        .cloned()
+        .collect();
+    let mut stale: Vec<String> = listed
+        .iter()
+        .filter(|n| !in_db.iter().any(|d| d == *n))
+        .map(|n| n.to_string())
+        .collect();
     unclassified.sort();
     stale.sort();
     (unclassified, stale)
@@ -99,5 +109,8 @@ fn the_classification_gate_fires_on_a_planted_table() {
         .expect("planting a table should succeed");
     let (unclassified, stale) = offenders(&conn);
     assert_eq!(unclassified, vec!["a_table_nobody_classified".to_string()]);
-    assert!(stale.is_empty(), "planting a table must not make an entry stale: {stale:?}");
+    assert!(
+        stale.is_empty(),
+        "planting a table must not make an entry stale: {stale:?}"
+    );
 }

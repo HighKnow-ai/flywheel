@@ -16,17 +16,21 @@
 
 use std::sync::Mutex;
 
-use flywheel_core::domain::handoff::{complete_review_run, plan_review_run, run_checks_reporting, ReviewRunOutcome, ReviewRunRefused};
+use flywheel_core::domain::handoff::{
+    complete_review_run, plan_review_run, run_checks_reporting, ReviewRunOutcome, ReviewRunRefused,
+};
 use flywheel_core::domain::proposal_apply::AdrBarLines;
-use flywheel_core::domain::review::{Review, ReviewCheck, ReviewCriterion, ReviewObjection, StoryReview};
+use flywheel_core::domain::review::{
+    Review, ReviewCheck, ReviewCriterion, ReviewObjection, StoryReview,
+};
 use flywheel_core::domain::review_decisions::{
     AdrDecision, DecisionChange, DecisionFlag, NewAdr, RelatedAdr, ReviewDecisions,
 };
-use flywheel_core::git::ReviewFile;
 use flywheel_core::domain::story_merge::{MergeOptions, MergeOutcome, MergeRefused};
+use flywheel_core::git::ReviewFile;
+use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::Value;
-use rusqlite::Connection;
 use tauri::{AppHandle, Manager, State};
 
 use super::{emit_board_changed, ipc_error, validate_text, MAX_PROSE_LEN};
@@ -43,7 +47,10 @@ pub struct ReviewObjectionDto {
 
 impl From<ReviewObjection> for ReviewObjectionDto {
     fn from(o: ReviewObjection) -> Self {
-        Self { why: o.why, command: o.command }
+        Self {
+            why: o.why,
+            command: o.command,
+        }
     }
 }
 
@@ -71,7 +78,11 @@ impl From<ReviewCheck> for ReviewCheckDto {
             stale: k.stale,
             commit_sha: k.commit_sha,
             output_tail: k.output_tail,
-            objections: k.objections.into_iter().map(ReviewObjectionDto::from).collect(),
+            objections: k
+                .objections
+                .into_iter()
+                .map(ReviewObjectionDto::from)
+                .collect(),
         }
     }
 }
@@ -164,7 +175,10 @@ pub struct RelatedAdrDto {
 
 impl From<RelatedAdr> for RelatedAdrDto {
     fn from(r: RelatedAdr) -> Self {
-        Self { path: r.path, title: r.title }
+        Self {
+            path: r.path,
+            title: r.title,
+        }
     }
 }
 
@@ -183,10 +197,19 @@ impl From<AdrDecision> for AdrDecisionDto {
     fn from(d: AdrDecision) -> Self {
         let kind = d.as_str().to_string();
         match d {
-            AdrDecision::WrongDecision { what_is_wrong, should_be } => {
-                Self { kind, what_is_wrong: Some(what_is_wrong), should_be: Some(should_be) }
-            }
-            _ => Self { kind, what_is_wrong: None, should_be: None },
+            AdrDecision::WrongDecision {
+                what_is_wrong,
+                should_be,
+            } => Self {
+                kind,
+                what_is_wrong: Some(what_is_wrong),
+                should_be: Some(should_be),
+            },
+            _ => Self {
+                kind,
+                what_is_wrong: None,
+                should_be: None,
+            },
         }
     }
 }
@@ -209,15 +232,30 @@ pub struct DecisionFlagDto {
 impl From<DecisionFlag> for DecisionFlagDto {
     fn from(f: DecisionFlag) -> Self {
         let kind = f.as_str().to_string();
-        let empty = Self { kind, number: None, taken_by: None, base_branch: None, superseded: None };
+        let empty = Self {
+            kind,
+            number: None,
+            taken_by: None,
+            base_branch: None,
+            superseded: None,
+        };
         match f {
             DecisionFlag::WordingOrSupersede => empty,
-            DecisionFlag::Renumber { number, taken_by, base_branch } => {
-                Self { number: Some(number), taken_by: Some(taken_by), base_branch: Some(base_branch), ..empty }
-            }
-            DecisionFlag::SupersessionLineMissing { superseded, number } => {
-                Self { number: Some(number), superseded: Some(superseded), ..empty }
-            }
+            DecisionFlag::Renumber {
+                number,
+                taken_by,
+                base_branch,
+            } => Self {
+                number: Some(number),
+                taken_by: Some(taken_by),
+                base_branch: Some(base_branch),
+                ..empty
+            },
+            DecisionFlag::SupersessionLineMissing { superseded, number } => Self {
+                number: Some(number),
+                superseded: Some(superseded),
+                ..empty
+            },
         }
     }
 }
@@ -300,7 +338,14 @@ pub struct ReviewFileDto {
 
 impl From<ReviewFile> for ReviewFileDto {
     fn from(f: ReviewFile) -> Self {
-        Self { path: f.path, old_path: f.old_path, status: f.status, added: f.added, removed: f.removed, binary: f.binary }
+        Self {
+            path: f.path,
+            old_path: f.old_path,
+            status: f.status,
+            added: f.added,
+            removed: f.removed,
+            binary: f.binary,
+        }
     }
 }
 
@@ -338,7 +383,11 @@ impl StoryReviewDto {
     fn new(r: StoryReview, decisions: ReviewDecisions) -> Self {
         let adr_review_points = decisions.review_points();
         Self {
-            decisions: decisions.changes.into_iter().map(DecisionChangeDto::from).collect(),
+            decisions: decisions
+                .changes
+                .into_iter()
+                .map(DecisionChangeDto::from)
+                .collect(),
             adr_review_points,
             ..Self::from(r)
         }
@@ -354,9 +403,17 @@ impl From<StoryReview> for StoryReviewDto {
             story_state: r.story_state,
             head_sha: r.head_sha,
             review: r.review.map(ReviewDto::from),
-            criteria: r.criteria.into_iter().map(ReviewCriterionDto::from).collect(),
+            criteria: r
+                .criteria
+                .into_iter()
+                .map(ReviewCriterionDto::from)
+                .collect(),
             open_tasks: r.open_tasks,
-            failing_checks: r.failing_checks.into_iter().map(ReviewCheckDto::from).collect(),
+            failing_checks: r
+                .failing_checks
+                .into_iter()
+                .map(ReviewCheckDto::from)
+                .collect(),
             live_session: r.live_session,
             uncommitted: r.uncommitted,
             decisions: Vec::new(),
@@ -435,9 +492,15 @@ pub struct ReviewPatchDto {
 
 fn patch_dto(patch: String) -> ReviewPatchDto {
     if patch.len() > MAX_PATCH_BYTES {
-        ReviewPatchDto { patch: String::new(), too_large: true }
+        ReviewPatchDto {
+            patch: String::new(),
+            too_large: true,
+        }
     } else {
-        ReviewPatchDto { patch, too_large: false }
+        ReviewPatchDto {
+            patch,
+            too_large: false,
+        }
     }
 }
 
@@ -451,7 +514,10 @@ pub async fn review_file_patch(
     old_path: Option<String>,
 ) -> Result<ReviewPatchDto, String> {
     let source = {
-        let conn = state.db.lock().map_err(|e| ipc_error("review_file_patch:lock", e))?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| ipc_error("review_file_patch:lock", e))?;
         flywheel_core::domain::review::review_patch_source(&conn, &story_id)
             .map_err(|e| ipc_error("review_file_patch:read", e))?
     };
@@ -475,7 +541,13 @@ pub struct ChecksRerunDto {
 impl From<&ReviewRunOutcome> for ChecksRerunDto {
     fn from(o: &ReviewRunOutcome) -> Self {
         use flywheel_core::domain::check::CheckResult;
-        let count = |result: CheckResult| o.batch.outcomes.iter().filter(|x| x.result == result).count();
+        let count = |result: CheckResult| {
+            o.batch
+                .outcomes
+                .iter()
+                .filter(|x| x.result == result)
+                .count()
+        };
         Self {
             commit_sha: o.batch.commit_sha.clone(),
             passed: count(CheckResult::Passed),
@@ -492,10 +564,16 @@ pub fn rerun_off_lock(
     story_id: &str,
     on_progress: impl FnMut(usize, usize),
 ) -> anyhow::Result<ReviewRunOutcome> {
-    let lock = || db.lock().map_err(|_| anyhow::anyhow!("the board database is unavailable"));
+    let lock = || {
+        db.lock()
+            .map_err(|_| anyhow::anyhow!("the board database is unavailable"))
+    };
     let (actor, plan) = {
         let conn = lock()?;
-        (flywheel_core::domain::actor::local_human_actor_id(&conn)?, plan_review_run(&conn, story_id)?)
+        (
+            flywheel_core::domain::actor::local_human_actor_id(&conn)?,
+            plan_review_run(&conn, story_id)?,
+        )
     };
     let batch = run_checks_reporting(&plan, on_progress)?;
     complete_review_run(&mut *lock()?, &actor, &plan, batch)
@@ -513,7 +591,10 @@ fn rerun_error(e: anyhow::Error) -> String {
 /// session, each run recorded against the branch's head. Refused while a session is live. While it
 /// runs, `checks:progress` says how many of the Checks have ended (`{ storyId, done, total }`).
 #[tauri::command(async)]
-pub async fn story_checks_rerun(app: AppHandle, story_id: String) -> Result<ChecksRerunDto, String> {
+pub async fn story_checks_rerun(
+    app: AppHandle,
+    story_id: String,
+) -> Result<ChecksRerunDto, String> {
     let worker = app.clone();
     let outcome = tauri::async_runtime::spawn_blocking(move || {
         let progress = |done: usize, total: usize| {
@@ -526,7 +607,12 @@ pub async fn story_checks_rerun(app: AppHandle, story_id: String) -> Result<Chec
     .await
     .map_err(|e| ipc_error("story_checks_rerun:join", e))?
     .map_err(rerun_error)?;
-    emit_board_changed(&app, Some(&outcome.project_id), "story", Some(&outcome.story_id));
+    emit_board_changed(
+        &app,
+        Some(&outcome.project_id),
+        "story",
+        Some(&outcome.story_id),
+    );
     Ok(ChecksRerunDto::from(&outcome))
 }
 
@@ -551,7 +637,10 @@ pub async fn story_adr_decide(
             let should_be = should_be.unwrap_or_default();
             validate_text("what is wrong", &what_is_wrong, MAX_PROSE_LEN)?;
             validate_text("what it should be", &should_be, MAX_PROSE_LEN)?;
-            AdrDecision::WrongDecision { what_is_wrong, should_be }
+            AdrDecision::WrongDecision {
+                what_is_wrong,
+                should_be,
+            }
         }
         other => return Err(format!("unknown ADR decision {other:?}")),
     };
@@ -564,8 +653,10 @@ pub async fn story_adr_decide(
             let mut conn = super::open_beside(&db_path)?;
             let human = flywheel_core::domain::actor::local_human_actor_id(&conn)
                 .map_err(|e| ipc_error("story_adr_decide:actor", e))?;
-            flywheel_core::domain::review_decisions::set_adr_decision(&mut conn, &human, &id, &path, &decision)
-                .map_err(|e| format!("{e:#}"))?;
+            flywheel_core::domain::review_decisions::set_adr_decision(
+                &mut conn, &human, &id, &path, &decision,
+            )
+            .map_err(|e| format!("{e:#}"))?;
             Ok(super::project_of(&conn, "stories", &id))
         })
     })
@@ -592,15 +683,26 @@ pub async fn story_merge(
     with_failing_checks: bool,
 ) -> Result<MergeDto, String> {
     let actor = {
-        let conn = state.db.lock().map_err(|e| ipc_error("story_merge:lock", e))?;
-        let actor = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| ipc_error("story_merge:actor", e));
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| ipc_error("story_merge:lock", e))?;
+        let actor = flywheel_core::domain::actor::local_human_actor_id(&conn)
+            .map_err(|e| ipc_error("story_merge:actor", e));
         // Released explicitly: nothing below may run with the database mutex held.
         drop(conn);
         actor?
     };
     let db_path = super::board_path(&state.db)?;
     let outcome = tauri::async_runtime::spawn_blocking(move || {
-        merge_with_story_work(&db_path, &actor, &story_id, MergeOptions { with_failing_checks })
+        merge_with_story_work(
+            &db_path,
+            &actor,
+            &story_id,
+            MergeOptions {
+                with_failing_checks,
+            },
+        )
     })
     .await
     .map_err(|e| ipc_error("story_merge:join", e))?
@@ -631,17 +733,26 @@ mod tests {
 
     #[test]
     fn a_refusal_crosses_as_written_and_any_other_failure_as_its_category() {
-        let refused = anyhow::Error::new(MergeRefused("Accept every criterion before merging.".into()));
-        assert_eq!(merge_error(refused), "Accept every criterion before merging.");
+        let refused = anyhow::Error::new(MergeRefused(
+            "Accept every criterion before merging.".into(),
+        ));
+        assert_eq!(
+            merge_error(refused),
+            "Accept every criterion before merging."
+        );
         let git = anyhow::anyhow!("git -C \"/Users/someone/repo\" [\"merge\"] failed");
         assert_eq!(merge_error(git), "failed:story_merge:git");
     }
 
     #[test]
     fn a_rerun_refusal_crosses_as_written_and_any_other_failure_as_its_category() {
-        let refused = anyhow::Error::new(ReviewRunRefused("A session of this Story is live.".into()));
+        let refused =
+            anyhow::Error::new(ReviewRunRefused("A session of this Story is live.".into()));
         assert_eq!(rerun_error(refused), "A session of this Story is live.");
-        assert_eq!(rerun_error(anyhow::anyhow!("git -C /Users/x failed")), "failed:story_checks_rerun:run");
+        assert_eq!(
+            rerun_error(anyhow::anyhow!("git -C /Users/x failed")),
+            "failed:story_checks_rerun:run"
+        );
     }
 
     #[test]

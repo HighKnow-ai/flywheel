@@ -24,15 +24,23 @@ use anyhow::Context;
 use rusqlite::{params, Connection};
 
 use crate::domain::actor::assert_human_actor;
-use crate::domain::review::{close_review_in_tx, diff_to_open_review, open_review, open_review_in_tx};
+use crate::domain::review::{
+    close_review_in_tx, diff_to_open_review, open_review, open_review_in_tx,
+};
 use crate::domain::review_decisions::{review_decisions, stored_adr_decisions, ReviewDecisions};
 use crate::domain::story::{get_story, set_story_state_in_tx, StoryState};
 use crate::domain::{now, record_event, EventScope};
 
 /// Send `story_id` back to Running with `comments`, as `actor_id`. See the module documentation.
-pub fn request_changes(conn: &mut Connection, actor_id: &str, story_id: &str, comments: &str) -> anyhow::Result<()> {
+pub fn request_changes(
+    conn: &mut Connection,
+    actor_id: &str,
+    story_id: &str,
+    comments: &str,
+) -> anyhow::Result<()> {
     assert_human_actor(conn, actor_id)?;
-    let story = get_story(conn, story_id)?.with_context(|| format!("Story {story_id:?} not found"))?;
+    let story =
+        get_story(conn, story_id)?.with_context(|| format!("Story {story_id:?} not found"))?;
     anyhow::ensure!(
         story.state == StoryState::InReview.as_str(),
         "Only a Story In review takes a request for changes, and {} is {}.",
@@ -44,22 +52,48 @@ pub fn request_changes(conn: &mut Connection, actor_id: &str, story_id: &str, co
         params![story_id],
         |r| r.get(0),
     )?;
-    anyhow::ensure!(!live, "{} has a live session. Stop it before requesting changes.", story.key);
+    anyhow::ensure!(
+        !live,
+        "{} has a live session. Stop it before requesting changes.",
+        story.key
+    );
 
     let comments = comments_with_adr_points(comments, &adr_review_points(conn, story_id)?);
-    anyhow::ensure!(!comments.is_empty(), "Request changes needs a comment: say what the agent should change.");
+    anyhow::ensure!(
+        !comments.is_empty(),
+        "Request changes needs a comment: say what the agent should change."
+    );
     let comments = comments.as_str();
     let diff = diff_to_open_review(conn, story_id, &story.key)?;
 
     let now = now();
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     if let Some(diff) = &diff {
-        open_review_in_tx(&tx, &story.project_id, story_id, None, diff, &serde_json::Value::Array(Vec::new()), &serde_json::Value::Array(Vec::new()))?;
+        open_review_in_tx(
+            &tx,
+            &story.project_id,
+            story_id,
+            None,
+            diff,
+            &serde_json::Value::Array(Vec::new()),
+            &serde_json::Value::Array(Vec::new()),
+        )?;
     }
     let review_id: String = tx
-        .query_row("SELECT id FROM reviews WHERE story_id = ?1 AND outcome IS NULL", params![story_id], |r| r.get(0))
+        .query_row(
+            "SELECT id FROM reviews WHERE story_id = ?1 AND outcome IS NULL",
+            params![story_id],
+            |r| r.get(0),
+        )
         .context("failed to read the open review")?;
-    close_review_in_tx(&tx, story_id, actor_id, "changes_requested", None, Some(comments))?;
+    close_review_in_tx(
+        &tx,
+        story_id,
+        actor_id,
+        "changes_requested",
+        None,
+        Some(comments),
+    )?;
     // The review is already closed, so this move's own close finds nothing left to close.
     set_story_state_in_tx(&tx, actor_id, story_id, StoryState::Running)?;
     record_event(
@@ -67,7 +101,10 @@ pub fn request_changes(conn: &mut Connection, actor_id: &str, story_id: &str, co
         &story.project_id,
         "story",
         story_id,
-        EventScope { story_id: Some(story_id), epic_id: Some(&story.epic_id) },
+        EventScope {
+            story_id: Some(story_id),
+            epic_id: Some(&story.epic_id),
+        },
         actor_id,
         "story.changes_requested",
         &serde_json::json!({
@@ -89,8 +126,13 @@ fn adr_review_points(conn: &Connection, story_id: &str) -> anyhow::Result<Vec<St
         Ok(decisions) => decisions,
         Err(e) => {
             eprintln!("request changes: could not read the Decisions section's flags: {e:#}");
-            let stored = open_review(conn, story_id)?.map(|r| stored_adr_decisions(&r.adr_decisions)).unwrap_or_default();
-            ReviewDecisions { decisions: stored, ..ReviewDecisions::default() }
+            let stored = open_review(conn, story_id)?
+                .map(|r| stored_adr_decisions(&r.adr_decisions))
+                .unwrap_or_default();
+            ReviewDecisions {
+                decisions: stored,
+                ..ReviewDecisions::default()
+            }
         }
     };
     Ok(decisions.review_points())

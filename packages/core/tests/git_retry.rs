@@ -6,8 +6,8 @@
 //! without ever appearing as a source-level literal).
 
 use flywheel_core::git_retry::{
-    exhaustion_event_payload, is_lock_contention, with_lock_retry, with_lock_retry_notify, CollisionCounter,
-    LockExhausted, RETRY_JITTER_MS, RETRY_MAX_ATTEMPTS,
+    exhaustion_event_payload, is_lock_contention, with_lock_retry, with_lock_retry_notify,
+    CollisionCounter, LockExhausted, RETRY_JITTER_MS, RETRY_MAX_ATTEMPTS,
 };
 
 // --- is_lock_contention -----------------------------------------------------------------------
@@ -165,7 +165,8 @@ fn a_first_attempt_success_invokes_the_notify_hook_zero_times() {
 }
 
 #[test]
-fn two_collisions_then_success_invokes_the_notify_hook_exactly_twice_with_the_upcoming_attempt_and_the_max() {
+fn two_collisions_then_success_invokes_the_notify_hook_exactly_twice_with_the_upcoming_attempt_and_the_max(
+) {
     let calls = std::sync::atomic::AtomicU32::new(0);
     let notified: std::sync::Mutex<Vec<(u32, u32)>> = std::sync::Mutex::new(Vec::new());
     let outcome = with_lock_retry_notify(
@@ -214,7 +215,10 @@ fn full_exhaustion_never_invokes_the_notify_hook_on_the_final_failed_attempt() {
     // RETRY_MAX_ATTEMPTS total attempts means RETRY_MAX_ATTEMPTS - 1 backoff sleeps, so the hook
     // fires that many times — never once for the exhausting attempt itself, which returns the
     // exhaustion error instead of sleeping again.
-    assert_eq!(notified.lock().unwrap().len(), (RETRY_MAX_ATTEMPTS - 1) as usize);
+    assert_eq!(
+        notified.lock().unwrap().len(),
+        (RETRY_MAX_ATTEMPTS - 1) as usize
+    );
 }
 
 #[test]
@@ -269,7 +273,9 @@ fn exhaustion_event_payload_label_matches_the_copywriting_contract_sentence_exac
 // --- shim (Task 2): install_for_run behaviours and the built binary's fail-closed resolution ---
 
 mod shim {
-    use flywheel_core::shim::{install_for_run, resolve_real_git, resolve_shim_binary, shim_env_for_run};
+    use flywheel_core::shim::{
+        install_for_run, resolve_real_git, resolve_shim_binary, shim_env_for_run,
+    };
     use std::process::Command;
 
     /// Serializes every call to [`with_scratch_runtime_dir`] in THIS binary — `FLYWHEEL_RUNTIME_DIR`
@@ -386,13 +392,15 @@ mod shim {
     }
 
     #[test]
-    fn t2_a_pre_created_non_executable_git_entry_makes_install_for_run_fail_naming_the_entry_and_run() {
+    fn t2_a_pre_created_non_executable_git_entry_makes_install_for_run_fail_naming_the_entry_and_run(
+    ) {
         with_scratch_runtime_dir(|| {
             let run_id = format!("test-run-{}-t2", std::process::id());
             let dir = shim_dir_for_test_run(&run_id);
             std::fs::create_dir_all(&dir).expect("failed to pre-create the shim dir");
             let git_entry = dir.join(if cfg!(windows) { "git.exe" } else { "git" });
-            std::fs::write(&git_entry, b"not a real binary").expect("failed to write broken git entry");
+            std::fs::write(&git_entry, b"not a real binary")
+                .expect("failed to write broken git entry");
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
@@ -402,7 +410,8 @@ mod shim {
             }
 
             let result = install_for_run(&run_id);
-            let err = result.expect_err("a non-executable pre-existing git entry must fail install_for_run");
+            let err = result
+                .expect_err("a non-executable pre-existing git entry must fail install_for_run");
             let rendered = format!("{err:#}");
             assert!(
                 rendered.contains("shim install verification failed"),
@@ -436,7 +445,8 @@ mod shim {
             }
 
             let result = install_for_run(&run_id);
-            let err = result.expect_err("a zero-byte pre-existing git entry must fail install_for_run");
+            let err =
+                result.expect_err("a zero-byte pre-existing git entry must fail install_for_run");
             let rendered = format!("{err:#}");
             assert!(
                 rendered.contains("shim install verification failed"),
@@ -454,17 +464,20 @@ mod shim {
     }
 
     #[test]
-    fn t4_a_pre_created_rm_entry_that_is_a_directory_makes_install_for_run_fail_naming_that_entry() {
+    fn t4_a_pre_created_rm_entry_that_is_a_directory_makes_install_for_run_fail_naming_that_entry()
+    {
         with_scratch_runtime_dir(|| {
             let run_id = format!("test-run-{}-t4", std::process::id());
             let dir = shim_dir_for_test_run(&run_id);
             std::fs::create_dir_all(&dir).expect("failed to pre-create the shim dir");
             let rm_entry_name = if cfg!(windows) { "rm.exe" } else { "rm" };
             let rm_entry = dir.join(rm_entry_name);
-            std::fs::create_dir_all(&rm_entry).expect("failed to pre-create the rm entry as a directory");
+            std::fs::create_dir_all(&rm_entry)
+                .expect("failed to pre-create the rm entry as a directory");
 
             let result = install_for_run(&run_id);
-            let err = result.expect_err("an rm entry that is a directory must fail install_for_run");
+            let err =
+                result.expect_err("an rm entry that is a directory must fail install_for_run");
             let rendered = format!("{err:#}");
             // A directory-shaped entry fails inside `install_shadow_entry`'s own hard-link/copy
             // attempt (its `entry.is_file()` fast path is false for a directory, so it never
@@ -497,8 +510,14 @@ mod shim {
             let dir = install_for_run(&run_id).expect("a clean install_for_run should succeed");
             let git_name = if cfg!(windows) { "git.exe" } else { "git" };
             let rm_name = if cfg!(windows) { "rm.exe" } else { "rm" };
-            assert!(dir.join(git_name).is_file(), "expected the git entry to exist");
-            assert!(dir.join(rm_name).is_file(), "expected the rm entry to exist");
+            assert!(
+                dir.join(git_name).is_file(),
+                "expected the git entry to exist"
+            );
+            assert!(
+                dir.join(rm_name).is_file(),
+                "expected the rm entry to exist"
+            );
         });
     }
 
@@ -537,7 +556,9 @@ mod shim {
             let env = shim_env_for_run(&run_id)
                 .expect("a healthy install should still produce a working environment");
             let dir = shim_dir_for_test_run(&run_id);
-            let path = env.get("PATH").expect("PATH should be present in the returned environment");
+            let path = env
+                .get("PATH")
+                .expect("PATH should be present in the returned environment");
             assert!(
                 path.starts_with(&dir.to_string_lossy().into_owned()),
                 "expected PATH to lead with the per-run shim directory {dir:?}, got: {path}"
@@ -567,7 +588,8 @@ mod shim {
             write_inert_stub_script(&git_entry, "exit 0");
 
             let result = shim_env_for_run(&run_id);
-            let err = result.expect_err("an inert stub at the git entry must fail shim_env_for_run");
+            let err =
+                result.expect_err("an inert stub at the git entry must fail shim_env_for_run");
             let rendered = format!("{err:#}");
             assert!(
                 rendered.contains("shim install verification failed"),
@@ -597,8 +619,8 @@ mod shim {
             write_inert_stub_script(&git_entry, r#"echo '{"category":"safe"}'"#);
 
             let result = shim_env_for_run(&run_id);
-            let err =
-                result.expect_err("a stale shim reporting only category:safe must fail shim_env_for_run");
+            let err = result
+                .expect_err("a stale shim reporting only category:safe must fail shim_env_for_run");
             let rendered = format!("{err:#}");
             assert!(
                 rendered.contains("shim install verification failed"),
@@ -616,7 +638,8 @@ mod shim {
     }
 
     #[test]
-    fn t9_install_for_run_alone_still_succeeds_on_a_healthy_directory_without_the_probes_requirements() {
+    fn t9_install_for_run_alone_still_succeeds_on_a_healthy_directory_without_the_probes_requirements(
+    ) {
         with_scratch_runtime_dir(|| {
             // Pins the split (plan 03-25 Task 2(b)): install_for_run pays only the structural
             // checks Task 1 added, never the classification-contract probe, which lives on
@@ -625,7 +648,10 @@ mod shim {
             let run_id = format!("test-run-{}-t9", std::process::id());
             let dir = install_for_run(&run_id).expect("install_for_run alone should still succeed");
             let git_name = if cfg!(windows) { "git.exe" } else { "git" };
-            assert!(dir.join(git_name).is_file(), "expected the git entry to exist");
+            assert!(
+                dir.join(git_name).is_file(),
+                "expected the git entry to exist"
+            );
         });
     }
 }

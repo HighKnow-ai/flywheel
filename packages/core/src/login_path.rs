@@ -57,9 +57,19 @@ pub fn adopted() -> Option<&'static LoginPath> {
 
 /// Ask `shell` for its `PATH`, as an interactive login shell, then as a login shell, keeping
 /// `inherited` when both fail. `env` is added to each attempt's environment.
-pub(crate) fn resolve_with(shell: &Path, env: &[(&str, &Path)], inherited: &str, timeout: Duration) -> LoginPath {
+pub(crate) fn resolve_with(
+    shell: &Path,
+    env: &[(&str, &Path)],
+    inherited: &str,
+    timeout: Duration,
+) -> LoginPath {
     let interactive = match ask_path(shell, &["-l", "-i"], env, timeout) {
-        Ok(path) => return LoginPath { path, warning: None },
+        Ok(path) => {
+            return LoginPath {
+                path,
+                warning: None,
+            }
+        }
         Err(why) => why,
     };
     match ask_path(shell, &["-l"], env, timeout) {
@@ -82,13 +92,20 @@ pub(crate) fn resolve_with(shell: &Path, env: &[(&str, &Path)], inherited: &str,
 }
 
 /// One attempt: `shell <flags> -c` printing its `PATH` between markers, or why it gave none.
-fn ask_path(shell: &Path, flags: &[&str], env: &[(&str, &Path)], timeout: Duration) -> Result<String, String> {
+fn ask_path(
+    shell: &Path,
+    flags: &[&str],
+    env: &[(&str, &Path)],
+    timeout: Duration,
+) -> Result<String, String> {
     let how = format!("{} {}", shell.display(), flags.join(" "));
     let command = format!("printf '{MARKER}%s{MARKER}' \"$PATH\"");
     let run = run_in_shell(shell, flags, env, Path::new("/"), &command, timeout)
         .map_err(|e| format!("{how} could not be started: {e}"))?;
     match run.outcome {
-        ShellOutcome::TimedOut => return Err(format!("{how} took longer than {}s", timeout.as_secs())),
+        ShellOutcome::TimedOut => {
+            return Err(format!("{how} took longer than {}s", timeout.as_secs()))
+        }
         ShellOutcome::Exited(Some(0)) => {}
         ShellOutcome::Exited(code) => {
             let code = code.map_or("a signal".to_string(), |c| format!("code {c}"));
@@ -122,7 +139,10 @@ fn is_executable(path: &Path) -> bool {
 /// sidecar's `resolveClaudeBin()` does, otherwise `claude` on this process's `PATH`. The error is
 /// the sentence the developer reads, naming the `PATH` that was searched.
 pub fn claude_bin() -> Result<PathBuf, String> {
-    claude_bin_in(std::env::var_os("FLYWHEEL_CLAUDE_BIN"), &std::env::var_os("PATH").unwrap_or_default())
+    claude_bin_in(
+        std::env::var_os("FLYWHEEL_CLAUDE_BIN"),
+        &std::env::var_os("PATH").unwrap_or_default(),
+    )
 }
 
 /// `claude` on `path`, ignoring `FLYWHEEL_CLAUDE_BIN`: [`claude_bin`] with the `PATH` named.
@@ -130,7 +150,10 @@ pub fn claude_bin_on(path: impl AsRef<OsStr>) -> Result<PathBuf, String> {
     claude_bin_in(None, path.as_ref())
 }
 
-pub(crate) fn claude_bin_in(override_bin: Option<OsString>, path: &OsStr) -> Result<PathBuf, String> {
+pub(crate) fn claude_bin_in(
+    override_bin: Option<OsString>,
+    path: &OsStr,
+) -> Result<PathBuf, String> {
     let name = override_bin.filter(|b| !b.is_empty());
     match name {
         Some(bin) if Path::new(&bin).components().count() > 1 => {
@@ -138,11 +161,16 @@ pub(crate) fn claude_bin_in(override_bin: Option<OsString>, path: &OsStr) -> Res
             if is_executable(&bin) {
                 Ok(bin)
             } else {
-                Err(format!("FLYWHEEL_CLAUDE_BIN points at {}, which is not an executable file.", bin.display()))
+                Err(format!(
+                    "FLYWHEEL_CLAUDE_BIN points at {}, which is not an executable file.",
+                    bin.display()
+                ))
             }
         }
         name => {
-            let name = name.map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "claude".to_string());
+            let name = name
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "claude".to_string());
             find_on_path(&name, path).ok_or_else(|| {
                 format!(
                     "{name} was not found on the PATH Flywheel searched: {}. Install Claude Code, or add \
@@ -168,8 +196,14 @@ mod tests {
     /// A zsh profile directory whose `.zprofile` puts `bin` on `PATH`, as a developer's own does.
     fn profile_adding(bin: &Path) -> tempfile::TempDir {
         let profile = tempfile::tempdir().unwrap();
-        std::fs::write(profile.path().join(".zprofile"), format!("echo hello from the profile\nexport PATH=\"{}:$PATH\"\n", bin.display()))
-            .unwrap();
+        std::fs::write(
+            profile.path().join(".zprofile"),
+            format!(
+                "echo hello from the profile\nexport PATH=\"{}:$PATH\"\n",
+                bin.display()
+            ),
+        )
+        .unwrap();
         profile
     }
 
@@ -180,7 +214,10 @@ mod tests {
 
         let resolved = resolve_with(
             Path::new("/bin/zsh"),
-            &[("ZDOTDIR", profile.path()), ("PATH", Path::new(FINDER_PATH))],
+            &[
+                ("ZDOTDIR", profile.path()),
+                ("PATH", Path::new(FINDER_PATH)),
+            ],
             FINDER_PATH,
             Duration::from_secs(30),
         );
@@ -192,7 +229,10 @@ mod tests {
             resolved.path,
             bin.path().display()
         );
-        assert!(!resolved.path.contains("hello"), "what the profile prints is not part of the PATH");
+        assert!(
+            !resolved.path.contains("hello"),
+            "what the profile prints is not part of the PATH"
+        );
     }
 
     /// The criterion's own shape: `claude` exists only on a profile-added `PATH`, the inherited
@@ -202,16 +242,25 @@ mod tests {
         let bin = tempfile::tempdir().unwrap();
         executable(&bin.path().join("claude"), "#!/bin/sh\necho stub\n");
         let profile = profile_adding(bin.path());
-        assert!(claude_bin_in(None, OsStr::new(FINDER_PATH)).is_err(), "not on Finder's PATH");
+        assert!(
+            claude_bin_in(None, OsStr::new(FINDER_PATH)).is_err(),
+            "not on Finder's PATH"
+        );
 
         let resolved = resolve_with(
             Path::new("/bin/zsh"),
-            &[("ZDOTDIR", profile.path()), ("PATH", Path::new(FINDER_PATH))],
+            &[
+                ("ZDOTDIR", profile.path()),
+                ("PATH", Path::new(FINDER_PATH)),
+            ],
             FINDER_PATH,
             Duration::from_secs(30),
         );
 
-        assert_eq!(claude_bin_in(None, OsStr::new(&resolved.path)), Ok(bin.path().join("claude")));
+        assert_eq!(
+            claude_bin_in(None, OsStr::new(&resolved.path)),
+            Ok(bin.path().join("claude"))
+        );
     }
 
     /// What the developer's terminal sees: an entry only `.zshrc` adds (`mise activate`, say) is
@@ -223,21 +272,35 @@ mod tests {
         let profile = profile_adding(profile_bin.path());
         std::fs::write(
             profile.path().join(".zshrc"),
-            format!("echo hello from the rc\nexport PATH=\"{}:$PATH\"\nPROMPT='%~ > '\n", rc_bin.path().display()),
+            format!(
+                "echo hello from the rc\nexport PATH=\"{}:$PATH\"\nPROMPT='%~ > '\n",
+                rc_bin.path().display()
+            ),
         )
         .unwrap();
 
         let resolved = resolve_with(
             Path::new("/bin/zsh"),
-            &[("ZDOTDIR", profile.path()), ("PATH", Path::new(FINDER_PATH))],
+            &[
+                ("ZDOTDIR", profile.path()),
+                ("PATH", Path::new(FINDER_PATH)),
+            ],
             FINDER_PATH,
             Duration::from_secs(30),
         );
 
         assert_eq!(resolved.warning, None);
         let dirs: Vec<PathBuf> = std::env::split_paths(&resolved.path).collect();
-        assert!(dirs.iter().any(|d| d == rc_bin.path()), "{} lacks the .zshrc entry", resolved.path);
-        assert!(dirs.iter().any(|d| d == profile_bin.path()), "{} lacks the .zprofile entry", resolved.path);
+        assert!(
+            dirs.iter().any(|d| d == rc_bin.path()),
+            "{} lacks the .zshrc entry",
+            resolved.path
+        );
+        assert!(
+            dirs.iter().any(|d| d == profile_bin.path()),
+            "{} lacks the .zprofile entry",
+            resolved.path
+        );
     }
 
     /// An interactive shell that hangs (a `.zshrc` waiting on something) falls back to the login
@@ -250,12 +313,19 @@ mod tests {
 
         let resolved = resolve_with(
             Path::new("/bin/zsh"),
-            &[("ZDOTDIR", profile.path()), ("PATH", Path::new(FINDER_PATH))],
+            &[
+                ("ZDOTDIR", profile.path()),
+                ("PATH", Path::new(FINDER_PATH)),
+            ],
             FINDER_PATH,
             Duration::from_secs(2),
         );
 
-        assert!(std::env::split_paths(&resolved.path).any(|d| d == profile_bin.path()), "{}", resolved.path);
+        assert!(
+            std::env::split_paths(&resolved.path).any(|d| d == profile_bin.path()),
+            "{}",
+            resolved.path
+        );
         let warning = resolved.warning.expect("a warning");
         assert!(warning.contains("-l, which skips ~/.zshrc"), "{warning}");
     }
@@ -269,10 +339,17 @@ mod tests {
         let started = std::time::Instant::now();
         let resolved = resolve_with(&shell, &[], FINDER_PATH, Duration::from_millis(500));
 
-        assert!(started.elapsed() < Duration::from_secs(5), "two attempts took {:?}", started.elapsed());
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "two attempts took {:?}",
+            started.elapsed()
+        );
         assert_eq!(resolved.path, FINDER_PATH);
         let warning = resolved.warning.expect("a warning");
-        assert!(warning.contains("took longer") && warning.contains(FINDER_PATH), "{warning}");
+        assert!(
+            warning.contains("took longer") && warning.contains(FINDER_PATH),
+            "{warning}"
+        );
     }
 
     #[test]
@@ -297,7 +374,11 @@ mod tests {
         let err = claude_bin_in(None, OsStr::new(&path)).unwrap_err();
         assert!(err.contains(&path), "{err}");
 
-        let err = claude_bin_in(Some(empty.path().join("claude").into_os_string()), OsStr::new(&path)).unwrap_err();
+        let err = claude_bin_in(
+            Some(empty.path().join("claude").into_os_string()),
+            OsStr::new(&path),
+        )
+        .unwrap_err();
         assert!(err.contains("FLYWHEEL_CLAUDE_BIN"), "{err}");
     }
 

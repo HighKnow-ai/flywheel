@@ -34,10 +34,16 @@ pub struct GitIdentityResolutionDto {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "outcome", rename_all = "camelCase")]
 pub enum GitIdentityOutcomeDto {
-    Resolved { resolution: GitIdentityResolutionDto },
+    Resolved {
+        resolution: GitIdentityResolutionDto,
+    },
     NotFound,
-    AmbiguousPrefix { matches: usize },
-    AmbiguousAcrossRepositories { repositories: usize },
+    AmbiguousPrefix {
+        matches: usize,
+    },
+    AmbiguousAcrossRepositories {
+        repositories: usize,
+    },
 }
 
 /// Resolve a pasted string to its board item, or report why it couldn't be — read-only.
@@ -48,7 +54,10 @@ pub enum GitIdentityOutcomeDto {
 /// core's own resolver — this command delegates to it rather than re-implementing any part of
 /// its repository loop.
 #[tauri::command]
-pub async fn git_identifier_resolve(state: State<'_, AppState>, raw: String) -> Result<GitIdentityOutcomeDto, String> {
+pub async fn git_identifier_resolve(
+    state: State<'_, AppState>,
+    raw: String,
+) -> Result<GitIdentityOutcomeDto, String> {
     let Some(identifier) = flywheel_core::git_identity::classify(&raw) else {
         return Ok(GitIdentityOutcomeDto::NotFound);
     };
@@ -66,14 +75,18 @@ fn resolve_beside(
     identifier: &flywheel_core::git_identity::GitIdentifier,
 ) -> Result<GitIdentityOutcomeDto, String> {
     let conn = super::open_beside(path)?;
-    let outcome =
-        flywheel_core::git_identity::resolve_identifier(&conn, identifier).map_err(|e| e.to_string())?;
+    let outcome = flywheel_core::git_identity::resolve_identifier(&conn, identifier)
+        .map_err(|e| e.to_string())?;
 
     Ok(match outcome {
         flywheel_core::git_identity::ResolveOutcome::Resolved(resolution) => {
             // Every resolution names a Story (`item_kind` is "story").
             let item_title: String = conn
-                .query_row("SELECT title FROM stories WHERE id = ?1", [&resolution.item_id], |row| row.get(0))
+                .query_row(
+                    "SELECT title FROM stories WHERE id = ?1",
+                    [&resolution.item_id],
+                    |row| row.get(0),
+                )
                 .map_err(|e| e.to_string())?;
             GitIdentityOutcomeDto::Resolved {
                 resolution: GitIdentityResolutionDto {
@@ -91,8 +104,8 @@ fn resolve_beside(
         flywheel_core::git_identity::ResolveOutcome::AmbiguousPrefix { matches } => {
             GitIdentityOutcomeDto::AmbiguousPrefix { matches }
         }
-        flywheel_core::git_identity::ResolveOutcome::AmbiguousAcrossRepositories { repositories } => {
-            GitIdentityOutcomeDto::AmbiguousAcrossRepositories { repositories }
-        }
+        flywheel_core::git_identity::ResolveOutcome::AmbiguousAcrossRepositories {
+            repositories,
+        } => GitIdentityOutcomeDto::AmbiguousAcrossRepositories { repositories },
     })
 }

@@ -16,7 +16,9 @@ use flywheel_core::domain::proposal::accept_proposal;
 use flywheel_core::domain::round::accept_all_recommended;
 use flywheel_core::domain::session::{start_shaping_session, ShapingSubject};
 use flywheel_core::domain::session_kind::SessionKind;
-use flywheel_core::domain::shaping_tool::{apply_shaping_tool_call, ShapingToolCall, ShapingToolOutcome};
+use flywheel_core::domain::shaping_tool::{
+    apply_shaping_tool_call, ShapingToolCall, ShapingToolOutcome,
+};
 use flywheel_core::domain::stage::{close_stage, open_stage, stage_status, StageKind};
 use flywheel_core::domain::story::stories_in_epic;
 use rusqlite::Connection;
@@ -44,14 +46,18 @@ impl Walk {
 
     /// One agent call, as the sidecar relays it.
     fn agent(&mut self, tool: &str, args: Value) -> ShapingToolOutcome {
-        let call = ShapingToolCall::parse(tool, &args).unwrap_or_else(|e| panic!("{tool} parses: {e:#}"));
-        apply_shaping_tool_call(&mut self.conn, &self.session_id, "req", &call).unwrap_or_else(|e| panic!("{tool}: {e:#}"))
+        let call =
+            ShapingToolCall::parse(tool, &args).unwrap_or_else(|e| panic!("{tool} parses: {e:#}"));
+        apply_shaping_tool_call(&mut self.conn, &self.session_id, "req", &call)
+            .unwrap_or_else(|e| panic!("{tool}: {e:#}"))
     }
 
     /// An agent Proposal tool, answered at once; the Proposal's id.
     fn propose(&mut self, tool: &str, args: Value) -> String {
         match self.agent(tool, args) {
-            ShapingToolOutcome::Answered { result, .. } => result["proposal_id"].as_str().unwrap().to_string(),
+            ShapingToolOutcome::Answered { result, .. } => {
+                result["proposal_id"].as_str().unwrap().to_string()
+            }
             other => panic!("{tool} is answered at once: {other:?}"),
         }
     }
@@ -81,7 +87,9 @@ impl Walk {
 
     /// The developer closes the open Stage, which must be `kind` and have nothing open.
     fn close(&mut self, kind: StageKind) {
-        let stage = open_stage(&self.conn, &ShapingSubject::Epic(self.epic_id.clone())).unwrap().expect("an open Stage");
+        let stage = open_stage(&self.conn, &ShapingSubject::Epic(self.epic_id.clone()))
+            .unwrap()
+            .expect("an open Stage");
         assert_eq!(stage.kind, kind);
         let status = stage_status(&self.conn, &stage.id).unwrap();
         assert!(status.closable(), "{:?}", status.open_items);
@@ -93,22 +101,45 @@ impl Walk {
 fn a_one_line_epic_becomes_ready_stories_with_criteria_and_checks() {
     let (mut conn, human, project) = common::seeded_project();
     let checkout = tempfile::tempdir().unwrap();
-    conn.execute("UPDATE projects SET repo_path = ?1 WHERE id = ?2", rusqlite::params![checkout.path().to_string_lossy(), project.id])
-        .unwrap();
+    conn.execute(
+        "UPDATE projects SET repo_path = ?1 WHERE id = ?2",
+        rusqlite::params![checkout.path().to_string_lossy(), project.id],
+    )
+    .unwrap();
     let m = milestone::create_milestone(&mut conn, &project.id, &human, "Shaping", None).unwrap();
     // The one-line idea: a title and nothing else.
-    let e = epic::create_epic(&mut conn, &human, &m.id, "Feed rows show the agent's live verb").unwrap();
-    let mut w = Walk { conn, human, epic_id: e.id, session_id: String::new() };
+    let e = epic::create_epic(
+        &mut conn,
+        &human,
+        &m.id,
+        "Feed rows show the agent's live verb",
+    )
+    .unwrap();
+    let mut w = Walk {
+        conn,
+        human,
+        epic_id: e.id,
+        session_id: String::new(),
+    };
 
     // Stage 1: challenge the spec.
     w.shape();
     w.round("Who reads the feed");
     for (field, text) in [
-        ("problem", "A feed row says what a tool did, never what the agent is doing now."),
+        (
+            "problem",
+            "A feed row says what a tool did, never what the agent is doing now.",
+        ),
         ("scope", "The feed row's verb while a tool call runs."),
-        ("exit_test", "A running tool call reads as its live verb in the feed."),
+        (
+            "exit_test",
+            "A running tool call reads as its live verb in the feed.",
+        ),
     ] {
-        let id = w.propose("propose_spec_change", json!({ "field": field, "text": text, "why": "Round 1" }));
+        let id = w.propose(
+            "propose_spec_change",
+            json!({ "field": field, "text": text, "why": "Round 1" }),
+        );
         w.accept(&id);
     }
     w.close(StageKind::ChallengeSpec);
@@ -140,27 +171,51 @@ fn a_one_line_epic_becomes_ready_stories_with_criteria_and_checks() {
             "propose_criterion",
             json!({ "story": s.key, "statement": format!("{} is tested", s.title), "check": format!("npm test -- {}", s.key) }),
         );
-        let judged = w.propose("propose_criterion", json!({ "story": s.key, "statement": format!("{} reads plainly", s.title) }));
+        let judged = w.propose(
+            "propose_criterion",
+            json!({ "story": s.key, "statement": format!("{} reads plainly", s.title) }),
+        );
         w.accept(&checked);
         w.accept(&judged);
     }
     w.close(StageKind::Criteria);
 
     // The exit test: Ready Stories, each with criteria and Checks, in a Ready Epic.
-    assert_eq!(get_epic(&w.conn, &w.epic_id).unwrap().unwrap().state, "ready");
+    assert_eq!(
+        get_epic(&w.conn, &w.epic_id).unwrap().unwrap().state,
+        "ready"
+    );
     let stories = stories_in_epic(&w.conn, &w.epic_id).unwrap();
     assert_eq!(
-        stories.iter().map(|s| (s.title.as_str(), s.state.as_str())).collect::<Vec<_>>(),
-        [("Live verbs for board tools", "ready"), ("The feed row shows the live verb", "ready")]
+        stories
+            .iter()
+            .map(|s| (s.title.as_str(), s.state.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            ("Live verbs for board tools", "ready"),
+            ("The feed row shows the live verb", "ready")
+        ]
     );
-    assert_eq!(stories[1].runs_after_story_id.as_deref(), Some(stories[0].id.as_str()));
+    assert_eq!(
+        stories[1].runs_after_story_id.as_deref(),
+        Some(stories[0].id.as_str())
+    );
     for s in &stories {
         let criteria = criteria_for_story(&w.conn, &s.id).unwrap();
         assert_eq!(criteria.len(), 2, "{}", s.key);
-        assert!(criteria.iter().all(|c| c.accepted_by.is_none()), "accepted at review, not in shaping");
-        let check = check_for_criterion(&w.conn, &criteria[0].id).unwrap().expect("the first criterion has its Check");
+        assert!(
+            criteria.iter().all(|c| c.accepted_by.is_none()),
+            "accepted at review, not in shaping"
+        );
+        let check = check_for_criterion(&w.conn, &criteria[0].id)
+            .unwrap()
+            .expect("the first criterion has its Check");
         assert_eq!(check.command, format!("npm test -- {}", s.key));
-        assert_eq!(check_for_criterion(&w.conn, &criteria[1].id).unwrap(), None, "the second is judged at review");
+        assert_eq!(
+            check_for_criterion(&w.conn, &criteria[1].id).unwrap(),
+            None,
+            "the second is judged at review"
+        );
     }
     let spec = get_epic(&w.conn, &w.epic_id).unwrap().unwrap().spec;
     assert!(spec.problem.is_some() && spec.scope.is_some() && spec.exit_test.is_some());

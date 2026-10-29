@@ -8,23 +8,31 @@ use common::with_scratch_worktree_root;
 
 use std::path::Path;
 
-use flywheel_core::domain::worktree::{ensure_worktree, porcelain_entries, remove_worktree_for_story};
+use flywheel_core::domain::worktree::{
+    ensure_worktree, porcelain_entries, remove_worktree_for_story,
+};
 
 #[test]
 fn removing_a_clean_worktree_deletes_it_from_disk_and_the_database_and_appends_one_event() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let story = common::new_story(&mut conn, &project.id, &actor_id, "Removal story");
-        let worktree =
-            ensure_worktree(&mut conn, &story.id, &actor_id).expect("ensure_worktree should succeed");
+        let worktree = ensure_worktree(&mut conn, &story.id, &actor_id)
+            .expect("ensure_worktree should succeed");
         let worktree_path = worktree.path.clone();
 
-        assert!(Path::new(&worktree_path).exists(), "the worktree must exist before removal");
+        assert!(
+            Path::new(&worktree_path).exists(),
+            "the worktree must exist before removal"
+        );
 
         remove_worktree_for_story(&mut conn, &story.id, &actor_id)
             .expect("removing a clean worktree must succeed");
 
-        assert!(!Path::new(&worktree_path).exists(), "the worktree directory must be gone from disk");
+        assert!(
+            !Path::new(&worktree_path).exists(),
+            "the worktree directory must be gone from disk"
+        );
 
         let row_count: i64 = conn
             .query_row(
@@ -33,7 +41,10 @@ fn removing_a_clean_worktree_deletes_it_from_disk_and_the_database_and_appends_o
                 |row| row.get(0),
             )
             .expect("failed to count worktrees rows");
-        assert_eq!(row_count, 0, "the worktrees row must be gone from the database");
+        assert_eq!(
+            row_count, 0,
+            "the worktrees row must be gone from the database"
+        );
 
         let event_count: i64 = conn
             .query_row(
@@ -42,7 +53,10 @@ fn removing_a_clean_worktree_deletes_it_from_disk_and_the_database_and_appends_o
                 |row| row.get(0),
             )
             .expect("failed to count worktree.removed events");
-        assert_eq!(event_count, 1, "exactly one worktree.removed event must be appended");
+        assert_eq!(
+            event_count, 1,
+            "exactly one worktree.removed event must be appended"
+        );
     });
 }
 
@@ -51,8 +65,8 @@ fn removing_a_worktree_with_a_modified_file_is_refused_and_leaves_everything_in_
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let story = common::new_story(&mut conn, &project.id, &actor_id, "Dirty story");
-        let worktree =
-            ensure_worktree(&mut conn, &story.id, &actor_id).expect("ensure_worktree should succeed");
+        let worktree = ensure_worktree(&mut conn, &story.id, &actor_id)
+            .expect("ensure_worktree should succeed");
 
         let readme = Path::new(&worktree.path).join("README.md");
         std::fs::write(&readme, b"modified content\n").expect("failed to modify README.md");
@@ -64,7 +78,10 @@ fn removing_a_worktree_with_a_modified_file_is_refused_and_leaves_everything_in_
             "the error should name the dirty count: {err}"
         );
 
-        assert!(Path::new(&worktree.path).exists(), "the worktree directory must still exist");
+        assert!(
+            Path::new(&worktree.path).exists(),
+            "the worktree directory must still exist"
+        );
         let contents = std::fs::read(&readme).expect("the modified file should still exist");
         assert_eq!(
             contents, b"modified content\n",
@@ -87,8 +104,8 @@ fn removing_a_worktree_with_only_an_untracked_file_is_also_refused() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let story = common::new_story(&mut conn, &project.id, &actor_id, "Untracked story");
-        let worktree =
-            ensure_worktree(&mut conn, &story.id, &actor_id).expect("ensure_worktree should succeed");
+        let worktree = ensure_worktree(&mut conn, &story.id, &actor_id)
+            .expect("ensure_worktree should succeed");
 
         let scratch = Path::new(&worktree.path).join("scratch.txt");
         std::fs::write(&scratch, b"untracked work\n").expect("failed to write the untracked file");
@@ -96,7 +113,10 @@ fn removing_a_worktree_with_only_an_untracked_file_is_also_refused() {
         remove_worktree_for_story(&mut conn, &story.id, &actor_id)
             .expect_err("an untracked file must count as work that would be lost");
 
-        assert!(Path::new(&worktree.path).exists(), "the worktree directory must still exist");
+        assert!(
+            Path::new(&worktree.path).exists(),
+            "the worktree directory must still exist"
+        );
         assert!(scratch.exists(), "the untracked file must still exist");
     });
 }
@@ -106,8 +126,8 @@ fn porcelain_entries_on_a_dirty_worktree_returns_one_entry_per_porcelain_line() 
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let story = common::new_story(&mut conn, &project.id, &actor_id, "Check story");
-        let worktree =
-            ensure_worktree(&mut conn, &story.id, &actor_id).expect("ensure_worktree should succeed");
+        let worktree = ensure_worktree(&mut conn, &story.id, &actor_id)
+            .expect("ensure_worktree should succeed");
 
         std::fs::write(Path::new(&worktree.path).join("README.md"), b"changed\n")
             .expect("failed to modify README.md");
@@ -116,7 +136,11 @@ fn porcelain_entries_on_a_dirty_worktree_returns_one_entry_per_porcelain_line() 
 
         let entries =
             porcelain_entries(Path::new(&worktree.path)).expect("porcelain_entries should succeed");
-        assert_eq!(entries.len(), 2, "expected one entry per dirty file, got: {entries:?}");
+        assert_eq!(
+            entries.len(),
+            2,
+            "expected one entry per dirty file, got: {entries:?}"
+        );
         assert!(
             entries.iter().any(|e| e.path == "README.md"),
             "expected README.md in the entries: {entries:?}"
@@ -136,7 +160,10 @@ fn worktree_summary_for_story_on_a_story_with_no_worktrees_row_returns_none() {
 
         let summary = flywheel_core::query::sessions::worktree_summary_for_story(&conn, &story.id)
             .expect("worktree_summary_for_story should succeed");
-        assert!(summary.is_none(), "a Story with no worktree row must resolve to None");
+        assert!(
+            summary.is_none(),
+            "a Story with no worktree row must resolve to None"
+        );
 
         // Confirm remove_worktree_for_story itself also refuses cleanly on a missing row.
         remove_worktree_for_story(&mut conn, &story.id, &actor_id)
@@ -153,8 +180,8 @@ fn refusal_leaves_everything_untouched() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let story = common::new_story(&mut conn, &project.id, &actor_id, "Untouched story");
-        let worktree =
-            ensure_worktree(&mut conn, &story.id, &actor_id).expect("ensure_worktree should succeed");
+        let worktree = ensure_worktree(&mut conn, &story.id, &actor_id)
+            .expect("ensure_worktree should succeed");
 
         let dirty_file = Path::new(&worktree.path).join("scratch.txt");
         std::fs::write(&dirty_file, b"do not lose this\n").expect("failed to write the dirty file");
@@ -168,14 +195,23 @@ fn refusal_leaves_everything_untouched() {
             .expect_err("removing a dirty worktree must be refused");
 
         let listing_after = directory_listing(Path::new(&worktree.path));
-        assert_eq!(listing_before, listing_after, "the worktree's directory listing must be unchanged");
+        assert_eq!(
+            listing_before, listing_after,
+            "the worktree's directory listing must be unchanged"
+        );
 
-        let dirty_bytes_after =
-            std::fs::read(&dirty_file).expect("the dirty file should still exist after the attempt");
-        assert_eq!(dirty_bytes_before, dirty_bytes_after, "the dirty file's bytes must be unchanged");
+        let dirty_bytes_after = std::fs::read(&dirty_file)
+            .expect("the dirty file should still exist after the attempt");
+        assert_eq!(
+            dirty_bytes_before, dirty_bytes_after,
+            "the dirty file's bytes must be unchanged"
+        );
 
         let row_after = worktrees_row(&conn, &worktree.id);
-        assert_eq!(row_before, row_after, "the worktrees row must be byte-for-byte unchanged");
+        assert_eq!(
+            row_before, row_after,
+            "the worktrees row must be byte-for-byte unchanged"
+        );
     });
 }
 
@@ -192,7 +228,10 @@ fn directory_listing(dir: &Path) -> Vec<String> {
 }
 
 /// The full `worktrees` row as a tuple, for a before/after equality snapshot.
-fn worktrees_row(conn: &rusqlite::Connection, worktree_id: &str) -> (String, String, String, String, String, String, String) {
+fn worktrees_row(
+    conn: &rusqlite::Connection,
+    worktree_id: &str,
+) -> (String, String, String, String, String, String, String) {
     conn.query_row(
         "SELECT id, story_id, project_id, path, branch, base_branch, status FROM worktrees WHERE id = ?1",
         rusqlite::params![worktree_id],
@@ -265,17 +304,24 @@ mod no_escape_hatch {
     }
 
     fn never_tokens() -> Vec<String> {
-        vec![quoted(&['s', 't', 'a', 's', 'h']), quoted(&['c', 'o', 'm', 'm', 'i', 't'])]
+        vec![
+            quoted(&['s', 't', 'a', 's', 'h']),
+            quoted(&['c', 'o', 'm', 'm', 'i', 't']),
+        ]
     }
 
     /// Whether `line` holds `token` in argument position: a quoted string not followed by `:`. A
     /// quoted word followed by `:` is a map key (`json!({ "commit": sha })`), not a git argument.
     fn as_argument(line: &str, token: &str) -> bool {
-        line.match_indices(token).any(|(at, _)| !line[at + token.len()..].trim_start().starts_with(':'))
+        line.match_indices(token)
+            .any(|(at, _)| !line[at + token.len()..].trim_start().starts_with(':'))
     }
 
     /// Files that hold the force token only to recognise it in an agent's command line.
-    const CLASSIFIERS: [&str; 2] = ["packages/core/src/destructive.rs", "packages/core/src/permission_pattern.rs"];
+    const CLASSIFIERS: [&str; 2] = [
+        "packages/core/src/destructive.rs",
+        "packages/core/src/permission_pattern.rs",
+    ];
 
     /// The one file allowed a forced git invocation, and the function it must sit in.
     const DROP_FILE: &str = "packages/core/src/domain/story_drop.rs";
@@ -300,8 +346,13 @@ mod no_escape_hatch {
         files.sort();
         let mut lines = Vec::new();
         for file in files {
-            let rel = file.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/");
-            let contents = std::fs::read_to_string(&file).unwrap_or_else(|e| panic!("failed to read {file:?}: {e}"));
+            let rel = file
+                .strip_prefix(&root)
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/");
+            let contents = std::fs::read_to_string(&file)
+                .unwrap_or_else(|e| panic!("failed to read {file:?}: {e}"));
             for (idx, line) in contents.lines().enumerate() {
                 if !is_whole_line_comment(line) {
                     lines.push((rel.clone(), idx, line.to_string()));
@@ -316,8 +367,15 @@ mod no_escape_hatch {
     fn item_range(file: &str, signature: &str) -> std::ops::Range<usize> {
         let contents = std::fs::read_to_string(workspace_root().join(file)).expect("read source");
         let lines: Vec<&str> = contents.lines().collect();
-        let start = lines.iter().position(|l| l.contains(signature)).unwrap_or_else(|| panic!("{signature} not in {file}"));
-        let end = lines[start..].iter().position(|l| l.trim_end() == "}").map(|o| start + o + 1).unwrap_or(lines.len());
+        let start = lines
+            .iter()
+            .position(|l| l.contains(signature))
+            .unwrap_or_else(|| panic!("{signature} not in {file}"));
+        let end = lines[start..]
+            .iter()
+            .position(|l| l.trim_end() == "}")
+            .map(|o| start + o + 1)
+            .unwrap_or(lines.len());
         start..end
     }
 
@@ -330,12 +388,18 @@ mod no_escape_hatch {
             .filter(|(_, _, line)| never.iter().any(|t| as_argument(line, t)))
             .map(|(file, idx, line)| format!("{file}:{}: {}", idx + 1, line.trim()))
             .collect();
-        assert!(stash_or_commit.is_empty(), "found a stash/commit git-subcommand token:\n{}", stash_or_commit.join("\n"));
+        assert!(
+            stash_or_commit.is_empty(),
+            "found a stash/commit git-subcommand token:\n{}",
+            stash_or_commit.join("\n")
+        );
 
         let force = force_token();
         let forced: Vec<&(String, usize, String)> = lines
             .iter()
-            .filter(|(file, _, line)| as_argument(line, &force) && !CLASSIFIERS.contains(&file.as_str()))
+            .filter(|(file, _, line)| {
+                as_argument(line, &force) && !CLASSIFIERS.contains(&file.as_str())
+            })
             .collect();
         let wipe = item_range(DROP_FILE, WIPE_FN);
         assert!(
@@ -351,7 +415,9 @@ mod no_escape_hatch {
         for (file, _, line) in code_lines("packages/core/src") {
             if CLASSIFIERS.contains(&file.as_str()) {
                 assert!(
-                    !line.contains("git_at(") && !line.contains("git_output_at(") && !line.contains("Command::new"),
+                    !line.contains("git_at(")
+                        && !line.contains("git_output_at(")
+                        && !line.contains("Command::new"),
                     "{file} must only recognise the force flag, never run a command: {}",
                     line.trim()
                 );
@@ -360,39 +426,63 @@ mod no_escape_hatch {
     }
 
     #[test]
-    fn drops_forced_removal_is_reached_only_through_the_drop_command_after_its_live_session_refusal() {
+    fn drops_forced_removal_is_reached_only_through_the_drop_command_after_its_live_session_refusal(
+    ) {
         let wipe_call = "wipe_worktree_and_branch(";
         let core = code_lines("packages/core/src");
-        let wipe_sites: Vec<&(String, usize, String)> =
-            core.iter().filter(|(_, _, l)| l.contains(wipe_call) && !l.contains(WIPE_FN)).collect();
+        let wipe_sites: Vec<&(String, usize, String)> = core
+            .iter()
+            .filter(|(_, _, l)| l.contains(wipe_call) && !l.contains(WIPE_FN))
+            .collect();
         let drop_fn = item_range(DROP_FILE, "pub fn drop_story(");
         assert!(
-            wipe_sites.len() == 1 && wipe_sites[0].0 == DROP_FILE && drop_fn.contains(&wipe_sites[0].1),
+            wipe_sites.len() == 1
+                && wipe_sites[0].0 == DROP_FILE
+                && drop_fn.contains(&wipe_sites[0].1),
             "`{WIPE_FN}` must have exactly one caller, inside `drop_story`; found {wipe_sites:?}"
         );
         assert!(
-            !core.iter().any(|(f, _, l)| f == DROP_FILE && l.contains(&format!("pub {WIPE_FN}"))
-                || f == DROP_FILE && l.contains(&format!("pub(crate) {WIPE_FN}"))),
+            !core.iter().any(
+                |(f, _, l)| f == DROP_FILE && l.contains(&format!("pub {WIPE_FN}"))
+                    || f == DROP_FILE && l.contains(&format!("pub(crate) {WIPE_FN}"))
+            ),
             "`{WIPE_FN}` stays private to {DROP_FILE}"
         );
         let refusal = core
             .iter()
-            .find(|(f, i, l)| f == DROP_FILE && drop_fn.contains(i) && l.contains("Stop the session first"))
+            .find(|(f, i, l)| {
+                f == DROP_FILE && drop_fn.contains(i) && l.contains("Stop the session first")
+            })
             .expect("drop_story refuses a live session");
-        assert!(refusal.1 < wipe_sites[0].1, "the live-session refusal comes before the wipe");
+        assert!(
+            refusal.1 < wipe_sites[0].1,
+            "the live-session refusal comes before the wipe"
+        );
 
         let desktop = code_lines("packages/desktop/src-tauri/src");
-        let drop_sites: Vec<&(String, usize, String)> =
-            desktop.iter().filter(|(_, _, l)| l.contains("drop_story(")).collect();
-        let command = item_range("packages/desktop/src-tauri/src/commands/story.rs", "pub async fn story_drop(");
+        let drop_sites: Vec<&(String, usize, String)> = desktop
+            .iter()
+            .filter(|(_, _, l)| l.contains("drop_story("))
+            .collect();
+        let command = item_range(
+            "packages/desktop/src-tauri/src/commands/story.rs",
+            "pub async fn story_drop(",
+        );
         assert!(
             drop_sites.len() == 1
                 && drop_sites[0].0 == "packages/desktop/src-tauri/src/commands/story.rs"
                 && command.contains(&drop_sites[0].1),
             "`drop_story` must be called from the `story_drop` command alone; found {drop_sites:?}"
         );
-        let core_callers: Vec<&(String, usize, String)> =
-            core.iter().filter(|(f, _, l)| l.contains("drop_story(") && !(f == DROP_FILE && l.contains("pub fn drop_story("))).collect();
-        assert!(core_callers.is_empty(), "nothing in the core calls `drop_story`; found {core_callers:?}");
+        let core_callers: Vec<&(String, usize, String)> = core
+            .iter()
+            .filter(|(f, _, l)| {
+                l.contains("drop_story(") && !(f == DROP_FILE && l.contains("pub fn drop_story("))
+            })
+            .collect();
+        assert!(
+            core_callers.is_empty(),
+            "nothing in the core calls `drop_story`; found {core_callers:?}"
+        );
     }
 }

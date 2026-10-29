@@ -43,12 +43,23 @@ fn git_ok(dir: &Path, args: &[&str]) {
     let mut cmd = Command::new(real("git"));
     clean_env(&mut cmd);
     let output = cmd
-        .args(["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"])
+        .args([
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@example.com",
+            "-c",
+            "commit.gpgsign=false",
+        ])
         .args(args)
         .current_dir(dir)
         .output()
         .expect("git runs");
-    assert!(output.status.success(), "git {args:?} failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 struct Fixture {
@@ -64,23 +75,54 @@ fn fixture() -> Fixture {
     let root = dir.path().canonicalize().unwrap();
     let remote = root.join("remote.git");
     let work = root.join("work");
-    git_ok(&root, &["init", "-q", "--bare", "--initial-branch=main", remote.to_str().unwrap()]);
-    git_ok(&root, &["init", "-q", "--initial-branch=main", work.to_str().unwrap()]);
+    git_ok(
+        &root,
+        &[
+            "init",
+            "-q",
+            "--bare",
+            "--initial-branch=main",
+            remote.to_str().unwrap(),
+        ],
+    );
+    git_ok(
+        &root,
+        &[
+            "init",
+            "-q",
+            "--initial-branch=main",
+            work.to_str().unwrap(),
+        ],
+    );
     fs::write(work.join("a.txt"), "a").unwrap();
     git_ok(&work, &["add", "a.txt"]);
     git_ok(&work, &["commit", "-q", "-m", "a"]);
-    git_ok(&work, &["remote", "add", "origin", remote.to_str().unwrap()]);
+    git_ok(
+        &work,
+        &["remote", "add", "origin", remote.to_str().unwrap()],
+    );
     git_ok(&work, &["push", "-q", "origin", "main", "main:doomed"]);
     rewrite_main(&work, "rewritten");
 
     let hooks = root.join("hooks");
     fs::create_dir(&hooks).unwrap();
     let hook = hooks.join("pre-push");
-    fs::write(&hook, pre_push_hook_script(&real("git"), Path::new(SHIM), &root)).unwrap();
+    fs::write(
+        &hook,
+        pre_push_hook_script(&real("git"), Path::new(SHIM), &root),
+    )
+    .unwrap();
     fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
-    git_ok(&work, &["config", "core.hooksPath", hooks.to_str().unwrap()]);
+    git_ok(
+        &work,
+        &["config", "core.hooksPath", hooks.to_str().unwrap()],
+    );
 
-    Fixture { _dir: dir, remote, work }
+    Fixture {
+        _dir: dir,
+        remote,
+        work,
+    }
 }
 
 /// Replace `main`'s tip with a new root commit, so pushing it discards the remote's history.
@@ -92,11 +134,19 @@ fn rewrite_main(work: &Path, content: &str) {
 
 fn remote_ref(remote: &Path, branch: &str) -> Option<String> {
     let output = Command::new(real("git"))
-        .args(["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}")])
+        .args([
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("refs/heads/{branch}"),
+        ])
         .current_dir(remote)
         .output()
         .expect("git runs");
-    output.status.success().then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 /// What the mock server saw: every held request (each one a prompt the developer would answer),
@@ -151,11 +201,15 @@ fn mock_server() -> MockServer {
             let mut state = thread_state.lock().unwrap();
             let answer = match parsed["kind"].as_str() {
                 Some("push_approval_check") => {
-                    let ok = parsed["approval"].as_str().is_some_and(|a| state.live.contains(a));
+                    let ok = parsed["approval"]
+                        .as_str()
+                        .is_some_and(|a| state.live.contains(a));
                     serde_json::json!({ "approved": ok })
                 }
                 Some("push_approval_revoke") => {
-                    let gone = parsed["approval"].as_str().is_some_and(|a| state.live.remove(a));
+                    let gone = parsed["approval"]
+                        .as_str()
+                        .is_some_and(|a| state.live.remove(a));
                     serde_json::json!({ "revoked": gone })
                 }
                 Some(_) => continue,
@@ -194,14 +248,23 @@ fn shim_git_cmd(fx: &Fixture, server: &MockServer) -> Command {
 }
 
 fn shim_git(fx: &Fixture, server: &MockServer, args: &[&str]) -> Output {
-    shim_git_cmd(fx, server).args(args).output().expect("shim runs")
+    shim_git_cmd(fx, server)
+        .args(args)
+        .output()
+        .expect("shim runs")
 }
 
 /// `git <args>` from a process the shim does not wrap: the real git, on the session's socket.
-fn bypassing_git(fx: &Fixture, server: &MockServer, args: &[&str], extra_env: &[(&str, &str)]) -> Output {
+fn bypassing_git(
+    fx: &Fixture,
+    server: &MockServer,
+    args: &[&str],
+    extra_env: &[(&str, &str)],
+) -> Output {
     let mut cmd = Command::new(real("git"));
     clean_env(&mut cmd);
-    cmd.current_dir(&fx.work).env("FLYWHEEL_PERMISSION_SOCKET", &server.socket);
+    cmd.current_dir(&fx.work)
+        .env("FLYWHEEL_PERMISSION_SOCKET", &server.socket);
     for (key, value) in extra_env {
         cmd.env(key, value);
     }
@@ -227,10 +290,22 @@ fn a_force_push_through_the_shim_asks_exactly_once_and_proceeds() {
     assert_ok(&output);
 
     let prompts = server.prompts();
-    assert_eq!(prompts.len(), 1, "one Gated-action prompt, got: {prompts:#?}");
+    assert_eq!(
+        prompts.len(),
+        1,
+        "one Gated-action prompt, got: {prompts:#?}"
+    );
     assert_eq!(prompts[0]["input"]["destructiveCategory"], "force-push");
-    assert_ne!(remote_ref(&fx.remote, "main"), before, "the allowed force push must have landed");
-    assert_eq!(server.live_count(), 0, "the shim revokes its approval once git exits");
+    assert_ne!(
+        remote_ref(&fx.remote, "main"),
+        before,
+        "the allowed force push must have landed"
+    );
+    assert_eq!(
+        server.live_count(),
+        0,
+        "the shim revokes its approval once git exits"
+    );
 }
 
 #[test]
@@ -242,9 +317,20 @@ fn a_remote_branch_deletion_through_the_shim_asks_exactly_once_and_proceeds() {
     assert_ok(&output);
 
     let prompts = server.prompts();
-    assert_eq!(prompts.len(), 1, "one Gated-action prompt, got: {prompts:#?}");
-    assert_eq!(prompts[0]["input"]["destructiveCategory"], "branch-deletion");
-    assert_eq!(remote_ref(&fx.remote, "doomed"), None, "the allowed deletion must have landed");
+    assert_eq!(
+        prompts.len(),
+        1,
+        "one Gated-action prompt, got: {prompts:#?}"
+    );
+    assert_eq!(
+        prompts[0]["input"]["destructiveCategory"],
+        "branch-deletion"
+    );
+    assert_eq!(
+        remote_ref(&fx.remote, "doomed"),
+        None,
+        "the allowed deletion must have landed"
+    );
 }
 
 #[test]
@@ -256,7 +342,11 @@ fn a_push_that_bypasses_the_shim_is_still_asked_by_the_hook() {
     assert_ok(&output);
 
     let prompts = server.prompts();
-    assert_eq!(prompts.len(), 1, "the hook asks for a push the shim never saw, got: {prompts:#?}");
+    assert_eq!(
+        prompts.len(),
+        1,
+        "the hook asks for a push the shim never saw, got: {prompts:#?}"
+    );
     assert_eq!(prompts[0]["input"]["destructiveCategory"], "force-push");
 }
 
@@ -272,7 +362,11 @@ fn a_forged_approval_does_not_spare_a_bypassing_push_the_hook_prompt() {
         &[(PUSH_APPROVAL_ENV, "forged-by-the-agent")],
     );
     assert_ok(&output);
-    assert_eq!(server.prompts().len(), 1, "a forged approval is not on the server's record");
+    assert_eq!(
+        server.prompts().len(),
+        1,
+        "a forged approval is not on the server's record"
+    );
 }
 
 #[test]
@@ -280,13 +374,26 @@ fn a_used_approval_cannot_be_replayed_and_a_later_push_asks_again() {
     let fx = fixture();
     let server = mock_server();
 
-    assert_ok(&shim_git(&fx, &server, &["push", "--force", "origin", "main"]));
+    assert_ok(&shim_git(
+        &fx,
+        &server,
+        &["push", "--force", "origin", "main"],
+    ));
     let used = server.issued();
-    assert_eq!(used.len(), 1, "one approval issued for one approved invocation");
+    assert_eq!(
+        used.len(),
+        1,
+        "one approval issued for one approved invocation"
+    );
 
     // Replayed into a push the shim does not wrap: the hook asks.
     rewrite_main(&fx.work, "second rewrite");
-    assert_ok(&bypassing_git(&fx, &server, &["push", "--force", "origin", "main"], &[(PUSH_APPROVAL_ENV, &used[0])]));
+    assert_ok(&bypassing_git(
+        &fx,
+        &server,
+        &["push", "--force", "origin", "main"],
+        &[(PUSH_APPROVAL_ENV, &used[0])],
+    ));
     assert_eq!(server.prompts().len(), 2, "a spent approval covers nothing");
 
     // Replayed into a push through the shim: the shim never forwards an inherited value, so this

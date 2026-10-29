@@ -166,7 +166,14 @@ pub fn worktree_add(
     let worktree_path_str = worktree_path.to_string_lossy().into_owned();
     git_at(
         repo_path,
-        &["worktree", "add", &worktree_path_str, "-b", branch, base_ref],
+        &[
+            "worktree",
+            "add",
+            &worktree_path_str,
+            "-b",
+            branch,
+            base_ref,
+        ],
     )
 }
 
@@ -179,7 +186,10 @@ pub fn worktree_add(
 /// cannot.
 pub fn project_subdir(project_path: &Path) -> anyhow::Result<String> {
     let output = git_at(project_path, &["rev-parse", "--show-prefix"])?;
-    Ok(String::from_utf8_lossy(&output.stdout).trim_end_matches(['\n', '\r']).trim_end_matches('/').to_string())
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .trim_end_matches(['\n', '\r'])
+        .trim_end_matches('/')
+        .to_string())
 }
 
 /// The raw stdout of `git worktree list` in `repo_path`, one line per worktree. Callers that need
@@ -240,10 +250,16 @@ pub fn diff_stat_and_names(repo_path: &Path, base_ref: &str) -> anyhow::Result<D
 
     let names_output = git_at(repo_path, &["diff", "--no-renames", "--name-only", &range])?;
     let names_text = String::from_utf8_lossy(&names_output.stdout).into_owned();
-    let changed_paths: Vec<String> =
-        names_text.split('\n').filter(|line| !line.is_empty()).map(str::to_string).collect();
+    let changed_paths: Vec<String> = names_text
+        .split('\n')
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect();
 
-    Ok(DiffStat { stat, changed_paths })
+    Ok(DiffStat {
+        stat,
+        changed_paths,
+    })
 }
 
 /// One changed file in a review (Phase 8, REVW-01/REVW-02). `status` is git's leading status
@@ -278,11 +294,20 @@ pub fn review_files(repo_path: &Path, base: &str, head: &str) -> anyhow::Result<
 /// list; for one registered at a subdirectory of a larger repository
 /// (cymarechal/highknow-mvp#551) it is what reads `docs/adr/` and `GLOSSARY.md` as the project's
 /// own, where [`review_files`] names them `flywheel/docs/adr/...`.
-pub fn project_review_files(project_dir: &Path, base: &str, head: &str) -> anyhow::Result<Vec<ReviewFile>> {
+pub fn project_review_files(
+    project_dir: &Path,
+    base: &str,
+    head: &str,
+) -> anyhow::Result<Vec<ReviewFile>> {
     changed_files(project_dir, base, head, true)
 }
 
-fn changed_files(repo_path: &Path, base: &str, head: &str, relative: bool) -> anyhow::Result<Vec<ReviewFile>> {
+fn changed_files(
+    repo_path: &Path,
+    base: &str,
+    head: &str,
+    relative: bool,
+) -> anyhow::Result<Vec<ReviewFile>> {
     let range = format!("{base}...{head}");
     let read = |format: &str| {
         let mut args = vec!["diff", "-z", format, "-M"];
@@ -303,8 +328,12 @@ fn changed_files(repo_path: &Path, base: &str, head: &str, relative: bool) -> an
     while let Some(token) = fields.next() {
         let letter = token.chars().next().map(String::from).unwrap_or_default();
         if letter == "R" || letter == "C" {
-            let old = fields.next().context("name-status rename missing old path")?;
-            let new = fields.next().context("name-status rename missing new path")?;
+            let old = fields
+                .next()
+                .context("name-status rename missing old path")?;
+            let new = fields
+                .next()
+                .context("name-status rename missing new path")?;
             entries.push((letter, Some(old.to_string()), new.to_string()));
         } else {
             let path = fields.next().context("name-status entry missing path")?;
@@ -345,14 +374,16 @@ fn changed_files(repo_path: &Path, base: &str, head: &str, relative: bool) -> an
     Ok(entries
         .into_iter()
         .zip(counts)
-        .map(|((status, old_path, path), (added, removed, binary))| ReviewFile {
-            path,
-            old_path,
-            status,
-            added,
-            removed,
-            binary,
-        })
+        .map(
+            |((status, old_path, path), (added, removed, binary))| ReviewFile {
+                path,
+                old_path,
+                status,
+                added,
+                removed,
+                binary,
+            },
+        )
         .collect())
 }
 
@@ -380,9 +411,20 @@ pub fn review_patch(
         bail!("review_patch refused: path must not contain a NUL byte");
     }
     let range = format!("{base}...{head}");
-    let pathspecs: Vec<String> =
-        std::iter::once(path).chain(old_path).map(|p| format!(":(top,literal){p}")).collect();
-    let mut args = vec!["diff", "--no-color", "--no-ext-diff", "--no-textconv", "-U3", "-M", range.as_str(), "--"];
+    let pathspecs: Vec<String> = std::iter::once(path)
+        .chain(old_path)
+        .map(|p| format!(":(top,literal){p}"))
+        .collect();
+    let mut args = vec![
+        "diff",
+        "--no-color",
+        "--no-ext-diff",
+        "--no-textconv",
+        "-U3",
+        "-M",
+        range.as_str(),
+        "--",
+    ];
     args.extend(pathspecs.iter().map(String::as_str));
     let out = git_at(repo_path, &args)?;
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
@@ -436,8 +478,9 @@ pub fn last_fetch_at(repo_path: &Path) -> anyhow::Result<Option<String>> {
     let path = repo_path.join(rel);
     match std::fs::metadata(&path) {
         Ok(meta) => {
-            let modified =
-                meta.modified().context("FETCH_HEAD metadata carries no modified time")?;
+            let modified = meta
+                .modified()
+                .context("FETCH_HEAD metadata carries no modified time")?;
             let datetime: chrono::DateTime<chrono::Utc> = modified.into();
             Ok(Some(datetime.to_rfc3339()))
         }
@@ -495,10 +538,22 @@ pub enum MergePrecheck {
 /// Exit 0 is clean, exit 1 with a tree oid on stdout is a conflict (then the conflicted paths, NUL
 /// separated). Anything else is a real error, never confused with a conflict: a corrupt repository
 /// exits 128, and an unknown ref exits 1 too (verified) but with an empty stdout.
-pub fn merge_tree_check(repo_path: &Path, target: &str, source: &str) -> anyhow::Result<MergePrecheck> {
+pub fn merge_tree_check(
+    repo_path: &Path,
+    target: &str,
+    source: &str,
+) -> anyhow::Result<MergePrecheck> {
     let output = git_output_at(
         repo_path,
-        &["merge-tree", "--write-tree", "--name-only", "-z", "--no-messages", target, source],
+        &[
+            "merge-tree",
+            "--write-tree",
+            "--name-only",
+            "-z",
+            "--no-messages",
+            target,
+            source,
+        ],
     )?;
     match output.status.code() {
         Some(0) => Ok(MergePrecheck::Clean),
@@ -512,8 +567,10 @@ pub fn merge_tree_check(repo_path: &Path, target: &str, source: &str) -> anyhow:
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 bail!("merge dry run of {source:?} into {target:?} failed (no conflict result): {stderr}");
             }
-            let mut files: Vec<String> =
-                fields.take_while(|f| !f.is_empty()).map(str::to_string).collect();
+            let mut files: Vec<String> = fields
+                .take_while(|f| !f.is_empty())
+                .map(str::to_string)
+                .collect();
             files.sort();
             files.dedup();
             Ok(MergePrecheck::Conflicts(files))
@@ -534,7 +591,10 @@ pub fn merge_tree_check(repo_path: &Path, target: &str, source: &str) -> anyhow:
 /// the tree cannot be proven clean afterwards, saying that instead). The message is one argv
 /// element: there is no shell here. The commit hooks are deliberately left to run.
 pub fn merge_no_ff(worktree: &Path, source: &str, message: &str) -> anyhow::Result<bool> {
-    let outcome = git_output_at(worktree, &["merge", "--no-ff", "--no-stat", "-m", message, source]);
+    let outcome = git_output_at(
+        worktree,
+        &["merge", "--no-ff", "--no-stat", "-m", message, source],
+    );
     let failure = match &outcome {
         Ok(out) if out.status.success() => None,
         Ok(out) => {
@@ -586,14 +646,20 @@ pub fn merge_abort_if_in_progress(worktree: &Path) -> anyhow::Result<bool> {
 /// that looks like an option is never read as one, and anything that is not one commit is an error.
 pub fn rev_parse_commit(repo_path: &Path, rev: &str) -> anyhow::Result<String> {
     let spec = format!("{rev}^{{commit}}");
-    let out = git_at(repo_path, &["rev-parse", "--verify", "--end-of-options", &spec])?;
+    let out = git_at(
+        repo_path,
+        &["rev-parse", "--verify", "--end-of-options", &spec],
+    )?;
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
 /// The checkout that has `branch` checked out, if any: the main working tree or a linked worktree,
 /// read from `git worktree list --porcelain` (ADR 0009). A bare entry or a detached HEAD never
 /// matches. `None` when no working tree has the branch checked out.
-pub fn checkout_of_branch(repo_path: &Path, branch: &str) -> anyhow::Result<Option<std::path::PathBuf>> {
+pub fn checkout_of_branch(
+    repo_path: &Path,
+    branch: &str,
+) -> anyhow::Result<Option<std::path::PathBuf>> {
     let out = git_at(repo_path, &["worktree", "list", "--porcelain", "-z"])?;
     let text = String::from_utf8_lossy(&out.stdout).into_owned();
     let wanted = format!("branch refs/heads/{branch}");
@@ -612,7 +678,10 @@ pub fn checkout_of_branch(repo_path: &Path, branch: &str) -> anyhow::Result<Opti
 /// (`status --porcelain --untracked-files=no`). Untracked files are left out: they are the
 /// developer's own, and a merge that would overwrite one refuses by itself.
 pub fn tracked_changes(path: &Path) -> anyhow::Result<Vec<String>> {
-    let out = git_at(path, &["status", "--porcelain", "-z", "--untracked-files=no"])?;
+    let out = git_at(
+        path,
+        &["status", "--porcelain", "-z", "--untracked-files=no"],
+    )?;
     Ok(String::from_utf8_lossy(&out.stdout)
         .split('\0')
         .filter(|f| f.len() > 3)
@@ -627,11 +696,26 @@ pub fn tracked_changes(path: &Path) -> anyhow::Result<Vec<String>> {
 /// lost. Writes no index and no working tree, and runs no hook. Returns the merge commit.
 ///
 /// A conflict is an error naming the paths; nothing but unreachable objects is written then.
-pub fn merge_without_checkout(repo_path: &Path, target: &str, source: &str, message: &str) -> anyhow::Result<String> {
+pub fn merge_without_checkout(
+    repo_path: &Path,
+    target: &str,
+    source: &str,
+    message: &str,
+) -> anyhow::Result<String> {
     let target_ref = format!("refs/heads/{target}");
     let old_tip = rev_parse_commit(repo_path, &target_ref)?;
     let source_sha = rev_parse_commit(repo_path, source)?;
-    let out = git_output_at(repo_path, &["merge-tree", "--write-tree", "-z", "--no-messages", &old_tip, &source_sha])?;
+    let out = git_output_at(
+        repo_path,
+        &[
+            "merge-tree",
+            "--write-tree",
+            "-z",
+            "--no-messages",
+            &old_tip,
+            &source_sha,
+        ],
+    )?;
     let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
     let mut fields = stdout.split('\0');
     let tree = fields.next().unwrap_or("").trim().to_string();
@@ -645,17 +729,35 @@ pub fn merge_without_checkout(repo_path: &Path, target: &str, source: &str, mess
                 .collect();
             paths.sort();
             paths.dedup();
-            bail!("merging {source:?} into {target:?} conflicts in {}", paths.join(", "));
+            bail!(
+                "merging {source:?} into {target:?} conflicts in {}",
+                paths.join(", ")
+            );
         }
         code => bail!(
             "merge of {source:?} into {target:?} failed (exit {code:?}): {}",
             String::from_utf8_lossy(&out.stderr)
         ),
     }
-    let commit = git_at(repo_path, &["commit-tree", &tree, "-p", &old_tip, "-p", &source_sha, "-m", message])?;
+    let commit = git_at(
+        repo_path,
+        &[
+            "commit-tree",
+            &tree,
+            "-p",
+            &old_tip,
+            "-p",
+            &source_sha,
+            "-m",
+            message,
+        ],
+    )?;
     let commit = String::from_utf8_lossy(&commit.stdout).trim().to_string();
-    git_at(repo_path, &["update-ref", "-m", message, &target_ref, &commit, &old_tip])
-        .with_context(|| format!("{target:?} moved while the merge was built; nothing was merged"))?;
+    git_at(
+        repo_path,
+        &["update-ref", "-m", message, &target_ref, &commit, &old_tip],
+    )
+    .with_context(|| format!("{target:?} moved while the merge was built; nothing was merged"))?;
     Ok(commit)
 }
 
@@ -663,12 +765,25 @@ pub fn merge_without_checkout(repo_path: &Path, target: &str, source: &str, mess
 /// only when its tip is `expected` and `expected` is contained in `into`. `branch -d` itself is not
 /// usable here: it checks against the main checkout's HEAD, which after a merge without a checkout
 /// is not the base branch (ADR 0009). The delete is a compare-and-swap on `expected`.
-pub fn delete_merged_branch(repo_path: &Path, branch: &str, expected: &str, into: &str) -> anyhow::Result<()> {
+pub fn delete_merged_branch(
+    repo_path: &Path,
+    branch: &str,
+    expected: &str,
+    into: &str,
+) -> anyhow::Result<()> {
     let merged = spawn_git(repo_path, &["merge-base", "--is-ancestor", expected, into])?;
     if !merged.status.success() {
         bail!("{branch:?} is not contained in {into:?}; it was kept");
     }
-    git_at(repo_path, &["update-ref", "-d", &format!("refs/heads/{branch}"), expected])?;
+    git_at(
+        repo_path,
+        &[
+            "update-ref",
+            "-d",
+            &format!("refs/heads/{branch}"),
+            expected,
+        ],
+    )?;
     Ok(())
 }
 
@@ -709,7 +824,10 @@ pub fn push_branch(repo_path: &Path, remote: &str, branch: &str) -> anyhow::Resu
     let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
     eprintln!("push of {branch:?} to {remote:?} failed: {stderr}");
     let lower = stderr.to_lowercase();
-    if lower.contains("non-fast-forward") || lower.contains("fetch first") || lower.contains("[rejected]") {
+    if lower.contains("non-fast-forward")
+        || lower.contains("fetch first")
+        || lower.contains("[rejected]")
+    {
         bail!("push of {branch:?} to {remote:?} was rejected: the remote has commits this branch lacks");
     }
     if lower.contains("authentication")
@@ -719,7 +837,10 @@ pub fn push_branch(repo_path: &Path, remote: &str, branch: &str) -> anyhow::Resu
     {
         bail!("push of {branch:?} to {remote:?} failed: authentication was refused");
     }
-    bail!("push of {branch:?} to {remote:?} failed (exit {:?})", out.status.code())
+    bail!(
+        "push of {branch:?} to {remote:?} failed (exit {:?})",
+        out.status.code()
+    )
 }
 
 /// The concrete git version plan 03-08's lock-contention reproduction
@@ -737,12 +858,17 @@ pub const MIN_SUPPORTED_GIT: (u32, u32, u32) = (2, 54, 0);
 /// depending on splitting the whole line by whitespace count or parentheses.
 fn parse_git_version_str(stdout: &str) -> anyhow::Result<(u32, u32, u32)> {
     for word in stdout.split_whitespace() {
-        let cleaned: String = word.chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
+        let cleaned: String = word
+            .chars()
+            .take_while(|c| c.is_ascii_digit() || *c == '.')
+            .collect();
         let parts: Vec<&str> = cleaned.split('.').collect();
         if parts.len() >= 3 {
-            if let (Ok(major), Ok(minor), Ok(patch)) =
-                (parts[0].parse::<u32>(), parts[1].parse::<u32>(), parts[2].parse::<u32>())
-            {
+            if let (Ok(major), Ok(minor), Ok(patch)) = (
+                parts[0].parse::<u32>(),
+                parts[1].parse::<u32>(),
+                parts[2].parse::<u32>(),
+            ) {
                 return Ok((major, minor, patch));
             }
         }
@@ -778,8 +904,14 @@ mod git_version_tests {
         // Referenced here (not just declared above) so a change to MIN_SUPPORTED_GIT that breaks
         // its own documented shape is caught by this suite, not just by inspection.
         let (major, minor, _patch) = MIN_SUPPORTED_GIT;
-        assert!(major >= 2, "expected a modern git major version, got {major}");
-        assert!(minor <= 999, "expected a plausible minor version, got {minor}");
+        assert!(
+            major >= 2,
+            "expected a modern git major version, got {major}"
+        );
+        assert!(
+            minor <= 999,
+            "expected a plausible minor version, got {minor}"
+        );
     }
 
     #[test]

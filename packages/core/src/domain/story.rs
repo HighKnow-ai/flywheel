@@ -77,7 +77,11 @@ pub fn is_allowed_transition(from: StoryState, to: StoryState) -> bool {
     use StoryState::*;
     matches!(
         (from, to),
-        (Shaping, Ready) | (Ready, Running) | (Running, InReview) | (InReview, Running) | (InReview, Merged)
+        (Shaping, Ready)
+            | (Ready, Running)
+            | (Running, InReview)
+            | (InReview, Running)
+            | (InReview, Merged)
     ) || (to == Dropped && !from.is_closed())
 }
 
@@ -131,7 +135,12 @@ fn row_to_story(row: &Row) -> rusqlite::Result<Story> {
 
 /// Create a Story at the end of `epic_id`'s execution order, in Shaping. Its project is the
 /// Epic's. Refused when the Epic is Done.
-pub fn create_story(conn: &mut Connection, actor_id: &str, epic_id: &str, title: &str) -> anyhow::Result<Story> {
+pub fn create_story(
+    conn: &mut Connection,
+    actor_id: &str,
+    epic_id: &str,
+    title: &str,
+) -> anyhow::Result<Story> {
     let tx = conn.transaction()?;
     let story = create_story_in_tx(&tx, actor_id, epic_id, title, None, None)?;
     tx.commit().context("failed to commit create_story")?;
@@ -156,11 +165,18 @@ pub(crate) fn create_story_in_tx(
     let id = new_id();
 
     let (project_id, epic_state): (String, String) = tx
-        .query_row("SELECT project_id, state FROM epics WHERE id = ?1", params![epic_id], |r| {
-            Ok((r.get(0)?, r.get(1)?))
-        })
-        .with_context(|| format!("Epic {epic_id:?} not found; a Story always sits inside an Epic"))?;
-    anyhow::ensure!(epic_state != "done", "Epic {epic_id:?} is done; a new Story goes into an open Epic");
+        .query_row(
+            "SELECT project_id, state FROM epics WHERE id = ?1",
+            params![epic_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .with_context(|| {
+            format!("Epic {epic_id:?} not found; a Story always sits inside an Epic")
+        })?;
+    anyhow::ensure!(
+        epic_state != "done",
+        "Epic {epic_id:?} is done; a new Story goes into an open Epic"
+    );
 
     let rank = match rank {
         Some(rank) => {
@@ -169,9 +185,11 @@ pub(crate) fn create_story_in_tx(
         }
         None => {
             let last_rank: Option<String> = tx
-                .query_row("SELECT rank FROM stories WHERE epic_id = ?1 ORDER BY rank DESC LIMIT 1", params![epic_id], |r| {
-                    r.get(0)
-                })
+                .query_row(
+                    "SELECT rank FROM stories WHERE epic_id = ?1 ORDER BY rank DESC LIMIT 1",
+                    params![epic_id],
+                    |r| r.get(0),
+                )
                 .optional()?;
             rank_after(last_rank.as_deref())?
         }
@@ -189,7 +207,10 @@ pub(crate) fn create_story_in_tx(
         &project_id,
         "story",
         &id,
-        EventScope { story_id: Some(&id), epic_id: Some(epic_id) },
+        EventScope {
+            story_id: Some(&id),
+            epic_id: Some(epic_id),
+        },
         actor_id,
         "story.created",
         &serde_json::json!({ "title": title, "label": format!("Created Story {key} \"{title}\"") }),
@@ -212,15 +233,21 @@ pub(crate) fn create_story_in_tx(
 
 /// One Story by id.
 pub fn get_story(conn: &Connection, story_id: &str) -> anyhow::Result<Option<Story>> {
-    conn.query_row(select_stories!("WHERE id = ?1"), params![story_id], row_to_story)
-        .optional()
-        .context("failed to read the Story")
+    conn.query_row(
+        select_stories!("WHERE id = ?1"),
+        params![story_id],
+        row_to_story,
+    )
+    .optional()
+    .context("failed to read the Story")
 }
 
 /// Every Story of an Epic, in execution order.
 pub fn stories_in_epic(conn: &Connection, epic_id: &str) -> anyhow::Result<Vec<Story>> {
     let mut stmt = conn.prepare(select_stories!("WHERE epic_id = ?1 ORDER BY rank, id"))?;
-    let rows = stmt.query_map(params![epic_id], row_to_story)?.collect::<Result<Vec<_>, _>>();
+    let rows = stmt
+        .query_map(params![epic_id], row_to_story)?
+        .collect::<Result<Vec<_>, _>>();
     rows.context("failed to read the Epic's Stories")
 }
 
@@ -237,9 +264,11 @@ pub fn update_story(
     let now = now();
     let tx = conn.transaction()?;
     let (project_id, epic_id): (String, String) = tx
-        .query_row("SELECT project_id, epic_id FROM stories WHERE id = ?1", params![story_id], |r| {
-            Ok((r.get(0)?, r.get(1)?))
-        })
+        .query_row(
+            "SELECT project_id, epic_id FROM stories WHERE id = ?1",
+            params![story_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
         .with_context(|| format!("Story {story_id:?} not found"))?;
     tx.execute(
         "UPDATE stories SET title = ?1, description = ?2, updated_at = ?3 WHERE id = ?4",
@@ -250,7 +279,10 @@ pub fn update_story(
         &project_id,
         "story",
         story_id,
-        EventScope { story_id: Some(story_id), epic_id: Some(&epic_id) },
+        EventScope {
+            story_id: Some(story_id),
+            epic_id: Some(&epic_id),
+        },
         actor_id,
         "story.updated",
         &serde_json::json!({ "title": title, "label": "Edited the Story" }),
@@ -263,7 +295,12 @@ pub fn update_story(
 /// Move a Story to `to`, if the spec's transition table allows it from where it is, and the actor
 /// may make that move: a human for every transition but the hand-off. The one writer of
 /// `stories.state`.
-pub fn set_story_state(conn: &mut Connection, actor_id: &str, story_id: &str, to: StoryState) -> anyhow::Result<()> {
+pub fn set_story_state(
+    conn: &mut Connection,
+    actor_id: &str,
+    story_id: &str,
+    to: StoryState,
+) -> anyhow::Result<()> {
     let tx = conn.transaction()?;
     set_story_state_in_tx(&tx, actor_id, story_id, to)?;
     tx.commit().context("failed to commit set_story_state")?;
@@ -271,12 +308,19 @@ pub fn set_story_state(conn: &mut Connection, actor_id: &str, story_id: &str, to
 }
 
 /// [`set_story_state`] inside the caller's transaction.
-pub(crate) fn set_story_state_in_tx(tx: &Transaction, actor_id: &str, story_id: &str, to: StoryState) -> anyhow::Result<()> {
+pub(crate) fn set_story_state_in_tx(
+    tx: &Transaction,
+    actor_id: &str,
+    story_id: &str,
+    to: StoryState,
+) -> anyhow::Result<()> {
     let now = now();
     let (project_id, epic_id, current): (String, String, String) = tx
-        .query_row("SELECT project_id, epic_id, state FROM stories WHERE id = ?1", params![story_id], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-        })
+        .query_row(
+            "SELECT project_id, epic_id, state FROM stories WHERE id = ?1",
+            params![story_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
         .with_context(|| format!("Story {story_id:?} not found"))?;
     let from = StoryState::parse(&current)?;
     anyhow::ensure!(
@@ -289,19 +333,32 @@ pub(crate) fn set_story_state_in_tx(tx: &Transaction, actor_id: &str, story_id: 
         assert_human_actor_in_tx(tx, actor_id)?;
     }
 
-    tx.execute("UPDATE stories SET state = ?1, updated_at = ?2 WHERE id = ?3", params![to.as_str(), now, story_id])
-        .context("failed to write the Story state")?;
+    tx.execute(
+        "UPDATE stories SET state = ?1, updated_at = ?2 WHERE id = ?3",
+        params![to.as_str(), now, story_id],
+    )
+    .context("failed to write the Story state")?;
     if (from, to) == (StoryState::InReview, StoryState::Running) {
         // In review -> Running is the developer's request for changes: it closes the open review, so
         // the next hand-off opens a fresh one.
-        crate::domain::review::close_review_in_tx(tx, story_id, actor_id, "changes_requested", None, None)?;
+        crate::domain::review::close_review_in_tx(
+            tx,
+            story_id,
+            actor_id,
+            "changes_requested",
+            None,
+            None,
+        )?;
     }
     record_event(
         tx,
         &project_id,
         "story",
         story_id,
-        EventScope { story_id: Some(story_id), epic_id: Some(&epic_id) },
+        EventScope {
+            story_id: Some(story_id),
+            epic_id: Some(&epic_id),
+        },
         actor_id,
         "story.state_changed",
         &serde_json::json!({
@@ -320,22 +377,37 @@ pub(crate) fn set_story_state_in_tx(tx: &Transaction, actor_id: &str, story_id: 
 ///
 /// Human-only. Refused for a Merged or Dropped Story (it stays where it closed), for a Done or Dropped
 /// Epic (it takes no new Story), for an Epic of another project, and for the Story's own Epic.
-pub fn move_story_to_epic(conn: &mut Connection, actor_id: &str, story_id: &str, epic_id: &str) -> anyhow::Result<()> {
+pub fn move_story_to_epic(
+    conn: &mut Connection,
+    actor_id: &str,
+    story_id: &str,
+    epic_id: &str,
+) -> anyhow::Result<()> {
     let tx = conn.transaction()?;
     assert_human_actor_in_tx(&tx, actor_id)?;
     let now = now();
     let (project_id, from_epic, key, state): (String, String, String, String) = tx
-        .query_row("SELECT project_id, epic_id, key, state FROM stories WHERE id = ?1", params![story_id], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
-        })
+        .query_row(
+            "SELECT project_id, epic_id, key, state FROM stories WHERE id = ?1",
+            params![story_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
         .with_context(|| format!("Story {story_id:?} not found"))?;
-    anyhow::ensure!(!StoryState::parse(&state)?.is_closed(), "{key} is {state}; a closed Story stays in the Epic it closed in");
+    anyhow::ensure!(
+        !StoryState::parse(&state)?.is_closed(),
+        "{key} is {state}; a closed Story stays in the Epic it closed in"
+    );
     let (epic_project, epic_key, epic_title, epic_state): (String, String, String, String) = tx
-        .query_row("SELECT project_id, key, title, state FROM epics WHERE id = ?1", params![epic_id], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
-        })
+        .query_row(
+            "SELECT project_id, key, title, state FROM epics WHERE id = ?1",
+            params![epic_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
         .with_context(|| format!("Epic {epic_id:?} not found"))?;
-    anyhow::ensure!(epic_project == project_id, "{epic_key} is in another project; a Story moves only within its project");
+    anyhow::ensure!(
+        epic_project == project_id,
+        "{epic_key} is in another project; a Story moves only within its project"
+    );
     anyhow::ensure!(epic_id != from_epic, "{key} is already in {epic_key}");
     anyhow::ensure!(
         epic_state != "done" && epic_state != "dropped",
@@ -343,7 +415,11 @@ pub fn move_story_to_epic(conn: &mut Connection, actor_id: &str, story_id: &str,
     );
 
     let last_rank: Option<String> = tx
-        .query_row("SELECT rank FROM stories WHERE epic_id = ?1 ORDER BY rank DESC LIMIT 1", params![epic_id], |r| r.get(0))
+        .query_row(
+            "SELECT rank FROM stories WHERE epic_id = ?1 ORDER BY rank DESC LIMIT 1",
+            params![epic_id],
+            |r| r.get(0),
+        )
         .optional()?;
     let rank = rank_after(last_rank.as_deref())?;
     tx.execute(
@@ -362,7 +438,10 @@ pub fn move_story_to_epic(conn: &mut Connection, actor_id: &str, story_id: &str,
         &project_id,
         "story",
         story_id,
-        EventScope { story_id: Some(story_id), epic_id: Some(epic_id) },
+        EventScope {
+            story_id: Some(story_id),
+            epic_id: Some(epic_id),
+        },
         actor_id,
         "story.moved",
         &serde_json::json!({
@@ -388,20 +467,32 @@ pub(crate) fn set_runs_after_in_tx(
 ) -> anyhow::Result<()> {
     let now = now();
     let (project_id, epic_id, key): (String, String, String) = tx
-        .query_row("SELECT project_id, epic_id, key FROM stories WHERE id = ?1", params![story_id], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-        })
+        .query_row(
+            "SELECT project_id, epic_id, key FROM stories WHERE id = ?1",
+            params![story_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
         .with_context(|| format!("Story {story_id:?} not found"))?;
     let (after_id, reason, after_key) = match runs_after {
         None => (None, None, None),
         Some((after_id, reason)) => {
             anyhow::ensure!(after_id != story_id, "a Story cannot run after itself");
             let (after_epic, after_key): (String, String) = tx
-                .query_row("SELECT epic_id, key FROM stories WHERE id = ?1", params![after_id], |r| Ok((r.get(0)?, r.get(1)?)))
+                .query_row(
+                    "SELECT epic_id, key FROM stories WHERE id = ?1",
+                    params![after_id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
                 .with_context(|| format!("Story {after_id:?} not found"))?;
-            anyhow::ensure!(after_epic == epic_id, "{key} can only run after a Story of its own Epic; {after_key} is in another");
+            anyhow::ensure!(
+                after_epic == epic_id,
+                "{key} can only run after a Story of its own Epic; {after_key} is in another"
+            );
             let reason = reason.trim();
-            anyhow::ensure!(!reason.is_empty(), "a runs-after marker needs its one-line reason");
+            anyhow::ensure!(
+                !reason.is_empty(),
+                "a runs-after marker needs its one-line reason"
+            );
             (Some(after_id), Some(reason), Some(after_key))
         }
     };
@@ -419,7 +510,10 @@ pub(crate) fn set_runs_after_in_tx(
         &project_id,
         "story",
         story_id,
-        EventScope { story_id: Some(story_id), epic_id: Some(&epic_id) },
+        EventScope {
+            story_id: Some(story_id),
+            epic_id: Some(&epic_id),
+        },
         actor_id,
         "story.runs_after_set",
         &serde_json::json!({
@@ -443,19 +537,30 @@ pub(crate) fn set_story_rank_in_tx(
     check_rank(rank)?;
     let now = now();
     let (project_id, epic_id, key, state, before): (String, String, String, String, String) = tx
-        .query_row("SELECT project_id, epic_id, key, state, rank FROM stories WHERE id = ?1", params![story_id], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
-        })
+        .query_row(
+            "SELECT project_id, epic_id, key, state, rank FROM stories WHERE id = ?1",
+            params![story_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+        )
         .with_context(|| format!("Story {story_id:?} not found"))?;
-    anyhow::ensure!(!StoryState::parse(&state)?.is_closed(), "{key} is {state}; a closed Story keeps its place in the order");
-    tx.execute("UPDATE stories SET rank = ?1, updated_at = ?2 WHERE id = ?3", params![rank, now, story_id])
-        .context("failed to move the Story")?;
+    anyhow::ensure!(
+        !StoryState::parse(&state)?.is_closed(),
+        "{key} is {state}; a closed Story keeps its place in the order"
+    );
+    tx.execute(
+        "UPDATE stories SET rank = ?1, updated_at = ?2 WHERE id = ?3",
+        params![rank, now, story_id],
+    )
+    .context("failed to move the Story")?;
     record_event(
         tx,
         &project_id,
         "story",
         story_id,
-        EventScope { story_id: Some(story_id), epic_id: Some(&epic_id) },
+        EventScope {
+            story_id: Some(story_id),
+            epic_id: Some(&epic_id),
+        },
         actor_id,
         "story.reordered",
         &serde_json::json!({
@@ -482,7 +587,14 @@ pub struct MakeReadyOffer {
 /// refuses with. Whether it can is `query::can_make_ready!`'s one rule; the refusal names which part
 /// of it failed.
 pub fn make_ready_offer(conn: &Connection, story_id: &str) -> anyhow::Result<MakeReadyOffer> {
-    let (key, state, epic_key, epic_state, criteria, can): (String, String, String, String, i64, bool) = conn
+    let (key, state, epic_key, epic_state, criteria, can): (
+        String,
+        String,
+        String,
+        String,
+        i64,
+        bool,
+    ) = conn
         .query_row(
             concat!(
                 "SELECT s.key, s.state, e.key, e.state, \
@@ -491,26 +603,43 @@ pub fn make_ready_offer(conn: &Connection, story_id: &str) -> anyhow::Result<Mak
                 " FROM stories s JOIN epics e ON e.id = s.epic_id WHERE s.id = ?1"
             ),
             params![story_id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                ))
+            },
         )
         .optional()?
         .with_context(|| format!("Story {story_id:?} not found"))?;
     let refusal = if can {
         None
     } else if state != StoryState::Shaping.as_str() {
-        Some(format!("{key} is {}; only a Story in Shaping is made Ready", state.replace('_', " ")))
+        Some(format!(
+            "{key} is {}; only a Story in Shaping is made Ready",
+            state.replace('_', " ")
+        ))
     } else if epic_state == "shaping" {
         Some(format!(
             "{epic_key} is still being shaped; closing its Write the Acceptance criteria Stage makes {key} Ready"
         ))
     } else if epic_state != "ready" && epic_state != "in_progress" {
-        Some(format!("{epic_key} is {epic_state}; a Story of a closed Epic is not made Ready"))
+        Some(format!(
+            "{epic_key} is {epic_state}; a Story of a closed Epic is not made Ready"
+        ))
     } else if criteria == 0 {
-        Some(format!("{key} has no Acceptance criterion yet; a Story needs one before it is Ready"))
+        Some(format!(
+            "{key} has no Acceptance criterion yet; a Story needs one before it is Ready"
+        ))
     } else {
         Some(format!("{key} cannot be made Ready"))
     };
-    let offered = state == StoryState::Shaping.as_str() && (epic_state == "ready" || epic_state == "in_progress");
+    let offered = state == StoryState::Shaping.as_str()
+        && (epic_state == "ready" || epic_state == "in_progress");
     Ok(MakeReadyOffer { offered, refusal })
 }
 
@@ -554,18 +683,26 @@ pub fn write_story_by_hand(
     description: Option<&str>,
     criteria: &[HandWrittenCriterion],
 ) -> anyhow::Result<Story> {
-    anyhow::ensure!(!criteria.is_empty(), "a Story needs at least one Acceptance criterion before it is Ready");
+    anyhow::ensure!(
+        !criteria.is_empty(),
+        "a Story needs at least one Acceptance criterion before it is Ready"
+    );
     let tx = conn.transaction()?;
     assert_human_actor_in_tx(&tx, actor_id)?;
     let mut story = create_story_in_tx(&tx, actor_id, epic_id, title, description, None)?;
     for criterion in criteria {
         let created = create_criterion_in_tx(&tx, actor_id, &story.id, criterion.statement)?;
-        if let Some(command) = criterion.check_command.map(str::trim).filter(|c| !c.is_empty()) {
+        if let Some(command) = criterion
+            .check_command
+            .map(str::trim)
+            .filter(|c| !c.is_empty())
+        {
             set_check_in_tx(&tx, actor_id, &created.id, command, None)?;
         }
     }
     set_story_state_in_tx(&tx, actor_id, &story.id, StoryState::Ready)?;
-    tx.commit().context("failed to commit write_story_by_hand")?;
+    tx.commit()
+        .context("failed to commit write_story_by_hand")?;
     story.state = StoryState::Ready.as_str().to_string();
     Ok(story)
 }
@@ -581,6 +718,8 @@ pub fn stories_in_project(conn: &Connection, project_id: &str) -> anyhow::Result
          WHERE s.project_id = ?1
          ORDER BY m.rank, m.id, e.rank, e.id, s.rank, s.id",
     )?;
-    let rows = stmt.query_map(params![project_id], row_to_story)?.collect::<Result<Vec<_>, _>>();
+    let rows = stmt
+        .query_map(params![project_id], row_to_story)?
+        .collect::<Result<Vec<_>, _>>();
     rows.context("failed to read the project's Stories")
 }

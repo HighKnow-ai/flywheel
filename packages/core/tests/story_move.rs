@@ -11,7 +11,9 @@ use flywheel_core::domain::acceptance_criterion::{create_criterion, criteria_for
 use flywheel_core::domain::epic::{create_epic, set_epic_state, EpicState};
 use flywheel_core::domain::milestone::create_milestone;
 use flywheel_core::domain::session::{agent_actor_id, start_session};
-use flywheel_core::domain::story::{create_story, get_story, move_story_to_epic, set_story_state, stories_in_epic, StoryState};
+use flywheel_core::domain::story::{
+    create_story, get_story, move_story_to_epic, set_story_state, stories_in_epic, StoryState,
+};
 use flywheel_core::domain::story_drop::drop_story;
 use flywheel_core::domain::task::{add_task, tasks_for_story};
 use flywheel_core::domain::worktree::worktree_for_story;
@@ -31,10 +33,22 @@ struct Fixture {
 fn fixture() -> Fixture {
     let (mut conn, human, project) = common::seeded_project();
     let (from, to, first, second, resident) = fixture_in(&mut conn, &human, &project.id);
-    Fixture { conn, human, from, to, first, second, resident }
+    Fixture {
+        conn,
+        human,
+        from,
+        to,
+        first,
+        second,
+        resident,
+    }
 }
 
-fn fixture_in(conn: &mut Connection, human: &str, project_id: &str) -> (String, String, String, String, String) {
+fn fixture_in(
+    conn: &mut Connection,
+    human: &str,
+    project_id: &str,
+) -> (String, String, String, String, String) {
     let m = create_milestone(conn, project_id, human, "Board", None).unwrap();
     let from = create_epic(conn, human, &m.id, "Roster").unwrap();
     let to = create_epic(conn, human, &m.id, "Needs you").unwrap();
@@ -45,7 +59,11 @@ fn fixture_in(conn: &mut Connection, human: &str, project_id: &str) -> (String, 
 }
 
 fn epic_story_ids(conn: &Connection, epic_id: &str) -> Vec<String> {
-    stories_in_epic(conn, epic_id).unwrap().into_iter().map(|s| s.id).collect()
+    stories_in_epic(conn, epic_id)
+        .unwrap()
+        .into_iter()
+        .map(|s| s.id)
+        .collect()
 }
 
 #[test]
@@ -53,14 +71,19 @@ fn a_moved_story_lands_at_the_end_of_the_target_epic_and_keeps_its_key() {
     let mut f = fixture();
     let before = get_story(&f.conn, &f.first).unwrap().unwrap();
 
-    move_story_to_epic(&mut f.conn, &f.human, &f.first, &f.to).expect("the human moves an open Story");
+    move_story_to_epic(&mut f.conn, &f.human, &f.first, &f.to)
+        .expect("the human moves an open Story");
 
     let after = get_story(&f.conn, &f.first).unwrap().unwrap();
     assert_eq!(after.epic_id, f.to);
     assert_eq!(after.key, before.key, "the key never changes");
     assert_eq!(after.title, before.title);
     assert_eq!(after.state, before.state, "the Story keeps its state");
-    assert_eq!(epic_story_ids(&f.conn, &f.to), vec![f.resident.clone(), f.first.clone()], "it lands last");
+    assert_eq!(
+        epic_story_ids(&f.conn, &f.to),
+        vec![f.resident.clone(), f.first.clone()],
+        "it lands last"
+    );
     assert_eq!(epic_story_ids(&f.conn, &f.from), vec![f.second.clone()]);
 }
 
@@ -81,7 +104,10 @@ fn the_move_is_written_to_the_timeline_under_the_new_epic() {
     let payload: serde_json::Value = serde_json::from_str(&payload).unwrap();
     assert_eq!(payload["before"], f.from.as_str());
     assert_eq!(payload["after"], f.to.as_str());
-    assert!(payload["label"].as_str().unwrap().contains("Needs you"), "the label names the new Epic: {payload}");
+    assert!(
+        payload["label"].as_str().unwrap().contains("Needs you"),
+        "the label names the new Epic: {payload}"
+    );
 }
 
 #[test]
@@ -94,14 +120,23 @@ fn criteria_tasks_worktree_and_branch_are_untouched() {
         set_story_state(&mut conn, &human, &first, StoryState::Running).unwrap();
         let run = start_session(&mut conn, &first, "acceptEdits", &human).unwrap();
         add_task(&mut conn, &run.actor_id, &first, "Draw the rows").unwrap();
-        let worktree = worktree_for_story(&conn, &first).unwrap().expect("the session made a worktree");
+        let worktree = worktree_for_story(&conn, &first)
+            .unwrap()
+            .expect("the session made a worktree");
         let criteria = criteria_for_story(&conn, &first).unwrap();
         let tasks = tasks_for_story(&conn, &first).unwrap();
 
         move_story_to_epic(&mut conn, &human, &first, &to).expect("a Running Story moves");
 
-        assert_eq!(worktree_for_story(&conn, &first).unwrap(), Some(worktree.clone()), "same worktree, same branch");
-        assert!(std::path::Path::new(&worktree.path).exists(), "the worktree is still on disk");
+        assert_eq!(
+            worktree_for_story(&conn, &first).unwrap(),
+            Some(worktree.clone()),
+            "same worktree, same branch"
+        );
+        assert!(
+            std::path::Path::new(&worktree.path).exists(),
+            "the worktree is still on disk"
+        );
         assert_eq!(criteria_for_story(&conn, &first).unwrap(), criteria);
         assert_eq!(tasks_for_story(&conn, &first).unwrap(), tasks);
         assert_eq!(get_story(&conn, &first).unwrap().unwrap().state, "running");
@@ -116,7 +151,12 @@ fn a_merged_or_dropped_story_stays_where_it_closed() {
     assert!(format!("{err:#}").contains("dropped"), "{err:#}");
 
     let story = f.second.clone();
-    for state in [StoryState::Ready, StoryState::Running, StoryState::InReview, StoryState::Merged] {
+    for state in [
+        StoryState::Ready,
+        StoryState::Running,
+        StoryState::InReview,
+        StoryState::Merged,
+    ] {
         set_story_state(&mut f.conn, &f.human, &story, state).unwrap();
     }
     let err = move_story_to_epic(&mut f.conn, &f.human, &story, &f.to).unwrap_err();
@@ -133,14 +173,20 @@ fn a_done_epic_takes_no_story() {
 
     let err = move_story_to_epic(&mut f.conn, &f.human, &f.first, &f.to).unwrap_err();
     assert!(format!("{err:#}").contains("done"), "{err:#}");
-    assert_eq!(get_story(&f.conn, &f.first).unwrap().unwrap().epic_id, f.from);
+    assert_eq!(
+        get_story(&f.conn, &f.first).unwrap().unwrap().epic_id,
+        f.from
+    );
 }
 
 #[test]
 fn a_story_moves_only_within_its_project() {
     let (mut conn, human, project) = common::seeded_project();
     let (_from, _to, first, _second, _resident) = fixture_in(&mut conn, &human, &project.id);
-    let other = flywheel_core::domain::project::create_project(&mut conn, &human, "Other", "/other", "OTH", "main").unwrap();
+    let other = flywheel_core::domain::project::create_project(
+        &mut conn, &human, "Other", "/other", "OTH", "main",
+    )
+    .unwrap();
     let (_, elsewhere, _, _, _) = fixture_in(&mut conn, &human, &other.id);
 
     let err = move_story_to_epic(&mut conn, &human, &first, &elsewhere).unwrap_err();
@@ -178,7 +224,13 @@ fn runs_after_markers_that_would_cross_epics_are_cleared() {
 
     mark_runs_after(&f.conn, &f.first, &f.resident);
     move_story_to_epic(&mut f.conn, &f.human, &f.first, &f.from).unwrap();
-    assert_eq!(get_story(&f.conn, &f.first).unwrap().unwrap().runs_after_story_id, None);
+    assert_eq!(
+        get_story(&f.conn, &f.first)
+            .unwrap()
+            .unwrap()
+            .runs_after_story_id,
+        None
+    );
 }
 
 #[test]
@@ -186,5 +238,8 @@ fn an_agent_cannot_move_a_story() {
     let mut f = fixture();
     let agent = agent_actor_id(&f.conn).unwrap();
     assert!(move_story_to_epic(&mut f.conn, &agent, &f.first, &f.to).is_err());
-    assert_eq!(get_story(&f.conn, &f.first).unwrap().unwrap().epic_id, f.from);
+    assert_eq!(
+        get_story(&f.conn, &f.first).unwrap().unwrap().epic_id,
+        f.from
+    );
 }

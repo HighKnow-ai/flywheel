@@ -17,14 +17,20 @@ fn start_work_creates_worktree_branch_and_linked_rows() {
     with_scratch_worktree_root(|_| {
         let (mut conn, human_actor_id, project, repo_dir) = common::seeded_git_project();
 
-        let story = common::new_story(&mut conn, &project.id, &human_actor_id, "Wire the tracer path");
+        let story = common::new_story(
+            &mut conn,
+            &project.id,
+            &human_actor_id,
+            "Wire the tracer path",
+        );
 
         let run = start_session(&mut conn, &story.id, "acceptEdits", &human_actor_id)
             .expect("start_session should succeed");
 
         // The worktree directory exists on disk.
-        let worktree = ensure_worktree(&mut conn, &story.id, &human_actor_id)
-            .expect("ensure_worktree should return the already-created row, not create a second one");
+        let worktree = ensure_worktree(&mut conn, &story.id, &human_actor_id).expect(
+            "ensure_worktree should return the already-created row, not create a second one",
+        );
         assert!(
             std::path::Path::new(&worktree.path).is_dir(),
             "the worktree directory should exist on disk at {:?}",
@@ -65,9 +71,16 @@ fn start_work_creates_worktree_branch_and_linked_rows() {
 
         // Starting a session writes no Story state: the Story is still where it was created.
         let story_state: String = conn
-            .query_row("SELECT state FROM stories WHERE id = ?1", rusqlite::params![story.id], |row| row.get(0))
+            .query_row(
+                "SELECT state FROM stories WHERE id = ?1",
+                rusqlite::params![story.id],
+                |row| row.get(0),
+            )
             .expect("story row should exist");
-        assert_eq!(story_state, story.state, "starting a session never moves the Story");
+        assert_eq!(
+            story_state, story.state,
+            "starting a session never moves the Story"
+        );
 
         let state_change_count: i64 = conn
             .query_row(
@@ -76,7 +89,10 @@ fn start_work_creates_worktree_branch_and_linked_rows() {
                 |row| row.get(0),
             )
             .expect("count");
-        assert_eq!(state_change_count, 0, "an agent never writes a Story state (DRFT-04)");
+        assert_eq!(
+            state_change_count, 0,
+            "an agent never writes a Story state (DRFT-04)"
+        );
 
         // session_log_path(run_id) is what log_path stores.
         let expected_log_path = session_log_path(&run.id)

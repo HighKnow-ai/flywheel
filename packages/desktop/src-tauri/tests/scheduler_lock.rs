@@ -35,11 +35,14 @@ fn board_read(db: &Arc<Mutex<Connection>>) -> Result<Duration, String> {
     std::thread::spawn(move || {
         let start = Instant::now();
         let conn = db.lock().unwrap();
-        let _: i64 = conn.query_row("SELECT count(*) FROM stories", [], |r| r.get(0)).unwrap();
+        let _: i64 = conn
+            .query_row("SELECT count(*) FROM stories", [], |r| r.get(0))
+            .unwrap();
         drop(conn);
         let _ = tx.send(start.elapsed());
     });
-    rx.recv_timeout(READ_DEADLINE).map_err(|_| format!("a board read waited over {READ_DEADLINE:?} behind the tick"))
+    rx.recv_timeout(READ_DEADLINE)
+        .map_err(|_| format!("a board read waited over {READ_DEADLINE:?} behind the tick"))
 }
 
 /// Run `tick` on its own thread while git's `park_on` subcommand is parked, make a board read, then
@@ -72,14 +75,19 @@ fn a_board_read_completes_while_the_hot_tick_runs_git_across_several_slow_worktr
     let digests: Arc<git_tick::Digests> = Arc::new(Mutex::new(HashMap::new()));
     let tick_digests = Arc::clone(&digests);
 
-    let (read, changed) =
-        read_while_parked(&board.db, "log", move || git_tick::git_facts_tick(&db, &ids, &tick_digests, "hot"));
+    let (read, changed) = read_while_parked(&board.db, "log", move || {
+        git_tick::git_facts_tick(&db, &ids, &tick_digests, "hot")
+    });
 
     let waited = read.expect("the read must not wait for the tick's git");
     assert!(waited < READ_DEADLINE);
     // The tick still did its whole job once git let go: every Story was read and digested, and the
     // commits made by hand were noticed and written.
-    assert_eq!(digests.lock().unwrap().len(), 3, "every Story's facts were read");
+    assert_eq!(
+        digests.lock().unwrap().len(),
+        3,
+        "every Story's facts were read"
+    );
     assert_eq!(changed.len(), 1, "one project changed: {changed:?}");
     let noticed: i64 = board
         .db
@@ -91,13 +99,20 @@ fn a_board_read_completes_while_the_hot_tick_runs_git_across_several_slow_worktr
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(noticed, 3, "each worktree's commit made by hand was recorded");
+    assert_eq!(
+        noticed, 3,
+        "each worktree's commit made by hand was recorded"
+    );
 }
 
 #[test]
 fn a_board_read_completes_while_the_cold_tick_and_the_fetch_run_git() {
     let board = board(2);
-    assert_eq!(git_tick::cold_story_ids(&board.db).len(), 2, "the cold tier tracks every worktree");
+    assert_eq!(
+        git_tick::cold_story_ids(&board.db).len(),
+        2,
+        "the cold tier tracks every worktree"
+    );
 
     let db = Arc::clone(&board.db);
     let digests: Arc<git_tick::Digests> = Arc::new(Mutex::new(HashMap::new()));
@@ -137,22 +152,54 @@ fn merge_and_reclaim_wait_for_the_story_work_lock() {
     let lock = flywheel_desktop_lib::commands::story_work(&story_id);
     let held = lock.lock().unwrap();
 
-    let (path, actor, id) = (board.db_path.clone(), board.actor_id.clone(), story_id.clone());
+    let (path, actor, id) = (
+        board.db_path.clone(),
+        board.actor_id.clone(),
+        story_id.clone(),
+    );
     let merge = on_a_thread(move || {
-        flywheel_desktop_lib::commands::review::merge_with_story_work(&path, &actor, &id, Default::default()).map(|_| ())
+        flywheel_desktop_lib::commands::review::merge_with_story_work(
+            &path,
+            &actor,
+            &id,
+            Default::default(),
+        )
+        .map(|_| ())
     });
-    let (path, actor, id) = (board.db_path.clone(), board.actor_id.clone(), story_id.clone());
+    let (path, actor, id) = (
+        board.db_path.clone(),
+        board.actor_id.clone(),
+        story_id.clone(),
+    );
     let reclaim = on_a_thread(move || {
-        flywheel_desktop_lib::commands::fleet::reclaim_with_story_work(&path, &[id], &actor).map(|outcomes| outcomes.len())
+        flywheel_desktop_lib::commands::fleet::reclaim_with_story_work(&path, &[id], &actor)
+            .map(|outcomes| outcomes.len())
     });
-    assert!(merge.recv_timeout(STILL_WAITING).is_err(), "Merge ran while the Story's work lock was held");
-    assert!(reclaim.recv_timeout(STILL_WAITING).is_err(), "Reclaim ran while the Story's work lock was held");
+    assert!(
+        merge.recv_timeout(STILL_WAITING).is_err(),
+        "Merge ran while the Story's work lock was held"
+    );
+    assert!(
+        reclaim.recv_timeout(STILL_WAITING).is_err(),
+        "Reclaim ran while the Story's work lock was held"
+    );
 
     drop(held);
-    let merged = merge.recv_timeout(RELEASED).expect("Merge ran once the lock was free");
-    assert!(merged.is_err(), "the Story is not In review, so Merge refuses");
-    let reclaimed = reclaim.recv_timeout(RELEASED).expect("Reclaim ran once the lock was free");
-    assert_eq!(reclaimed.expect("the reclaim batch ran"), 1, "one outcome for the one Story");
+    let merged = merge
+        .recv_timeout(RELEASED)
+        .expect("Merge ran once the lock was free");
+    assert!(
+        merged.is_err(),
+        "the Story is not In review, so Merge refuses"
+    );
+    let reclaimed = reclaim
+        .recv_timeout(RELEASED)
+        .expect("Reclaim ran once the lock was free");
+    assert_eq!(
+        reclaimed.expect("the reclaim batch ran"),
+        1,
+        "one outcome for the one Story"
+    );
 }
 
 /// A Start and a Merge on one Story never interleave: a Merge sent while the Start is between its
@@ -182,32 +229,61 @@ fn a_start_racing_a_merge_on_one_story_is_serialised() {
         )
         .map(|_| ())
     });
-    inside_rx.recv_timeout(RELEASED).expect("the Start reached its launch");
+    inside_rx
+        .recv_timeout(RELEASED)
+        .expect("the Start reached its launch");
 
-    let (path, actor, id) = (board.db_path.clone(), board.actor_id.clone(), story_id.clone());
+    let (path, actor, id) = (
+        board.db_path.clone(),
+        board.actor_id.clone(),
+        story_id.clone(),
+    );
     let merge = on_a_thread(move || {
-        flywheel_desktop_lib::commands::review::merge_with_story_work(&path, &actor, &id, Default::default()).map(|_| ())
+        flywheel_desktop_lib::commands::review::merge_with_story_work(
+            &path,
+            &actor,
+            &id,
+            Default::default(),
+        )
+        .map(|_| ())
     });
-    assert!(merge.recv_timeout(STILL_WAITING).is_err(), "Merge ran in the middle of a Start on the same Story");
+    assert!(
+        merge.recv_timeout(STILL_WAITING).is_err(),
+        "Merge ran in the middle of a Start on the same Story"
+    );
 
     go_tx.send(()).unwrap();
     let started = start.recv_timeout(RELEASED).expect("the Start finished");
     assert_eq!(started.unwrap_err(), "stopped by the test");
-    let merged = merge.recv_timeout(RELEASED).expect("Merge ran once the Start was done");
-    assert!(merged.is_err(), "the Story is not In review, so Merge refuses");
+    let merged = merge
+        .recv_timeout(RELEASED)
+        .expect("Merge ran once the Start was done");
+    assert!(
+        merged.is_err(),
+        "the Story is not In review, so Merge refuses"
+    );
 }
 
 /// The source tree the lint reads: the desktop crate and the core crate, stripped.
 fn tree() -> Vec<(String, String)> {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     let mut files = lint::sources(&manifest.join("src"), "packages/desktop/src-tauri/src");
-    files.extend(lint::sources(&manifest.join("../../core/src"), "packages/core/src"));
-    files.into_iter().map(|(p, t)| (p, lint::strip(&t))).collect()
+    files.extend(lint::sources(
+        &manifest.join("../../core/src"),
+        "packages/core/src",
+    ));
+    files
+        .into_iter()
+        .map(|(p, t)| (p, lint::strip(&t)))
+        .collect()
 }
 
 fn report(files: &[(String, String)]) -> Vec<String> {
     let spawning = lint::blocking_names(files);
-    lint::holders(files, &spawning).iter().map(|h| format!("{h}  [{}]", lint::chain(&spawning, &h.callee))).collect()
+    lint::holders(files, &spawning)
+        .iter()
+        .map(|h| format!("{h}  [{}]", lint::chain(&spawning, &h.callee)))
+        .collect()
 }
 
 #[test]
@@ -228,7 +304,11 @@ fn no_code_path_holds_the_board_lock_across_a_git_or_process_call() {
 fn every_name_left_out_of_the_fixpoint_is_a_real_collision() {
     let files = tree();
     for (name, why) in lint::NOT_A_SPAWN {
-        let others: Vec<&str> = lint::NOT_A_SPAWN.iter().map(|(n, _)| *n).filter(|n| n != name).collect();
+        let others: Vec<&str> = lint::NOT_A_SPAWN
+            .iter()
+            .map(|(n, _)| *n)
+            .filter(|n| n != name)
+            .collect();
         assert!(
             lint::spawning_names_skipping(&files, &others).contains_key(*name),
             "`{name}` ({why}) no longer collides with a spawning function: remove it from NOT_A_SPAWN"
@@ -303,7 +383,10 @@ fn the_lint_catches_every_shape_of_lock_holder_and_passes_the_released_ones() {
     "#;
     let files = vec![("planted.rs".to_string(), lint::strip(planted))];
     let listed = report(&files);
-    let mut holders: Vec<&str> = listed.iter().map(|l| l.split_whitespace().nth(1).unwrap()).collect();
+    let mut holders: Vec<&str> = listed
+        .iter()
+        .map(|l| l.split_whitespace().nth(1).unwrap())
+        .collect();
     holders.dedup();
     assert_eq!(
         holders,

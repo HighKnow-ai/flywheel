@@ -64,8 +64,13 @@ impl Drain {
     /// Wait for EOF until `deadline`, then return whatever has been read. If a descendant still
     /// holds the pipe open the reader thread is left behind to finish on its own.
     fn collect(self, deadline: Instant) -> Vec<u8> {
-        let _ = self.done.recv_timeout(deadline.saturating_duration_since(Instant::now()));
-        self.buf.lock().map(|mut b| std::mem::take(&mut *b)).unwrap_or_default()
+        let _ = self
+            .done
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()));
+        self.buf
+            .lock()
+            .map(|mut b| std::mem::take(&mut *b))
+            .unwrap_or_default()
     }
 }
 
@@ -97,7 +102,11 @@ pub fn output_with_timeout(
     label: &str,
 ) -> std::io::Result<Output> {
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-    cmd.stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() });
+    cmd.stdin(if stdin.is_some() {
+        Stdio::piped()
+    } else {
+        Stdio::null()
+    });
 
     let mut child = cmd.spawn()?;
 
@@ -141,10 +150,15 @@ pub fn output_with_timeout(
             // function exists to enforce, so the drain gets what is left of the deadline (never
             // less than DRAIN_FLOOR) and returns what it has. The child's status is real either
             // way; only a straggler's late output is dropped.
-            let drain_by = Instant::now() + timeout.saturating_sub(start.elapsed()).max(DRAIN_FLOOR);
+            let drain_by =
+                Instant::now() + timeout.saturating_sub(start.elapsed()).max(DRAIN_FLOOR);
             let stdout = stdout_drain.collect(drain_by);
             let stderr = stderr_drain.collect(drain_by);
-            Ok(Output { status, stdout, stderr })
+            Ok(Output {
+                status,
+                stdout,
+                stderr,
+            })
         }
         None => {
             // Kill and reap the direct child only — never a pid this function did not itself

@@ -19,7 +19,9 @@ use std::sync::Mutex;
 use rusqlite::{params, Connection};
 
 use crate::domain::actor::system_actor;
-use crate::git_facts::{plan_git_facts, read_git_facts, record_outside_commits_in, tracked_worktrees, GitFacts};
+use crate::git_facts::{
+    plan_git_facts, read_git_facts, record_outside_commits_in, tracked_worktrees, GitFacts,
+};
 
 /// The last-seen digest per Story id, shared by the hot and cold ticks. Never read as an answer to
 /// any question other than "did this change since the last tick" (D-75/D-128).
@@ -27,11 +29,16 @@ pub type Digests = Mutex<HashMap<String, u64>>;
 
 /// Lock `db`, or `None` (logged) when a panic poisoned it: the tick skips that phase rather than
 /// stop the scheduler.
-fn lock<'a>(db: &'a Mutex<Connection>, tier: &str) -> Option<std::sync::MutexGuard<'a, Connection>> {
+fn lock<'a>(
+    db: &'a Mutex<Connection>,
+    tier: &str,
+) -> Option<std::sync::MutexGuard<'a, Connection>> {
     match db.lock() {
         Ok(conn) => Some(conn),
         Err(_) => {
-            eprintln!("git-truth {tier} tick: the board database lock was poisoned, skipping this tick");
+            eprintln!(
+                "git-truth {tier} tick: the board database lock was poisoned, skipping this tick"
+            );
             None
         }
     }
@@ -59,13 +66,19 @@ fn record_digest(digests: &Digests, story_id: &str, facts: &GitFacts) -> bool {
 }
 
 fn project_of_story(conn: &Connection, story_id: &str) -> Option<String> {
-    conn.query_row("SELECT project_id FROM stories WHERE id = ?1", params![story_id], |r| r.get(0)).ok()
+    conn.query_row(
+        "SELECT project_id FROM stories WHERE id = ?1",
+        params![story_id],
+        |r| r.get(0),
+    )
+    .ok()
 }
 
 /// D-114's hot tier: every worktree with a live session, unioned with `focused` (the Story the
 /// renderer says it shows). Database only.
 pub fn hot_story_ids(db: &Mutex<Connection>, focused: Option<String>) -> Vec<String> {
-    let mut ids: HashSet<String> = match lock(db, "hot").map(|conn| tracked_worktrees(&conn, true)) {
+    let mut ids: HashSet<String> = match lock(db, "hot").map(|conn| tracked_worktrees(&conn, true))
+    {
         Some(Ok(rows)) => rows.into_iter().map(|w| w.story_id).collect(),
         Some(Err(err)) => {
             eprintln!("git-truth hot tick: failed to read tracked worktrees: {err:#}");
@@ -105,7 +118,9 @@ pub fn git_facts_tick(
     // Phase one, under the lock: the system actor (resolved in Rust, never passed in from the
     // renderer, T-01-04) and every Story's plan.
     let (actor_id, plans) = {
-        let Some(conn) = lock(db, tier) else { return HashSet::new() };
+        let Some(conn) = lock(db, tier) else {
+            return HashSet::new();
+        };
         let actor_id = match system_actor(&conn) {
             Ok(actor) => Some(actor.id),
             Err(err) => {
@@ -132,7 +147,10 @@ pub fn git_facts_tick(
         .filter_map(|plan| match read_git_facts(plan) {
             Ok(facts) => Some((plan.story_id.clone(), facts)),
             Err(err) => {
-                eprintln!("git-truth {tier} tick: failed to read git facts for Story {}: {err:#}", plan.story_id);
+                eprintln!(
+                    "git-truth {tier} tick: failed to read git facts for Story {}: {err:#}",
+                    plan.story_id
+                );
                 None
             }
         })
@@ -143,7 +161,9 @@ pub fn git_facts_tick(
 
     // Phase three, under the lock: write what git showed.
     let mut changed_projects: HashSet<Option<String>> = HashSet::new();
-    let Some(mut conn) = lock(db, tier) else { return changed_projects };
+    let Some(mut conn) = lock(db, tier) else {
+        return changed_projects;
+    };
     for (story_id, facts) in &read {
         let mut changed = record_digest(digests, story_id, facts);
         if let Some(actor_id) = &actor_id {
@@ -171,15 +191,24 @@ pub struct FetchTarget {
 
 /// Phase one of the fetch tick: every active project's id and repo path, read under the lock.
 pub fn fetch_targets(db: &Mutex<Connection>) -> Vec<FetchTarget> {
-    let Some(conn) = lock(db, "fetch") else { return Vec::new() };
-    let mut stmt = match conn.prepare("SELECT id, repo_path FROM projects WHERE status = 'active' AND hidden = 0") {
+    let Some(conn) = lock(db, "fetch") else {
+        return Vec::new();
+    };
+    let mut stmt = match conn
+        .prepare("SELECT id, repo_path FROM projects WHERE status = 'active' AND hidden = 0")
+    {
         Ok(stmt) => stmt,
         Err(err) => {
             eprintln!("git-truth fetch tick: failed to prepare project query: {err:#}");
             return Vec::new();
         }
     };
-    let rows = stmt.query_map([], |row| Ok(FetchTarget { project_id: row.get(0)?, repo_path: row.get(1)? }));
+    let rows = stmt.query_map([], |row| {
+        Ok(FetchTarget {
+            project_id: row.get(0)?,
+            repo_path: row.get(1)?,
+        })
+    });
     match rows {
         Ok(rows) => rows.filter_map(Result::ok).collect(),
         Err(err) => {
@@ -195,7 +224,10 @@ pub fn fetch_targets(db: &Mutex<Connection>) -> Vec<FetchTarget> {
 pub fn fetch_origin_for_targets(targets: &[FetchTarget]) {
     for target in targets {
         if let Err(err) = crate::git::fetch_origin(Path::new(&target.repo_path)) {
-            eprintln!("git-truth fetch tick: failed to fetch origin for project {}: {err:#}", target.project_id);
+            eprintln!(
+                "git-truth fetch tick: failed to fetch origin for project {}: {err:#}",
+                target.project_id
+            );
         }
     }
 }

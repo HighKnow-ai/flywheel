@@ -42,7 +42,10 @@ fn row_to_criterion(row: &Row) -> rusqlite::Result<AcceptanceCriterion> {
 }
 
 /// The Story and its scope for a criterion's events, read inside the caller's transaction.
-fn criterion_scope(tx: &Transaction, criterion_id: &str) -> anyhow::Result<(String, String, String)> {
+fn criterion_scope(
+    tx: &Transaction,
+    criterion_id: &str,
+) -> anyhow::Result<(String, String, String)> {
     tx.query_row(
         "SELECT c.story_id, s.epic_id, s.project_id FROM acceptance_criteria c
          JOIN stories s ON s.id = c.story_id WHERE c.id = ?1",
@@ -78,10 +81,14 @@ pub(crate) fn create_criterion_in_tx(
     let now = now();
     let id = new_id();
     let (project_id, epic_id): (String, String) = tx
-        .query_row("SELECT project_id, epic_id FROM stories WHERE id = ?1", params![story_id], |r| {
-            Ok((r.get(0)?, r.get(1)?))
-        })
-        .with_context(|| format!("Story {story_id:?} not found; a criterion is anchored to one Story"))?;
+        .query_row(
+            "SELECT project_id, epic_id FROM stories WHERE id = ?1",
+            params![story_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .with_context(|| {
+            format!("Story {story_id:?} not found; a criterion is anchored to one Story")
+        })?;
     let last_rank: Option<String> = tx
         .query_row(
             "SELECT rank FROM acceptance_criteria WHERE story_id = ?1 ORDER BY rank DESC LIMIT 1",
@@ -101,7 +108,10 @@ pub(crate) fn create_criterion_in_tx(
         &project_id,
         "criterion",
         &id,
-        EventScope { story_id: Some(story_id), epic_id: Some(&epic_id) },
+        EventScope {
+            story_id: Some(story_id),
+            epic_id: Some(&epic_id),
+        },
         actor_id,
         "criterion.created",
         &serde_json::json!({ "statement": statement, "label": format!("Added criterion \"{statement}\"") }),
@@ -118,7 +128,10 @@ pub(crate) fn create_criterion_in_tx(
 }
 
 /// One criterion by id.
-pub fn get_criterion(conn: &Connection, criterion_id: &str) -> anyhow::Result<Option<AcceptanceCriterion>> {
+pub fn get_criterion(
+    conn: &Connection,
+    criterion_id: &str,
+) -> anyhow::Result<Option<AcceptanceCriterion>> {
     conn.query_row(
         "SELECT id, story_id, statement, accepted_by, accepted_at, rank FROM acceptance_criteria WHERE id = ?1",
         params![criterion_id],
@@ -129,20 +142,36 @@ pub fn get_criterion(conn: &Connection, criterion_id: &str) -> anyhow::Result<Op
 }
 
 /// A Story's criteria, in order.
-pub fn criteria_for_story(conn: &Connection, story_id: &str) -> anyhow::Result<Vec<AcceptanceCriterion>> {
+pub fn criteria_for_story(
+    conn: &Connection,
+    story_id: &str,
+) -> anyhow::Result<Vec<AcceptanceCriterion>> {
     let mut stmt = conn.prepare(
         "SELECT id, story_id, statement, accepted_by, accepted_at, rank FROM acceptance_criteria
          WHERE story_id = ?1 ORDER BY rank, id",
     )?;
-    let rows = stmt.query_map(params![story_id], row_to_criterion)?.collect::<Result<Vec<_>, _>>();
+    let rows = stmt
+        .query_map(params![story_id], row_to_criterion)?
+        .collect::<Result<Vec<_>, _>>();
     rows.context("failed to read the Story's criteria")
 }
 
 /// Rewrite a criterion's statement. A changed statement is a new thing to judge, so an acceptance
 /// already recorded is cleared with it. The Story it belongs to never changes.
-pub fn amend_criterion(conn: &mut Connection, actor_id: &str, criterion_id: &str, statement: &str) -> anyhow::Result<()> {
+pub fn amend_criterion(
+    conn: &mut Connection,
+    actor_id: &str,
+    criterion_id: &str,
+    statement: &str,
+) -> anyhow::Result<()> {
     let tx = conn.transaction()?;
-    amend_criterion_in_tx(&tx, actor_id, criterion_id, statement, serde_json::json!({ "label": "Amended a criterion" }))?;
+    amend_criterion_in_tx(
+        &tx,
+        actor_id,
+        criterion_id,
+        statement,
+        serde_json::json!({ "label": "Amended a criterion" }),
+    )?;
     tx.commit()?;
     Ok(())
 }
@@ -172,7 +201,10 @@ pub(crate) fn amend_criterion_in_tx(
         &project_id,
         "criterion",
         criterion_id,
-        EventScope { story_id: Some(&story_id), epic_id: Some(&epic_id) },
+        EventScope {
+            story_id: Some(&story_id),
+            epic_id: Some(&epic_id),
+        },
         actor_id,
         "criterion.amended",
         &detail,
@@ -183,16 +215,29 @@ pub(crate) fn amend_criterion_in_tx(
 
 /// Accept a criterion at review. Human-only: the actor's type is read inside this transaction and
 /// anything but a human is refused before any row changes.
-pub fn accept_criterion(conn: &mut Connection, actor_id: &str, criterion_id: &str) -> anyhow::Result<()> {
+pub fn accept_criterion(
+    conn: &mut Connection,
+    actor_id: &str,
+    criterion_id: &str,
+) -> anyhow::Result<()> {
     write_acceptance(conn, actor_id, criterion_id, true)
 }
 
 /// Withdraw an acceptance. Human-only, like [`accept_criterion`].
-pub fn unaccept_criterion(conn: &mut Connection, actor_id: &str, criterion_id: &str) -> anyhow::Result<()> {
+pub fn unaccept_criterion(
+    conn: &mut Connection,
+    actor_id: &str,
+    criterion_id: &str,
+) -> anyhow::Result<()> {
     write_acceptance(conn, actor_id, criterion_id, false)
 }
 
-fn write_acceptance(conn: &mut Connection, actor_id: &str, criterion_id: &str, accept: bool) -> anyhow::Result<()> {
+fn write_acceptance(
+    conn: &mut Connection,
+    actor_id: &str,
+    criterion_id: &str,
+    accept: bool,
+) -> anyhow::Result<()> {
     let now = now();
     let tx = conn.transaction()?;
     assert_human_actor_in_tx(&tx, actor_id)?;
@@ -208,14 +253,20 @@ fn write_acceptance(conn: &mut Connection, actor_id: &str, criterion_id: &str, a
             params![now, criterion_id],
         )?;
     }
-    let (event_type, label) =
-        if accept { ("criterion.accepted", "Accepted a criterion") } else { ("criterion.unaccepted", "Withdrew a criterion's acceptance") };
+    let (event_type, label) = if accept {
+        ("criterion.accepted", "Accepted a criterion")
+    } else {
+        ("criterion.unaccepted", "Withdrew a criterion's acceptance")
+    };
     record_event(
         &tx,
         &project_id,
         "criterion",
         criterion_id,
-        EventScope { story_id: Some(&story_id), epic_id: Some(&epic_id) },
+        EventScope {
+            story_id: Some(&story_id),
+            epic_id: Some(&epic_id),
+        },
         actor_id,
         event_type,
         &serde_json::json!({ "field": "accepted", "before": !accept, "after": accept, "label": label }),
@@ -226,17 +277,27 @@ fn write_acceptance(conn: &mut Connection, actor_id: &str, criterion_id: &str, a
 }
 
 /// Delete a criterion (and its Check, by cascade).
-pub fn delete_criterion(conn: &mut Connection, actor_id: &str, criterion_id: &str) -> anyhow::Result<()> {
+pub fn delete_criterion(
+    conn: &mut Connection,
+    actor_id: &str,
+    criterion_id: &str,
+) -> anyhow::Result<()> {
     let now = now();
     let tx = conn.transaction()?;
     let (story_id, epic_id, project_id) = criterion_scope(&tx, criterion_id)?;
-    tx.execute("DELETE FROM acceptance_criteria WHERE id = ?1", params![criterion_id])?;
+    tx.execute(
+        "DELETE FROM acceptance_criteria WHERE id = ?1",
+        params![criterion_id],
+    )?;
     record_event(
         &tx,
         &project_id,
         "criterion",
         criterion_id,
-        EventScope { story_id: Some(&story_id), epic_id: Some(&epic_id) },
+        EventScope {
+            story_id: Some(&story_id),
+            epic_id: Some(&epic_id),
+        },
         actor_id,
         "criterion.deleted",
         &serde_json::json!({ "label": "Deleted a criterion" }),

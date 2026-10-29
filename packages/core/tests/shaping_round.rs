@@ -10,11 +10,16 @@
 mod common;
 
 use flywheel_core::domain::round::{
-    accept_all_recommended, answer_round_question, post_round, rounds_for_epic, NewQuestion, NewRound, RoundAnswer,
+    accept_all_recommended, answer_round_question, post_round, rounds_for_epic, NewQuestion,
+    NewRound, RoundAnswer,
 };
-use flywheel_core::domain::session::{interrupt_session, start_session, start_shaping_session, ShapingSubject};
+use flywheel_core::domain::session::{
+    interrupt_session, start_session, start_shaping_session, ShapingSubject,
+};
 use flywheel_core::domain::session_kind::SessionKind;
-use flywheel_core::domain::shaping_tool::{apply_shaping_tool_call, ShapingToolCall, ShapingToolOutcome, SHAPING_TOOL_NAMES};
+use flywheel_core::domain::shaping_tool::{
+    apply_shaping_tool_call, ShapingToolCall, ShapingToolOutcome, SHAPING_TOOL_NAMES,
+};
 use flywheel_core::domain::stage::{open_stage, stages_for_epic, StageKind};
 use flywheel_core::domain::{epic, milestone};
 use rusqlite::Connection;
@@ -40,7 +45,13 @@ fn shaping() -> Fixture {
     )
     .unwrap()
     .id;
-    Fixture { conn, human, project_id: project.id, epic_id: e.id, session_id }
+    Fixture {
+        conn,
+        human,
+        project_id: project.id,
+        epic_id: e.id,
+        session_id,
+    }
 }
 
 fn question(n: usize) -> NewQuestion {
@@ -55,7 +66,10 @@ fn question(n: usize) -> NewQuestion {
 }
 
 fn round_of(n: usize) -> NewRound {
-    NewRound { note: "This Round settles the problem statement.".into(), questions: (1..=n).map(question).collect() }
+    NewRound {
+        note: "This Round settles the problem statement.".into(),
+        questions: (1..=n).map(question).collect(),
+    }
 }
 
 fn round_post_args(n: usize) -> serde_json::Value {
@@ -91,8 +105,18 @@ fn starting_a_shaping_session_opens_the_challenge_stage_once() {
 
     // A second session on the same Epic keeps the Stage that is already open.
     interrupt_session(&mut f.conn, &f.session_id, &f.human).unwrap();
-    start_shaping_session(&mut f.conn, &ShapingSubject::Epic(f.epic_id.clone()), "dontAsk", &f.human).unwrap();
-    assert_eq!(stages_for_epic(&f.conn, &f.epic_id).unwrap().len(), 1, "no second Challenge Stage");
+    start_shaping_session(
+        &mut f.conn,
+        &ShapingSubject::Epic(f.epic_id.clone()),
+        "dontAsk",
+        &f.human,
+    )
+    .unwrap();
+    assert_eq!(
+        stages_for_epic(&f.conn, &f.epic_id).unwrap().len(),
+        1,
+        "no second Challenge Stage"
+    );
 }
 
 #[test]
@@ -100,10 +124,18 @@ fn round_post_creates_a_round_in_the_open_stage_and_holds_the_call() {
     let mut f = shaping();
     let call = ShapingToolCall::parse("round_post", &round_post_args(3)).unwrap();
     let outcome = apply_shaping_tool_call(&mut f.conn, &f.session_id, "req-1", &call).unwrap();
-    let ShapingToolOutcome::Held { round_id, project_id } = outcome else { panic!("round_post is held: {outcome:?}") };
+    let ShapingToolOutcome::Held {
+        round_id,
+        project_id,
+    } = outcome
+    else {
+        panic!("round_post is held: {outcome:?}")
+    };
     assert_eq!(project_id, f.project_id);
 
-    let stage = open_stage(&f.conn, &ShapingSubject::Epic(f.epic_id.clone())).unwrap().unwrap();
+    let stage = open_stage(&f.conn, &ShapingSubject::Epic(f.epic_id.clone()))
+        .unwrap()
+        .unwrap();
     let rounds = rounds_for_epic(&f.conn, &f.epic_id).unwrap();
     assert_eq!(rounds.len(), 1);
     let round = &rounds[0];
@@ -111,9 +143,20 @@ fn round_post_creates_a_round_in_the_open_stage_and_holds_the_call() {
     assert_eq!(round.stage_id, stage.id);
     assert_eq!(round.number, 1);
     assert_eq!(round.state, "open");
-    assert_eq!(round.session_id.as_deref(), Some(f.session_id.as_str()), "identity is the session's");
-    assert_eq!(round.held_request_id.as_deref(), Some("req-1"), "the held call is stored on the Round");
-    assert_eq!(round.questions.iter().map(|q| q.number).collect::<Vec<_>>(), [1, 2, 3]);
+    assert_eq!(
+        round.session_id.as_deref(),
+        Some(f.session_id.as_str()),
+        "identity is the session's"
+    );
+    assert_eq!(
+        round.held_request_id.as_deref(),
+        Some("req-1"),
+        "the held call is stored on the Round"
+    );
+    assert_eq!(
+        round.questions.iter().map(|q| q.number).collect::<Vec<_>>(),
+        [1, 2, 3]
+    );
     assert_eq!(round.questions[1].recommended_answer, "Yes, thing 2");
     assert_eq!(round.questions[1].because, "Thing 2 is in scope");
     assert_eq!(round.questions[1].grounding, "Read docs/spec.md §2");
@@ -127,16 +170,30 @@ fn the_call_is_answered_only_once_the_last_question_is_answered_each_answer_stor
     let round = post_round(&mut f.conn, &f.session_id, Some("req-1"), &round_of(3)).unwrap();
     let q = |i: usize| round.questions[i].id.clone();
 
-    let first = answer_round_question(&mut f.conn, &f.human, &q(0), &RoundAnswer::Recommended).unwrap();
+    let first =
+        answer_round_question(&mut f.conn, &f.human, &q(0), &RoundAnswer::Recommended).unwrap();
     assert!(first.release.is_none(), "two questions are still open");
-    assert_eq!(answered_count(&f.conn, &round.id), 1, "the first answer is stored before the next is given");
+    assert_eq!(
+        answered_count(&f.conn, &round.id),
+        1,
+        "the first answer is stored before the next is given"
+    );
 
-    let second = answer_round_question(&mut f.conn, &f.human, &q(2), &RoundAnswer::Own("No: thing 3 is later".into())).unwrap();
+    let second = answer_round_question(
+        &mut f.conn,
+        &f.human,
+        &q(2),
+        &RoundAnswer::Own("No: thing 3 is later".into()),
+    )
+    .unwrap();
     assert!(second.release.is_none());
     assert_eq!(answered_count(&f.conn, &round.id), 2);
 
-    let last = answer_round_question(&mut f.conn, &f.human, &q(1), &RoundAnswer::Recommended).unwrap();
-    let release = last.release.expect("the last answer releases the held call");
+    let last =
+        answer_round_question(&mut f.conn, &f.human, &q(1), &RoundAnswer::Recommended).unwrap();
+    let release = last
+        .release
+        .expect("the last answer releases the held call");
     assert_eq!(release.session_id, f.session_id);
     assert_eq!(release.request_id, "req-1");
     let answers = release.result["answers"].as_array().unwrap();
@@ -150,37 +207,83 @@ fn the_call_is_answered_only_once_the_last_question_is_answered_each_answer_stor
 
     let stored = &rounds_for_epic(&f.conn, &f.epic_id).unwrap()[0];
     assert_eq!(stored.state, "answered");
-    assert_eq!(stored.held_request_id, None, "a released call is no longer held");
+    assert_eq!(
+        stored.held_request_id, None,
+        "a released call is no longer held"
+    );
     assert!(stored.answered_at.is_some());
-    assert!(stored.questions.iter().all(|q| q.answered_by.as_deref() == Some(f.human.as_str())));
+    assert!(stored
+        .questions
+        .iter()
+        .all(|q| q.answered_by.as_deref() == Some(f.human.as_str())));
 }
 
 #[test]
 fn accept_all_recommended_answers_every_open_question_with_its_recommendation_and_releases() {
     let mut f = shaping();
     let round = post_round(&mut f.conn, &f.session_id, Some("req-9"), &round_of(3)).unwrap();
-    answer_round_question(&mut f.conn, &f.human, &round.questions[0].id, &RoundAnswer::Own("Mine".into())).unwrap();
+    answer_round_question(
+        &mut f.conn,
+        &f.human,
+        &round.questions[0].id,
+        &RoundAnswer::Own("Mine".into()),
+    )
+    .unwrap();
 
     let outcome = accept_all_recommended(&mut f.conn, &f.human, &round.id).unwrap();
     let release = outcome.release.expect("the Round is complete");
     let answers = release.result["answers"].as_array().unwrap();
-    assert_eq!(answers[0]["answer"], "Mine", "an answer already given is kept");
+    assert_eq!(
+        answers[0]["answer"], "Mine",
+        "an answer already given is kept"
+    );
     assert_eq!(answers[1]["answer"], "Yes, thing 2");
     assert_eq!(answers[2]["answered_with"], "recommended");
-    assert!(accept_all_recommended(&mut f.conn, &f.human, &round.id).is_err(), "nothing is left open");
+    assert!(
+        accept_all_recommended(&mut f.conn, &f.human, &round.id).is_err(),
+        "nothing is left open"
+    );
 }
 
 #[test]
 fn an_answer_can_change_while_the_round_is_open_but_not_after() {
     let mut f = shaping();
     let round = post_round(&mut f.conn, &f.session_id, Some("req-1"), &round_of(2)).unwrap();
-    answer_round_question(&mut f.conn, &f.human, &round.questions[0].id, &RoundAnswer::Recommended).unwrap();
-    answer_round_question(&mut f.conn, &f.human, &round.questions[0].id, &RoundAnswer::Own("Changed my mind".into()))
-        .unwrap();
-    let last = answer_round_question(&mut f.conn, &f.human, &round.questions[1].id, &RoundAnswer::Recommended).unwrap();
-    assert_eq!(last.release.unwrap().result["answers"][0]["answer"], "Changed my mind");
-    let late = answer_round_question(&mut f.conn, &f.human, &round.questions[0].id, &RoundAnswer::Recommended);
-    assert!(late.unwrap_err().to_string().contains("answered"), "an answered Round is settled");
+    answer_round_question(
+        &mut f.conn,
+        &f.human,
+        &round.questions[0].id,
+        &RoundAnswer::Recommended,
+    )
+    .unwrap();
+    answer_round_question(
+        &mut f.conn,
+        &f.human,
+        &round.questions[0].id,
+        &RoundAnswer::Own("Changed my mind".into()),
+    )
+    .unwrap();
+    let last = answer_round_question(
+        &mut f.conn,
+        &f.human,
+        &round.questions[1].id,
+        &RoundAnswer::Recommended,
+    )
+    .unwrap();
+    assert_eq!(
+        last.release.unwrap().result["answers"][0]["answer"],
+        "Changed my mind"
+    );
+    let late = answer_round_question(
+        &mut f.conn,
+        &f.human,
+        &round.questions[0].id,
+        &RoundAnswer::Recommended,
+    );
+    assert!(
+        late.unwrap_err().to_string().contains("answered"),
+        "an answered Round is settled"
+    );
 }
 
 #[test]
@@ -189,8 +292,14 @@ fn a_second_round_is_refused_while_one_is_open_in_the_stage_and_numbered_after_i
     let round = post_round(&mut f.conn, &f.session_id, Some("req-1"), &round_of(1)).unwrap();
     let refused = post_round(&mut f.conn, &f.session_id, Some("req-2"), &round_of(1));
     let refused = refused.unwrap_err().to_string();
-    assert!(refused.contains("still open"), "one open Round per Stage: {refused}");
-    assert!(refused.contains("round_wait"), "the refusal tells the agent to wait on the open Round: {refused}");
+    assert!(
+        refused.contains("still open"),
+        "one open Round per Stage: {refused}"
+    );
+    assert!(
+        refused.contains("round_wait"),
+        "the refusal tells the agent to wait on the open Round: {refused}"
+    );
 
     accept_all_recommended(&mut f.conn, &f.human, &round.id).unwrap();
     let next = post_round(&mut f.conn, &f.session_id, Some("req-2"), &round_of(2)).unwrap();
@@ -203,10 +312,17 @@ fn round_post_is_refused_for_a_story_session_an_ended_session_and_a_malformed_ro
     let mut f = shaping();
 
     // Malformed: no questions, a blank recommended answer, an unknown tool.
-    assert!(ShapingToolCall::parse("round_post", &serde_json::json!({ "note": "n", "questions": [] })).is_err());
+    assert!(ShapingToolCall::parse(
+        "round_post",
+        &serde_json::json!({ "note": "n", "questions": [] })
+    )
+    .is_err());
     let mut blank = round_post_args(1);
     blank["questions"][0]["recommended_answer"] = serde_json::json!("  ");
-    assert!(ShapingToolCall::parse("round_post", &blank).unwrap_err().to_string().contains("recommended_answer"));
+    assert!(ShapingToolCall::parse("round_post", &blank)
+        .unwrap_err()
+        .to_string()
+        .contains("recommended_answer"));
     assert!(ShapingToolCall::parse("task_list", &serde_json::json!({})).is_err());
 
     // Ended session.
@@ -218,12 +334,26 @@ fn round_post_is_refused_for_a_story_session_an_ended_session_and_a_malformed_ro
     common::with_scratch_worktree_root(|_| {
         let (mut conn, human, project, _repo) = common::seeded_git_project();
         let story = common::new_story(&mut conn, &project.id, &human, "A Story");
-        flywheel_core::domain::story::set_story_state(&mut conn, &human, &story.id, flywheel_core::domain::story::StoryState::Ready).unwrap();
-        flywheel_core::domain::story::set_story_state(&mut conn, &human, &story.id, flywheel_core::domain::story::StoryState::Running).unwrap();
+        flywheel_core::domain::story::set_story_state(
+            &mut conn,
+            &human,
+            &story.id,
+            flywheel_core::domain::story::StoryState::Ready,
+        )
+        .unwrap();
+        flywheel_core::domain::story::set_story_state(
+            &mut conn,
+            &human,
+            &story.id,
+            flywheel_core::domain::story::StoryState::Running,
+        )
+        .unwrap();
         let session = start_session(&mut conn, &story.id, "acceptEdits", &human).unwrap();
         let refused = post_round(&mut conn, &session.id, Some("req-1"), &round_of(1));
         assert!(refused.unwrap_err().to_string().contains("shaping session"));
-        let rounds: i64 = conn.query_row("SELECT COUNT(*) FROM rounds", [], |r| r.get(0)).unwrap();
+        let rounds: i64 = conn
+            .query_row("SELECT COUNT(*) FROM rounds", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(rounds, 0);
     });
 }
@@ -232,12 +362,27 @@ fn round_post_is_refused_for_a_story_session_an_ended_session_and_a_malformed_ro
 fn a_round_outlives_its_session_and_its_answers_are_kept() {
     let mut f = shaping();
     let round = post_round(&mut f.conn, &f.session_id, Some("req-1"), &round_of(2)).unwrap();
-    answer_round_question(&mut f.conn, &f.human, &round.questions[0].id, &RoundAnswer::Recommended).unwrap();
+    answer_round_question(
+        &mut f.conn,
+        &f.human,
+        &round.questions[0].id,
+        &RoundAnswer::Recommended,
+    )
+    .unwrap();
     interrupt_session(&mut f.conn, &f.session_id, &f.human).unwrap();
 
     // The developer can keep answering; with no live session there is no call left to answer.
-    let last = answer_round_question(&mut f.conn, &f.human, &round.questions[1].id, &RoundAnswer::Recommended).unwrap();
-    assert!(last.release.is_none(), "a dead session's held call is not answered");
+    let last = answer_round_question(
+        &mut f.conn,
+        &f.human,
+        &round.questions[1].id,
+        &RoundAnswer::Recommended,
+    )
+    .unwrap();
+    assert!(
+        last.release.is_none(),
+        "a dead session's held call is not answered"
+    );
     let stored = &rounds_for_epic(&f.conn, &f.epic_id).unwrap()[0];
     assert_eq!(stored.state, "answered");
     assert_eq!(answered_count(&f.conn, &round.id), 2);
@@ -247,13 +392,22 @@ fn a_round_outlives_its_session_and_its_answers_are_kept() {
 fn each_post_and_answer_appends_an_event_scoped_to_the_epic() {
     let mut f = shaping();
     let round = post_round(&mut f.conn, &f.session_id, Some("req-1"), &round_of(1)).unwrap();
-    answer_round_question(&mut f.conn, &f.human, &round.questions[0].id, &RoundAnswer::Recommended).unwrap();
+    answer_round_question(
+        &mut f.conn,
+        &f.human,
+        &round.questions[0].id,
+        &RoundAnswer::Recommended,
+    )
+    .unwrap();
     let mut stmt = f
         .conn
         .prepare("SELECT event_type, epic_id FROM events WHERE event_type LIKE 'round%' ORDER BY sequence")
         .unwrap();
-    let events: Vec<(String, Option<String>)> =
-        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap().collect::<Result<_, _>>().unwrap();
+    let events: Vec<(String, Option<String>)> = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
     let epic = Some(f.epic_id.clone());
     assert_eq!(
         events,
@@ -289,16 +443,28 @@ fn adr_question_args() -> serde_json::Value {
 fn an_adr_question_is_posted_with_its_draft_and_bar_lines() {
     let mut f = shaping();
     let mut args = round_post_args(1);
-    args["questions"].as_array_mut().unwrap().push(adr_question_args());
+    args["questions"]
+        .as_array_mut()
+        .unwrap()
+        .push(adr_question_args());
     let call = ShapingToolCall::parse("round_post", &args).unwrap();
     apply_shaping_tool_call(&mut f.conn, &f.session_id, "req-1", &call).unwrap();
 
     let round = &rounds_for_epic(&f.conn, &f.epic_id).unwrap()[0];
-    assert!(round.questions[0].adr.is_none(), "an ordinary question carries no draft");
-    let adr = round.questions[1].adr.as_ref().expect("the ADR question keeps its draft");
+    assert!(
+        round.questions[0].adr.is_none(),
+        "an ordinary question carries no draft"
+    );
+    let adr = round.questions[1]
+        .adr
+        .as_ref()
+        .expect("the ADR question keeps its draft");
     assert_eq!(adr.path, "docs/adr/0005-board-is-the-shaping-store.md");
     assert!(adr.text.starts_with("# The board is the shaping store"));
-    assert_eq!(adr.hard_to_reverse, "Every later Story reads its context from the board");
+    assert_eq!(
+        adr.hard_to_reverse,
+        "Every later Story reads its context from the board"
+    );
     assert_eq!(adr.surprising, "A reader expects shaping notes in the repo");
     assert_eq!(adr.losing_alternative, "A .planning/ folder of markdown");
     assert_eq!(adr.relates_to.as_deref(), Some("ADR-0002"));
@@ -325,38 +491,59 @@ fn an_adr_question_without_any_of_its_first_three_bar_lines_is_refused() {
                 q["adr"].as_object_mut().unwrap().remove(line);
             }
             let args = serde_json::json!({ "note": "n", "questions": [q] });
-            let refused = ShapingToolCall::parse("round_post", &args).unwrap_err().to_string();
-            assert!(refused.contains(line), "the refusal names the missing bar line {line}: {refused}");
+            let refused = ShapingToolCall::parse("round_post", &args)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                refused.contains(line),
+                "the refusal names the missing bar line {line}: {refused}"
+            );
             assert!(refused.contains("no ADR"), "{refused}");
         }
     }
     // "Relates to" may be none.
     let mut q = adr_question_args();
     q["adr"].as_object_mut().unwrap().remove("relates_to");
-    let call = ShapingToolCall::parse("round_post", &serde_json::json!({ "note": "n", "questions": [q] })).unwrap();
-    let ShapingToolCall::RoundPost(round) = call else { panic!("a Round") };
+    let call = ShapingToolCall::parse(
+        "round_post",
+        &serde_json::json!({ "note": "n", "questions": [q] }),
+    )
+    .unwrap();
+    let ShapingToolCall::RoundPost(round) = call else {
+        panic!("a Round")
+    };
     assert_eq!(round.questions[0].adr.as_ref().unwrap().relates_to, None);
 
     // The domain refuses it too, whoever builds the Round, and writes nothing.
     let mut f = shaping();
-    let ShapingToolCall::RoundPost(mut round) =
-        ShapingToolCall::parse("round_post", &serde_json::json!({ "note": "n", "questions": [adr_question_args()] })).unwrap()
-    else {
+    let ShapingToolCall::RoundPost(mut round) = ShapingToolCall::parse(
+        "round_post",
+        &serde_json::json!({ "note": "n", "questions": [adr_question_args()] }),
+    )
+    .unwrap() else {
         panic!("a Round")
     };
     round.questions[0].adr.as_mut().unwrap().surprising = " ".into();
-    let refused = post_round(&mut f.conn, &f.session_id, Some("req-1"), &round).unwrap_err().to_string();
+    let refused = post_round(&mut f.conn, &f.session_id, Some("req-1"), &round)
+        .unwrap_err()
+        .to_string();
     assert!(refused.contains("surprising"), "{refused}");
-    let rounds: i64 = f.conn.query_row("SELECT COUNT(*) FROM rounds", [], |r| r.get(0)).unwrap();
+    let rounds: i64 = f
+        .conn
+        .query_row("SELECT COUNT(*) FROM rounds", [], |r| r.get(0))
+        .unwrap();
     assert_eq!(rounds, 0, "a refused Round writes nothing");
 }
 
 #[test]
 fn an_adr_question_needs_a_draft_at_an_adr_path_and_a_yes_or_no_recommendation() {
     let parse = |q: serde_json::Value| {
-        ShapingToolCall::parse("round_post", &serde_json::json!({ "note": "n", "questions": [q] }))
-            .map(|_| ())
-            .map_err(|e| e.to_string())
+        ShapingToolCall::parse(
+            "round_post",
+            &serde_json::json!({ "note": "n", "questions": [q] }),
+        )
+        .map(|_| ())
+        .map_err(|e| e.to_string())
     };
     let mut no_draft = adr_question_args();
     no_draft.as_object_mut().unwrap().remove("adr");
@@ -372,7 +559,10 @@ fn an_adr_question_needs_a_draft_at_an_adr_path_and_a_yes_or_no_recommendation()
     ] {
         let mut q = adr_question_args();
         q["adr"]["path"] = serde_json::json!(path);
-        assert!(parse(q).unwrap_err().contains("docs/adr/NNNN-slug.md"), "{path} is refused");
+        assert!(
+            parse(q).unwrap_err().contains("docs/adr/NNNN-slug.md"),
+            "{path} is refused"
+        );
     }
     let mut q = adr_question_args();
     q["adr"]["text"] = serde_json::json!("");

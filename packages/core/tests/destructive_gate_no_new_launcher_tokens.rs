@@ -151,7 +151,8 @@ fn shim_main_string_literals_match_baseline() {
         .unwrap_or_else(|e| panic!("failed to read {}: {e}", main_rs_path.display()));
     let actual = string_literals_in(&main_rs);
 
-    let baseline_path = root.join("packages/core/tests/fixtures/shim-main-string-literals.baseline.txt");
+    let baseline_path =
+        root.join("packages/core/tests/fixtures/shim-main-string-literals.baseline.txt");
     let baseline_contents = std::fs::read_to_string(&baseline_path)
         .unwrap_or_else(|e| panic!("failed to read {}: {e}", baseline_path.display()));
     let baseline = baseline_literals(&baseline_contents);
@@ -192,7 +193,8 @@ fn literal_extraction_is_not_vacuous() {
          against an equally-empty baseline"
     );
 
-    let baseline_path = root.join("packages/core/tests/fixtures/shim-main-string-literals.baseline.txt");
+    let baseline_path =
+        root.join("packages/core/tests/fixtures/shim-main-string-literals.baseline.txt");
     let baseline_contents = std::fs::read_to_string(&baseline_path)
         .unwrap_or_else(|e| panic!("failed to read {}: {e}", baseline_path.display()));
     let baseline = baseline_literals(&baseline_contents);

@@ -46,8 +46,14 @@ pub fn questions_in(input: &serde_json::Value) -> Vec<QuestionSpec> {
                 .iter()
                 .filter_map(|q| {
                     let question = q.get("question")?.as_str()?.to_string();
-                    let multi_select = q.get("multiSelect").and_then(|m| m.as_bool()).unwrap_or(false);
-                    Some(QuestionSpec { question, multi_select })
+                    let multi_select = q
+                        .get("multiSelect")
+                        .and_then(|m| m.as_bool())
+                        .unwrap_or(false);
+                    Some(QuestionSpec {
+                        question,
+                        multi_select,
+                    })
                 })
                 .collect()
         })
@@ -70,14 +76,22 @@ pub fn answers_for(
     if questions.is_empty() {
         bail!("this question carries no questions to answer");
     }
-    if let Some(unknown) = picks.keys().find(|k| !questions.iter().any(|q| &q.question == *k)) {
+    if let Some(unknown) = picks
+        .keys()
+        .find(|k| !questions.iter().any(|q| &q.question == *k))
+    {
         bail!("the agent did not ask {unknown:?}");
     }
     let mut answers = serde_json::Map::new();
     for q in &questions {
         let values: Vec<&str> = picks
             .get(&q.question)
-            .map(|v| v.iter().map(|s| s.trim()).filter(|s| !s.is_empty()).collect())
+            .map(|v| {
+                v.iter()
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            })
             .unwrap_or_default();
         if values.is_empty() {
             bail!("answer {:?} before sending", q.question);
@@ -85,7 +99,10 @@ pub fn answers_for(
         if !q.multi_select && values.len() > 1 {
             bail!("{:?} takes one answer", q.question);
         }
-        answers.insert(q.question.clone(), serde_json::Value::String(values.join(", ")));
+        answers.insert(
+            q.question.clone(),
+            serde_json::Value::String(values.join(", ")),
+        );
     }
     Ok(answers)
 }
@@ -113,7 +130,15 @@ pub fn answer_question(
     let tx = conn.transaction()?;
 
     /// `(session_id, story_id, project_id, tool_name, input_payload, status, expired_at)` of the request.
-    type RequestRow = (String, String, String, String, Option<String>, String, Option<String>);
+    type RequestRow = (
+        String,
+        String,
+        String,
+        String,
+        Option<String>,
+        String,
+        Option<String>,
+    );
     let row: Option<RequestRow> = tx
         .query_row(
             "SELECT session_id, story_id, project_id, tool_name, input_payload, status, expired_at \
@@ -153,7 +178,11 @@ pub fn answer_question(
     clear_run_blocked(&tx, &session_id).context("failed to clear the session's blocked status")?;
 
     let epic_id: Option<String> = tx
-        .query_row("SELECT epic_id FROM stories WHERE id = ?1", params![story_id], |r| r.get(0))
+        .query_row(
+            "SELECT epic_id FROM stories WHERE id = ?1",
+            params![story_id],
+            |r| r.get(0),
+        )
         .optional()?;
     let sequence = next_sequence(&tx, &project_id, "local")?;
     let payload = serde_json::json!({
@@ -180,7 +209,12 @@ pub fn answer_question(
     )?;
     tx.commit().context("failed to commit answer_question")?;
 
-    Ok(AnsweredQuestion { request_id: request_id.to_string(), session_id, project_id, answers })
+    Ok(AnsweredQuestion {
+        request_id: request_id.to_string(),
+        session_id,
+        project_id,
+        answers,
+    })
 }
 
 #[cfg(test)]
@@ -199,7 +233,10 @@ mod tests {
     }
 
     fn picks(entries: &[(&str, &[&str])]) -> BTreeMap<String, Vec<String>> {
-        entries.iter().map(|(q, v)| (q.to_string(), v.iter().map(|s| s.to_string()).collect())).collect()
+        entries
+            .iter()
+            .map(|(q, v)| (q.to_string(), v.iter().map(|s| s.to_string()).collect()))
+            .collect()
     }
 
     #[test]
@@ -225,16 +262,30 @@ mod tests {
 
     #[test]
     fn every_question_needs_an_answer_and_a_single_choice_takes_one() {
-        let missing = answers_for(&input(), &picks(&[("Which colour?", &["Blue"]), ("Which platforms?", &["macOS"])]));
+        let missing = answers_for(
+            &input(),
+            &picks(&[
+                ("Which colour?", &["Blue"]),
+                ("Which platforms?", &["macOS"]),
+            ]),
+        );
         assert!(missing.unwrap_err().to_string().contains("What name?"));
         let blank = answers_for(
             &input(),
-            &picks(&[("Which colour?", &["  "]), ("Which platforms?", &["macOS"]), ("What name?", &["v1"])]),
+            &picks(&[
+                ("Which colour?", &["  "]),
+                ("Which platforms?", &["macOS"]),
+                ("What name?", &["v1"]),
+            ]),
         );
         assert!(blank.is_err());
         let two = answers_for(
             &input(),
-            &picks(&[("Which colour?", &["Red", "Blue"]), ("Which platforms?", &["macOS"]), ("What name?", &["v1"])]),
+            &picks(&[
+                ("Which colour?", &["Red", "Blue"]),
+                ("Which platforms?", &["macOS"]),
+                ("What name?", &["v1"]),
+            ]),
         );
         assert!(two.unwrap_err().to_string().contains("takes one answer"));
         let unknown = answers_for(

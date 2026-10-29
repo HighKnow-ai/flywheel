@@ -25,7 +25,9 @@ use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use flywheel_core::git::{git_at, git_version, worktree_add, worktree_list, worktree_root_from_env, MIN_SUPPORTED_GIT};
+use flywheel_core::git::{
+    git_at, git_version, worktree_add, worktree_list, worktree_root_from_env, MIN_SUPPORTED_GIT,
+};
 use flywheel_core::git_retry::{RETRY_BASE_MS, RETRY_MAX_ATTEMPTS};
 use flywheel_core::shim;
 
@@ -39,7 +41,9 @@ const WORKTREE_COUNT: usize = 10;
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn with_scratch_env<T>(f: impl FnOnce() -> T) -> T {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let worktree_root = tempfile::tempdir().expect("failed to create scratch worktree root");
     let runtime_dir = tempfile::tempdir().expect("failed to create scratch runtime dir");
     // SAFETY: the mutex above serializes every caller in this binary, and this helper always
@@ -69,7 +73,9 @@ struct ChildSummary {
 
 fn parse_summary_line(stdout: &str) -> Option<ChildSummary> {
     for line in stdout.lines() {
-        let Some(rest) = line.strip_prefix("SUMMARY ") else { continue };
+        let Some(rest) = line.strip_prefix("SUMMARY ") else {
+            continue;
+        };
         let mut branch = None;
         let mut exit = None;
         for field in rest.split_whitespace() {
@@ -87,7 +93,9 @@ fn parse_summary_line(stdout: &str) -> Option<ChildSummary> {
 }
 
 fn parse_resolved_git_line(stdout: &str) -> Option<String> {
-    stdout.lines().find_map(|l| l.strip_prefix("RESOLVED_GIT=").map(|v| v.to_string()))
+    stdout
+        .lines()
+        .find_map(|l| l.strip_prefix("RESOLVED_GIT=").map(|v| v.to_string()))
 }
 
 /// The doc'd worst-case wall clock a single fully-exhausted retry budget waits through
@@ -112,7 +120,9 @@ fn count_exhaustion_events(run_id: &str) -> u64 {
     let Ok(runtime_dir) = flywheel_core::runtime_protocol::runtime_dir() else {
         return 0;
     };
-    let path = runtime_dir.join("contention").join(format!("{run_id}.jsonl"));
+    let path = runtime_dir
+        .join("contention")
+        .join(format!("{run_id}.jsonl"));
     let Ok(contents) = std::fs::read_to_string(&path) else {
         return 0;
     };
@@ -158,10 +168,16 @@ fn setup_repo_and_worktrees() -> (tempfile::TempDir, Vec<(String, PathBuf)>) {
 /// guarantee was not established on their machine, not handed a failure that looks like a real
 /// regression.
 fn print_version_and_should_skip() -> bool {
-    let installed = git_version().expect("git_version should succeed on a machine with git installed");
-    println!("INSTALLED_GIT={}.{}.{}", installed.0, installed.1, installed.2);
+    let installed =
+        git_version().expect("git_version should succeed on a machine with git installed");
+    println!(
+        "INSTALLED_GIT={}.{}.{}",
+        installed.0, installed.1, installed.2
+    );
     if installed < MIN_SUPPORTED_GIT {
-        println!("SKIPPED: installed git {installed:?} is below MIN_SUPPORTED_GIT {MIN_SUPPORTED_GIT:?}");
+        println!(
+            "SKIPPED: installed git {installed:?} is below MIN_SUPPORTED_GIT {MIN_SUPPORTED_GIT:?}"
+        );
         return true;
     }
     false
@@ -178,7 +194,8 @@ fn ten_concurrent_commits_into_one_repository_keep_every_commit_and_every_worktr
 
         let run_id = format!("lock-contention-{}", std::process::id());
         let shim_dir = shim::install_for_run(&run_id).expect("install_for_run should succeed");
-        let mut child_env = shim::shim_env_for_run(&run_id).expect("shim_env_for_run should succeed");
+        let mut child_env =
+            shim::shim_env_for_run(&run_id).expect("shim_env_for_run should succeed");
         // FLYWHEEL_RUN_ID is normally set by the sidecar adapter, not by `shim_env_for_run` — set
         // it ourselves so the shim's own contention bookkeeping (D-53) has somewhere to write.
         child_env.insert("FLYWHEEL_RUN_ID".to_string(), run_id.clone());
@@ -223,7 +240,8 @@ fn ten_concurrent_commits_into_one_repository_keep_every_commit_and_every_worktr
             let (i, branch, wait_result) = rx.recv_timeout(remaining).unwrap_or_else(|_| {
                 panic!("timed out waiting for a child to finish within the derived timeout_at {timeout_at:?}")
             });
-            let output = wait_result.unwrap_or_else(|e| panic!("failed to wait for child {i} ({branch}): {e}"));
+            let output = wait_result
+                .unwrap_or_else(|e| panic!("failed to wait for child {i} ({branch}): {e}"));
             let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
             let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
 
@@ -238,12 +256,17 @@ fn ten_concurrent_commits_into_one_repository_keep_every_commit_and_every_worktr
             let summary = parse_summary_line(&stdout).unwrap_or_else(|| {
                 panic!("child {i} (branch {branch:?}) printed no parseable SUMMARY line, stdout:\n{stdout}")
             });
-            assert_eq!(summary.exit, 0, "child {i}'s own reported exit status should be 0");
+            assert_eq!(
+                summary.exit, 0,
+                "child {i}'s own reported exit status should be 0"
+            );
 
             // Assertion 4: every child's reported resolved `git` path is inside the shim
             // directory — if even one child bypassed the shim, name it here.
             let resolved_git = parse_resolved_git_line(&stdout).unwrap_or_else(|| {
-                panic!("child {i} (branch {branch:?}) printed no RESOLVED_GIT line, stdout:\n{stdout}")
+                panic!(
+                    "child {i} (branch {branch:?}) printed no RESOLVED_GIT line, stdout:\n{stdout}"
+                )
             });
             assert!(
                 resolved_git.starts_with(&shim_dir.to_string_lossy().into_owned()),
@@ -260,10 +283,20 @@ fn ten_concurrent_commits_into_one_repository_keep_every_commit_and_every_worktr
         // the tip, never counting commits, since counting would pass even if two children raced
         // onto the same branch.
         for (i, branch, summary) in &summaries {
-            assert_eq!(&summary.branch, branch, "child {i}'s own reported branch should match what it was told");
-            let message_output = git_at(repo_dir.path(), &["log", branch.as_str(), "-1", "--format=%s"])
-                .unwrap_or_else(|e| panic!("failed to read branch {branch:?}'s tip commit message: {e:#}"));
-            let message = String::from_utf8_lossy(&message_output.stdout).trim().to_string();
+            assert_eq!(
+                &summary.branch, branch,
+                "child {i}'s own reported branch should match what it was told"
+            );
+            let message_output = git_at(
+                repo_dir.path(),
+                &["log", branch.as_str(), "-1", "--format=%s"],
+            )
+            .unwrap_or_else(|e| {
+                panic!("failed to read branch {branch:?}'s tip commit message: {e:#}")
+            });
+            let message = String::from_utf8_lossy(&message_output.stdout)
+                .trim()
+                .to_string();
             let expected_marker = format!("marker-{i}");
             assert_eq!(
                 message, expected_marker,
@@ -274,7 +307,8 @@ fn ten_concurrent_commits_into_one_repository_keep_every_commit_and_every_worktr
         // Assertion 3: `git worktree list` still reports all ten worktrees — the second half of
         // `#55724`'s failure (a lock collision "fixed" by an auto-cleanup that deleted the
         // worktree), and the assertion that makes this test about data loss, not just exit codes.
-        let listing_after = worktree_list(repo_dir.path()).expect("worktree_list should succeed after the run");
+        let listing_after =
+            worktree_list(repo_dir.path()).expect("worktree_list should succeed after the run");
         for (branch, worktree_path) in &branches_and_paths {
             assert!(
                 listing_after.contains(&worktree_path.to_string_lossy().into_owned()),
@@ -342,7 +376,9 @@ fn companion_no_shim_ten_concurrent_commits_is_evidence_only_and_never_a_gate() 
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     println!("no-shim child {i} (branch {branch:?}) did not land: {stderr}");
                 }
-                Err(e) => println!("no-shim child {i} (branch {branch:?}) could not be waited on: {e}"),
+                Err(e) => {
+                    println!("no-shim child {i} (branch {branch:?}) could not be waited on: {e}")
+                }
             }
         }
 
@@ -363,7 +399,7 @@ mod record_lock_exhaustion_tests {
     use crate::common;
     use flywheel_core::domain::actor::{local_human_actor_id, system_actor};
     use flywheel_core::domain::session::{record_lock_exhaustion, start_session, SessionStatus};
-    
+
     fn event_count(conn: &rusqlite::Connection, run_id: &str) -> i64 {
         conn.query_row(
             "SELECT COUNT(*) FROM events WHERE stream_id = ?1 AND event_type = 'git.lock_exhausted'",
@@ -377,13 +413,25 @@ mod record_lock_exhaustion_tests {
     fn appends_exactly_one_event_attributed_to_the_seeded_system_actor() {
         crate::with_scratch_env(|| {
             let (mut conn, human_actor_id, project, _repo_dir) = common::seeded_git_project();
-            let story = common::new_story(&mut conn, &project.id, &human_actor_id, "Lock exhaustion story");
+            let story = common::new_story(
+                &mut conn,
+                &project.id,
+                &human_actor_id,
+                "Lock exhaustion story",
+            );
             let run = start_session(&mut conn, &story.id, "acceptEdits", &human_actor_id)
                 .expect("start_session should succeed");
             let system = system_actor(&conn).expect("system actor should exist");
 
-            record_lock_exhaustion(&mut conn, &run.id, "/repo/path", "git commit", 5, &system.id)
-                .expect("record_lock_exhaustion should succeed");
+            record_lock_exhaustion(
+                &mut conn,
+                &run.id,
+                "/repo/path",
+                "git commit",
+                5,
+                &system.id,
+            )
+            .expect("record_lock_exhaustion should succeed");
 
             assert_eq!(event_count(&conn, &run.id), 1);
 
@@ -394,7 +442,10 @@ mod record_lock_exhaustion_tests {
                     |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
                 .expect("the appended event should be readable back");
-            assert_eq!(actor_id, system.id, "the event must be attributed to the seeded SYSTEM actor");
+            assert_eq!(
+                actor_id, system.id,
+                "the event must be attributed to the seeded SYSTEM actor"
+            );
             assert_ne!(actor_id, human_actor_id, "never the human actor");
             assert_eq!(event_type, "git.lock_exhausted");
 
@@ -411,17 +462,40 @@ mod record_lock_exhaustion_tests {
     fn calling_it_twice_appends_two_events_with_no_de_duplication() {
         crate::with_scratch_env(|| {
             let (mut conn, human_actor_id, project, _repo_dir) = common::seeded_git_project();
-            let story = common::new_story(&mut conn, &project.id, &human_actor_id, "Repeated exhaustion story");
+            let story = common::new_story(
+                &mut conn,
+                &project.id,
+                &human_actor_id,
+                "Repeated exhaustion story",
+            );
             let run = start_session(&mut conn, &story.id, "acceptEdits", &human_actor_id)
                 .expect("start_session should succeed");
             let system = system_actor(&conn).expect("system actor should exist");
 
-            record_lock_exhaustion(&mut conn, &run.id, "/repo/path", "git commit", 5, &system.id)
-                .expect("first call should succeed");
-            record_lock_exhaustion(&mut conn, &run.id, "/repo/path", "git commit", 5, &system.id)
-                .expect("second call should succeed");
+            record_lock_exhaustion(
+                &mut conn,
+                &run.id,
+                "/repo/path",
+                "git commit",
+                5,
+                &system.id,
+            )
+            .expect("first call should succeed");
+            record_lock_exhaustion(
+                &mut conn,
+                &run.id,
+                "/repo/path",
+                "git commit",
+                5,
+                &system.id,
+            )
+            .expect("second call should succeed");
 
-            assert_eq!(event_count(&conn, &run.id), 2, "no de-duplication across repeated exhaustions");
+            assert_eq!(
+                event_count(&conn, &run.id),
+                2,
+                "no de-duplication across repeated exhaustions"
+            );
         });
     }
 
@@ -429,19 +503,38 @@ mod record_lock_exhaustion_tests {
     fn the_runs_status_is_unchanged_after_recording_an_exhaustion() {
         crate::with_scratch_env(|| {
             let (mut conn, human_actor_id, project, _repo_dir) = common::seeded_git_project();
-            let story = common::new_story(&mut conn, &project.id, &human_actor_id, "Status-neutral story");
+            let story = common::new_story(
+                &mut conn,
+                &project.id,
+                &human_actor_id,
+                "Status-neutral story",
+            );
             let run = start_session(&mut conn, &story.id, "acceptEdits", &human_actor_id)
                 .expect("start_session should succeed");
             assert_eq!(run.status, SessionStatus::Running);
             let system = system_actor(&conn).expect("system actor should exist");
 
-            record_lock_exhaustion(&mut conn, &run.id, "/repo/path", "git commit", 5, &system.id)
-                .expect("record_lock_exhaustion should succeed");
+            record_lock_exhaustion(
+                &mut conn,
+                &run.id,
+                "/repo/path",
+                "git commit",
+                5,
+                &system.id,
+            )
+            .expect("record_lock_exhaustion should succeed");
 
             let status: String = conn
-                .query_row("SELECT status FROM sessions WHERE id = ?1", rusqlite::params![run.id], |row| row.get(0))
+                .query_row(
+                    "SELECT status FROM sessions WHERE id = ?1",
+                    rusqlite::params![run.id],
+                    |row| row.get(0),
+                )
                 .expect("status query should succeed");
-            assert_eq!(status, "running", "recording an exhaustion must never change the run's status");
+            assert_eq!(
+                status, "running",
+                "recording an exhaustion must never change the run's status"
+            );
         });
     }
 
@@ -452,8 +545,15 @@ mod record_lock_exhaustion_tests {
             let system = system_actor(&conn).expect("system actor should exist");
             let _ = local_human_actor_id(&conn); // referenced for parity with the other tests' fixture shape
 
-            record_lock_exhaustion(&mut conn, "not-a-real-run-id", "/repo/path", "git commit", 5, &system.id)
-                .expect("an unknown run id must be a silent no-op, never an error");
+            record_lock_exhaustion(
+                &mut conn,
+                "not-a-real-run-id",
+                "/repo/path",
+                "git commit",
+                5,
+                &system.id,
+            )
+            .expect("an unknown run id must be a silent no-op, never an error");
 
             assert_eq!(event_count(&conn, "not-a-real-run-id"), 0);
             let _ = human_actor_id;

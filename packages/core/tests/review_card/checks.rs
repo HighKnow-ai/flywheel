@@ -18,10 +18,13 @@ use common::with_scratch_worktree_root;
 use flywheel_core::domain::acceptance_criterion::create_criterion;
 use flywheel_core::domain::check::{current_result, set_check, Check, CheckResult};
 use flywheel_core::domain::handoff::{
-    complete_handoff, complete_review_run, plan_handoff, plan_review_run, rerun_checks, run_checks, run_checks_reporting, CheckObjection, HandoffSummary,
+    complete_handoff, complete_review_run, plan_handoff, plan_review_run, rerun_checks, run_checks,
+    run_checks_reporting, CheckObjection, HandoffSummary,
 };
 use flywheel_core::domain::review::{open_review, review_file_patch, review_for_story};
-use flywheel_core::domain::session::{agent_actor_id, close_session, start_session, Session, SessionStatus};
+use flywheel_core::domain::session::{
+    agent_actor_id, close_session, start_session, Session, SessionStatus,
+};
 use flywheel_core::domain::story::{set_story_state, Story, StoryState};
 use flywheel_core::domain::task::{add_task, set_task_state, TaskState};
 use flywheel_core::domain::worktree::ensure_worktree;
@@ -47,7 +50,11 @@ fn git(dir: &Path, args: &[&str]) -> String {
         .args(args)
         .output()
         .expect("git should spawn");
-    assert!(out.status.success(), "git {args:?} failed: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     String::from_utf8_lossy(&out.stdout).trim().to_string()
 }
 
@@ -59,7 +66,8 @@ fn commit_file(dir: &Path, name: &str, body: &str) -> String {
 }
 
 fn recorded_runs(conn: &Connection) -> i64 {
-    conn.query_row("SELECT COUNT(*) FROM check_runs", [], |r| r.get(0)).unwrap()
+    conn.query_row("SELECT COUNT(*) FROM check_runs", [], |r| r.get(0))
+        .unwrap()
 }
 
 /// A Running Story with one criterion per `(command, timeout)`, a worktree with one commit adding
@@ -71,7 +79,13 @@ fn running(checks: &[(&str, Option<i64>)]) -> Fixture {
         .iter()
         .enumerate()
         .map(|(i, (command, timeout))| {
-            let c = create_criterion(&mut conn, &human, &story.id, &format!("Criterion {}", i + 1)).unwrap();
+            let c = create_criterion(
+                &mut conn,
+                &human,
+                &story.id,
+                &format!("Criterion {}", i + 1),
+            )
+            .unwrap();
             set_check(&mut conn, &human, &c.id, command, *timeout).unwrap()
         })
         .collect();
@@ -84,7 +98,15 @@ fn running(checks: &[(&str, Option<i64>)]) -> Fixture {
     let task = add_task(&mut conn, &agent, &story.id, "Write the parser").unwrap();
     set_task_state(&mut conn, &agent, &task.id, TaskState::Done, None).unwrap();
     commit_file(&worktree, "feature.txt", "parsed\n");
-    Fixture { conn, human, _repo: repo, story, session, worktree, checks }
+    Fixture {
+        conn,
+        human,
+        _repo: repo,
+        story,
+        session,
+        worktree,
+        checks,
+    }
 }
 
 impl Fixture {
@@ -101,12 +123,21 @@ impl Fixture {
     }
 
     fn end_session(&mut self) {
-        close_session(&mut self.conn, &self.session.id, SessionStatus::Completed, None, None, None).unwrap();
+        close_session(
+            &mut self.conn,
+            &self.session.id,
+            SessionStatus::Completed,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
     }
 }
 
 #[test]
-fn the_read_puts_failed_and_timed_out_checks_first_with_their_output_tail_and_counts_the_tasks_not_done() {
+fn the_read_puts_failed_and_timed_out_checks_first_with_their_output_tail_and_counts_the_tasks_not_done(
+) {
     with_scratch_worktree_root(|_| {
         let mut f = running(&[
             ("true", None),
@@ -120,14 +151,24 @@ fn the_read_puts_failed_and_timed_out_checks_first_with_their_output_tail_and_co
         f.hand_off(&[]);
         f.end_session();
         // Editing a Check after the hand-off resets it to not run; a doing Task is not done either.
-        set_check(&mut f.conn, &f.human, &f.checks[1].criterion_id, "true && true", None).unwrap();
+        set_check(
+            &mut f.conn,
+            &f.human,
+            &f.checks[1].criterion_id,
+            "true && true",
+            None,
+        )
+        .unwrap();
         set_task_state(&mut f.conn, &f.human, &doing.id, TaskState::Doing, None).unwrap();
         set_task_state(&mut f.conn, &f.human, &open.id, TaskState::Done, None).unwrap();
 
         let review = review_for_story(&f.conn, &f.story.id).unwrap();
 
-        let order: Vec<(&str, &str)> =
-            review.failing_checks.iter().map(|k| (k.check_id.as_str(), k.failing_words())).collect();
+        let order: Vec<(&str, &str)> = review
+            .failing_checks
+            .iter()
+            .map(|k| (k.check_id.as_str(), k.failing_words()))
+            .collect();
         assert_eq!(
             order,
             [
@@ -138,9 +179,22 @@ fn the_read_puts_failed_and_timed_out_checks_first_with_their_output_tail_and_co
             "failed and timed out first, then what has no result at this commit"
         );
         let tail = review.failing_checks[0].output_tail.as_deref().unwrap();
-        assert!(tail.contains("assertion failed"), "the failure's output tail comes with it: {tail}");
-        assert_eq!(review.open_tasks, 1, "a doing Task is not done; the read counts the Tasks as they are now");
-        assert_eq!(open_review(&f.conn, &f.story.id).unwrap().unwrap().open_tasks, 2, "the count at hand-off is kept");
+        assert!(
+            tail.contains("assertion failed"),
+            "the failure's output tail comes with it: {tail}"
+        );
+        assert_eq!(
+            review.open_tasks, 1,
+            "a doing Task is not done; the read counts the Tasks as they are now"
+        );
+        assert_eq!(
+            open_review(&f.conn, &f.story.id)
+                .unwrap()
+                .unwrap()
+                .open_tasks,
+            2,
+            "the count at hand-off is kept"
+        );
     });
 }
 
@@ -154,9 +208,20 @@ fn a_new_commit_puts_every_check_after_the_failed_ones_as_stale() {
 
         let review = review_for_story(&f.conn, &f.story.id).unwrap();
 
-        let words: Vec<&str> = review.failing_checks.iter().map(|k| k.failing_words()).collect();
-        assert_eq!(words, ["stale", "stale"], "both results belong to the older commit");
-        assert_eq!(review.failing_checks[0].check_id, f.checks[0].id, "stale Checks keep the criteria's order");
+        let words: Vec<&str> = review
+            .failing_checks
+            .iter()
+            .map(|k| k.failing_words())
+            .collect();
+        assert_eq!(
+            words,
+            ["stale", "stale"],
+            "both results belong to the older commit"
+        );
+        assert_eq!(
+            review.failing_checks[0].check_id, f.checks[0].id,
+            "stale Checks keep the criteria's order"
+        );
     });
 }
 
@@ -164,10 +229,16 @@ fn a_new_commit_puts_every_check_after_the_failed_ones_as_stale() {
 fn the_hand_offs_check_objections_are_stored_and_read_beside_their_checks() {
     with_scratch_worktree_root(|_| {
         let mut f = running(&[("true", None), ("grep -q v1 log.txt", None)]);
-        f.hand_off(&[CheckObjection { criterion: 2, why: "The log moved to v2; this Check greps the old format.".into() }]);
+        f.hand_off(&[CheckObjection {
+            criterion: 2,
+            why: "The log moved to v2; this Check greps the old format.".into(),
+        }]);
         f.end_session();
 
-        let stored = open_review(&f.conn, &f.story.id).unwrap().unwrap().check_objections;
+        let stored = open_review(&f.conn, &f.story.id)
+            .unwrap()
+            .unwrap()
+            .check_objections;
         assert_eq!(
             stored,
             json!([{
@@ -179,12 +250,26 @@ fn the_hand_offs_check_objections_are_stored_and_read_beside_their_checks() {
         );
 
         let review = review_for_story(&f.conn, &f.story.id).unwrap();
-        assert!(review.criteria[0].check.as_ref().unwrap().objections.is_empty());
+        assert!(review.criteria[0]
+            .check
+            .as_ref()
+            .unwrap()
+            .objections
+            .is_empty());
         let objected = review.criteria[1].check.as_ref().unwrap();
         assert_eq!(objected.objections.len(), 1);
-        assert_eq!(objected.objections[0].why, "The log moved to v2; this Check greps the old format.");
-        assert_eq!(objected.objections[0].command, "grep -q v1 log.txt", "the command the agent objected to");
-        assert_eq!(review.failing_checks[0].objections, objected.objections, "the failing Check carries it too");
+        assert_eq!(
+            objected.objections[0].why,
+            "The log moved to v2; this Check greps the old format."
+        );
+        assert_eq!(
+            objected.objections[0].command, "grep -q v1 log.txt",
+            "the command the agent objected to"
+        );
+        assert_eq!(
+            review.failing_checks[0].objections, objected.objections,
+            "the failing Check carries it too"
+        );
     });
 }
 
@@ -192,15 +277,28 @@ fn the_hand_offs_check_objections_are_stored_and_read_beside_their_checks() {
 fn the_read_lists_the_changed_files_and_reads_each_files_patch() {
     with_scratch_worktree_root(|_| {
         let mut f = running(&[("true", None)]);
-        commit_file(&f.worktree, "README.md", "fixture repo\nand a second line\n");
+        commit_file(
+            &f.worktree,
+            "README.md",
+            "fixture repo\nand a second line\n",
+        );
         f.hand_off(&[]);
         f.end_session();
 
         let review = review_for_story(&f.conn, &f.story.id).unwrap();
 
-        let files: Vec<(&str, &str, Option<u32>, Option<u32>)> =
-            review.files.iter().map(|x| (x.path.as_str(), x.status.as_str(), x.added, x.removed)).collect();
-        assert_eq!(files, [("README.md", "M", Some(1), Some(0)), ("feature.txt", "A", Some(1), Some(0))]);
+        let files: Vec<(&str, &str, Option<u32>, Option<u32>)> = review
+            .files
+            .iter()
+            .map(|x| (x.path.as_str(), x.status.as_str(), x.added, x.removed))
+            .collect();
+        assert_eq!(
+            files,
+            [
+                ("README.md", "M", Some(1), Some(0)),
+                ("feature.txt", "A", Some(1), Some(0))
+            ]
+        );
         let patch = review_file_patch(&f.conn, &f.story.id, "feature.txt", None).unwrap();
         assert!(patch.contains("+parsed"), "{patch}");
         assert!(!patch.contains("README"), "one file's patch only: {patch}");
@@ -215,13 +313,23 @@ fn re_run_checks_records_a_run_per_check_against_the_current_head_without_a_sess
         f.end_session();
         let head = commit_file(&f.worktree, "late.txt", "late\n");
         let runs_before = recorded_runs(&f.conn);
-        let sessions_before: i64 = f.conn.query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0)).unwrap();
+        let sessions_before: i64 = f
+            .conn
+            .query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0))
+            .unwrap();
 
         let outcome = rerun_checks(&mut f.conn, &f.human, &f.story.id).unwrap();
 
         assert_eq!(outcome.batch.commit_sha, head);
-        assert_eq!(recorded_runs(&f.conn), runs_before + 2, "one run of record per Check");
-        let sessions: i64 = f.conn.query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0)).unwrap();
+        assert_eq!(
+            recorded_runs(&f.conn),
+            runs_before + 2,
+            "one run of record per Check"
+        );
+        let sessions: i64 = f
+            .conn
+            .query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(sessions, sessions_before, "no session is started");
         for check in &f.checks {
             let current = current_result(&f.conn, &check.id).unwrap();
@@ -229,7 +337,10 @@ fn re_run_checks_records_a_run_per_check_against_the_current_head_without_a_sess
             assert_eq!(current.commit_sha.as_deref(), Some(head.as_str()));
         }
         let review = review_for_story(&f.conn, &f.story.id).unwrap();
-        assert!(review.failing_checks.is_empty(), "nothing is stale any more");
+        assert!(
+            review.failing_checks.is_empty(),
+            "nothing is stale any more"
+        );
         assert!(review.criteria.iter().all(|c| c.pre_ticked));
         assert_eq!(review.story_state, "in_review", "a re-run moves nothing");
         let rerun: i64 = f
@@ -255,8 +366,16 @@ fn a_re_run_reports_how_many_checks_have_ended_as_it_goes() {
 
         let batch = run_checks_reporting(&plan, |done, total| heard.push((done, total))).unwrap();
 
-        assert_eq!(heard, vec![(0, 3), (1, 3), (2, 3), (3, 3)], "once before the first Check, then after each");
-        assert_eq!(batch.outcomes.len(), 3, "a failing Check never stops the rest");
+        assert_eq!(
+            heard,
+            vec![(0, 3), (1, 3), (2, 3), (3, 3)],
+            "once before the first Check, then after each"
+        );
+        assert_eq!(
+            batch.outcomes.len(),
+            3,
+            "a failing Check never stops the rest"
+        );
     });
 }
 
@@ -277,7 +396,12 @@ fn re_run_checks_is_refused_while_a_session_is_live_and_outside_review() {
         f.end_session();
         let plan = plan_review_run(&f.conn, &f.story.id).unwrap();
         let batch = run_checks(&plan).unwrap();
-        f.conn.execute("UPDATE sessions SET status = 'running' WHERE id = ?1", params![f.session.id]).unwrap();
+        f.conn
+            .execute(
+                "UPDATE sessions SET status = 'running' WHERE id = ?1",
+                params![f.session.id],
+            )
+            .unwrap();
         let err = complete_review_run(&mut f.conn, &f.human, &plan, batch).unwrap_err();
         assert!(err.to_string().contains("session"), "{err}");
         assert_eq!(recorded_runs(&f.conn), runs);

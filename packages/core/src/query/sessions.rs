@@ -109,9 +109,16 @@ const STOPPED_SESSION_SQL: &str = "SELECT r.id, r.ending_reason, r.ended_at FROM
 /// whose latest session is dead. A Running Story only leaves Running by handing off, so a dead
 /// latest session on a Running Story is one that never handed off. Returns that session, or `None`
 /// when the Story is not Stopped (not Running, a live session, or no session yet).
-pub fn stopped_session_for_story(conn: &Connection, story_id: &str) -> anyhow::Result<Option<StoppedSession>> {
+pub fn stopped_session_for_story(
+    conn: &Connection,
+    story_id: &str,
+) -> anyhow::Result<Option<StoppedSession>> {
     conn.query_row(STOPPED_SESSION_SQL, params![story_id], |row| {
-        Ok(StoppedSession { session_id: row.get(0)?, ending_reason: row.get(1)?, ended_at: row.get(2)? })
+        Ok(StoppedSession {
+            session_id: row.get(0)?,
+            ending_reason: row.get(1)?,
+            ended_at: row.get(2)?,
+        })
     })
     .optional()
     .context("failed to work out whether the Story is Stopped")
@@ -131,7 +138,8 @@ pub struct WorktreeSummary {
     pub status: String,
 }
 
-const WORKTREE_SUMMARY_SQL: &str = "SELECT worktrees.branch, worktrees.path, stories.key, worktrees.status \
+const WORKTREE_SUMMARY_SQL: &str =
+    "SELECT worktrees.branch, worktrees.path, stories.key, worktrees.status \
     FROM worktrees JOIN stories ON worktrees.story_id = stories.id WHERE worktrees.story_id = ?1";
 
 /// `story_id`'s worktree summary, or `None` for a Story with no worktree yet (one worktree per

@@ -72,7 +72,9 @@ impl NeedsYouKind {
     /// The kind's place in spec §2's order; kinds that share a rank are mixed by age.
     pub fn rank(self) -> u8 {
         match self {
-            NeedsYouKind::GatedAction | NeedsYouKind::PermissionRequest | NeedsYouKind::Question => 1,
+            NeedsYouKind::GatedAction
+            | NeedsYouKind::PermissionRequest
+            | NeedsYouKind::Question => 1,
             NeedsYouKind::Stopped => 2,
             NeedsYouKind::Review | NeedsYouKind::JudgedOn => 3,
             NeedsYouKind::ConfirmExitTest => 4,
@@ -216,11 +218,18 @@ impl NeedsYouItem {
 }
 
 fn story_record(id: String, key: String, title: String) -> NeedsYouRecord {
-    NeedsYouRecord { kind: "story", id: Some(id), key: Some(key), title, state: None }
+    NeedsYouRecord {
+        kind: "story",
+        id: Some(id),
+        key: Some(key),
+        title,
+        state: None,
+    }
 }
 
 /// `query::permissions::PENDING_REQUESTS_FOR_RUN_SQL`'s predicate over the project's live Story sessions.
-const REQUESTS_SQL: &str = "SELECT pr.id, pr.tool_name, pr.input_payload, pr.created_at, pr.destructive_category, \
+const REQUESTS_SQL: &str =
+    "SELECT pr.id, pr.tool_name, pr.input_payload, pr.created_at, pr.destructive_category, \
         ar.id, s.id, s.key, s.title \
     FROM permission_requests pr \
     JOIN sessions ar ON ar.id = pr.session_id \
@@ -322,7 +331,11 @@ pub fn needs_you(conn: &Connection, project_id: &str) -> anyhow::Result<Vec<Need
             NeedsYouKind::Stopped,
             m.story_id.clone(),
             m.since.clone(),
-            story_record(m.story_id.clone(), m.story_key.clone(), m.story_title.clone()),
+            story_record(
+                m.story_id.clone(),
+                m.story_key.clone(),
+                m.story_title.clone(),
+            ),
         );
         item.missing_worktree = true;
         items.push(item);
@@ -333,12 +346,20 @@ pub fn needs_you(conn: &Connection, project_id: &str) -> anyhow::Result<Vec<Need
     push_proposals(conn, project_id, &mut items)?;
     push_rounds(conn, project_id, &mut items)?;
     items.sort_by(|a, b| {
-        (a.kind.rank(), a.since.as_str(), a.id.as_str()).cmp(&(b.kind.rank(), b.since.as_str(), b.id.as_str()))
+        (a.kind.rank(), a.since.as_str(), a.id.as_str()).cmp(&(
+            b.kind.rank(),
+            b.since.as_str(),
+            b.id.as_str(),
+        ))
     });
     Ok(items)
 }
 
-fn push_requests(conn: &Connection, project_id: &str, items: &mut Vec<NeedsYouItem>) -> anyhow::Result<()> {
+fn push_requests(
+    conn: &Connection,
+    project_id: &str,
+    items: &mut Vec<NeedsYouItem>,
+) -> anyhow::Result<()> {
     let mut stmt = conn.prepare(REQUESTS_SQL)?;
     let rows = stmt
         .query_map(params![project_id], |row| {
@@ -371,7 +392,12 @@ fn push_requests(conn: &Connection, project_id: &str, items: &mut Vec<NeedsYouIt
     Ok(())
 }
 
-fn push_stopped(conn: &Connection, project_id: &str, missing: &[&str], items: &mut Vec<NeedsYouItem>) -> anyhow::Result<()> {
+fn push_stopped(
+    conn: &Connection,
+    project_id: &str,
+    missing: &[&str],
+    items: &mut Vec<NeedsYouItem>,
+) -> anyhow::Result<()> {
     let mut stmt = conn.prepare(RUNNING_STORIES_SQL)?;
     let running = stmt
         .query_map(params![project_id], |row| {
@@ -389,12 +415,19 @@ fn push_stopped(conn: &Connection, project_id: &str, missing: &[&str], items: &m
         if missing.contains(&id.as_str()) {
             continue;
         }
-        let Some(stopped) = stopped_session_for_story(conn, &id)? else { continue };
+        let Some(stopped) = stopped_session_for_story(conn, &id)? else {
+            continue;
+        };
         if stopped.ending_reason.as_deref() == Some("stopped_by_developer") {
             continue;
         }
         let since = stopped.ended_at.clone().unwrap_or(updated_at);
-        let mut item = NeedsYouItem::new(NeedsYouKind::Stopped, id.clone(), since, story_record(id, key, title));
+        let mut item = NeedsYouItem::new(
+            NeedsYouKind::Stopped,
+            id.clone(),
+            since,
+            story_record(id, key, title),
+        );
         item.session_id = Some(stopped.session_id);
         item.ending_reason = stopped.ending_reason;
         item.doing_task_title = doing;
@@ -403,64 +436,106 @@ fn push_stopped(conn: &Connection, project_id: &str, missing: &[&str], items: &m
     Ok(())
 }
 
-fn push_review(conn: &Connection, project_id: &str, missing: &[&str], items: &mut Vec<NeedsYouItem>) -> anyhow::Result<()> {
+fn push_review(
+    conn: &Connection,
+    project_id: &str,
+    missing: &[&str],
+    items: &mut Vec<NeedsYouItem>,
+) -> anyhow::Result<()> {
     let mut stmt = conn.prepare(REVIEW_SQL)?;
     let rows = stmt
         .query_map(params![project_id], |row| {
             let id: String = row.get(0)?;
-            Ok(NeedsYouItem::new(NeedsYouKind::Review, id.clone(), row.get(3)?, story_record(id, row.get(1)?, row.get(2)?)))
+            Ok(NeedsYouItem::new(
+                NeedsYouKind::Review,
+                id.clone(),
+                row.get(3)?,
+                story_record(id, row.get(1)?, row.get(2)?),
+            ))
         })?
         .collect::<Result<Vec<_>, _>>()
         .context("failed to read the Stories In review")?;
-    for mut item in rows.into_iter().filter(|item| !missing.contains(&item.id.as_str())) {
+    for mut item in rows
+        .into_iter()
+        .filter(|item| !missing.contains(&item.id.as_str()))
+    {
         item.conflicts = crate::domain::review::conflicts_for_story(conn, &item.id)?;
         items.push(item);
     }
     Ok(())
 }
 
-fn push_judged_on(conn: &Connection, project_id: &str, items: &mut Vec<NeedsYouItem>) -> anyhow::Result<()> {
+fn push_judged_on(
+    conn: &Connection,
+    project_id: &str,
+    items: &mut Vec<NeedsYouItem>,
+) -> anyhow::Result<()> {
     let mut stmt = conn.prepare(JUDGED_ON_SQL)?;
     let rows = stmt
         .query_map(params![project_id], |row| {
             let id: String = row.get(0)?;
             let target: String = row.get(1)?;
-            let payload: serde_json::Value = serde_json::from_str(&row.get::<_, String>(2)?).unwrap_or(serde_json::Value::Null);
-            let text = |key: &str| payload.get(key).and_then(serde_json::Value::as_str).map(str::to_string);
-            let epic = NeedsYouRecord { kind: "epic", id: row.get(13)?, key: row.get(14)?, title: row.get::<_, Option<String>>(15)?.unwrap_or_default(), state: None };
-            let (change, record, criterion_id, field, before, after, check_before, check_after) = if target == "criterion" {
-                let story: Option<String> = row.get(10)?;
-                let record = match story {
-                    Some(story) => story_record(story, row.get(11)?, row.get(12)?),
-                    None => epic,
-                };
-                let criterion_id: Option<String> = row.get(7)?;
-                (
-                    "amend_criterion",
-                    record,
-                    criterion_id.or_else(|| text("criterion_id")),
-                    None,
-                    row.get::<_, Option<String>>(8)?,
-                    text("statement").unwrap_or_default(),
-                    row.get::<_, Option<String>>(9)?,
-                    text("check_command"),
-                )
-            } else {
-                let field = text("field");
-                let column = match field.as_deref() {
-                    Some("problem") => Some(16),
-                    Some("scope") => Some(17),
-                    Some("out_of_scope") => Some(18),
-                    Some("exit_test") => Some(19),
-                    _ => None,
-                };
-                let before = match column {
-                    Some(i) => row.get::<_, Option<String>>(i)?.filter(|t| !t.trim().is_empty()),
-                    None => None,
-                };
-                ("amend_epic_spec", epic, None, field, before, text("text").unwrap_or_default(), None, None)
+            let payload: serde_json::Value =
+                serde_json::from_str(&row.get::<_, String>(2)?).unwrap_or(serde_json::Value::Null);
+            let text = |key: &str| {
+                payload
+                    .get(key)
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
             };
-            let mut item = NeedsYouItem::new(NeedsYouKind::JudgedOn, id.clone(), row.get(5)?, record);
+            let epic = NeedsYouRecord {
+                kind: "epic",
+                id: row.get(13)?,
+                key: row.get(14)?,
+                title: row.get::<_, Option<String>>(15)?.unwrap_or_default(),
+                state: None,
+            };
+            let (change, record, criterion_id, field, before, after, check_before, check_after) =
+                if target == "criterion" {
+                    let story: Option<String> = row.get(10)?;
+                    let record = match story {
+                        Some(story) => story_record(story, row.get(11)?, row.get(12)?),
+                        None => epic,
+                    };
+                    let criterion_id: Option<String> = row.get(7)?;
+                    (
+                        "amend_criterion",
+                        record,
+                        criterion_id.or_else(|| text("criterion_id")),
+                        None,
+                        row.get::<_, Option<String>>(8)?,
+                        text("statement").unwrap_or_default(),
+                        row.get::<_, Option<String>>(9)?,
+                        text("check_command"),
+                    )
+                } else {
+                    let field = text("field");
+                    let column = match field.as_deref() {
+                        Some("problem") => Some(16),
+                        Some("scope") => Some(17),
+                        Some("out_of_scope") => Some(18),
+                        Some("exit_test") => Some(19),
+                        _ => None,
+                    };
+                    let before = match column {
+                        Some(i) => row
+                            .get::<_, Option<String>>(i)?
+                            .filter(|t| !t.trim().is_empty()),
+                        None => None,
+                    };
+                    (
+                        "amend_epic_spec",
+                        epic,
+                        None,
+                        field,
+                        before,
+                        text("text").unwrap_or_default(),
+                        None,
+                        None,
+                    )
+                };
+            let mut item =
+                NeedsYouItem::new(NeedsYouKind::JudgedOn, id.clone(), row.get(5)?, record);
             item.judged_on = Some(NeedsYouJudgedOn {
                 proposal_id: id,
                 change,
@@ -489,13 +564,24 @@ fn push_judged_on(conn: &Connection, project_id: &str, items: &mut Vec<NeedsYouI
     Ok(())
 }
 
-fn push_confirm_exit_test(conn: &Connection, project_id: &str, items: &mut Vec<NeedsYouItem>) -> anyhow::Result<()> {
+fn push_confirm_exit_test(
+    conn: &Connection,
+    project_id: &str,
+    items: &mut Vec<NeedsYouItem>,
+) -> anyhow::Result<()> {
     let mut stmt = conn.prepare(CONFIRM_EPICS_SQL)?;
     let epics = stmt
         .query_map(params![project_id], |row| {
             let id: String = row.get(0)?;
-            let record = NeedsYouRecord { kind: "epic", id: Some(id.clone()), key: Some(row.get(1)?), title: row.get(2)?, state: None };
-            let mut item = NeedsYouItem::new(NeedsYouKind::ConfirmExitTest, id, row.get(5)?, record);
+            let record = NeedsYouRecord {
+                kind: "epic",
+                id: Some(id.clone()),
+                key: Some(row.get(1)?),
+                title: row.get(2)?,
+                state: None,
+            };
+            let mut item =
+                NeedsYouItem::new(NeedsYouKind::ConfirmExitTest, id, row.get(5)?, record);
             item.exit_test = row.get(3)?;
             item.milestone_title = Some(row.get(4)?);
             Ok(item)
@@ -507,7 +593,12 @@ fn push_confirm_exit_test(conn: &Connection, project_id: &str, items: &mut Vec<N
     let mut stmt = conn.prepare(CONFIRM_MILESTONES_SQL)?;
     let milestones = stmt
         .query_map(params![project_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?, row.get::<_, String>(3)?))
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, String>(3)?,
+            ))
         })?
         .collect::<Result<Vec<_>, _>>()
         .context("failed to read the Milestones whose exit test can be confirmed")?;
@@ -527,7 +618,11 @@ fn push_confirm_exit_test(conn: &Connection, project_id: &str, items: &mut Vec<N
     Ok(())
 }
 
-fn push_rounds(conn: &Connection, project_id: &str, items: &mut Vec<NeedsYouItem>) -> anyhow::Result<()> {
+fn push_rounds(
+    conn: &Connection,
+    project_id: &str,
+    items: &mut Vec<NeedsYouItem>,
+) -> anyhow::Result<()> {
     let mut stmt = conn.prepare(ROUNDS_SQL)?;
     let rows = stmt
         .query_map(params![project_id], |row| {
@@ -538,7 +633,13 @@ fn push_rounds(conn: &Connection, project_id: &str, items: &mut Vec<NeedsYouItem
             }
             let subject: String = row.get(2)?;
             let record = match subject.as_str() {
-                "epic" => NeedsYouRecord { kind: "epic", id: row.get(3)?, key: row.get(4)?, title: row.get(5)?, state: None },
+                "epic" => NeedsYouRecord {
+                    kind: "epic",
+                    id: row.get(3)?,
+                    key: row.get(4)?,
+                    title: row.get(5)?,
+                    state: None,
+                },
                 "milestone" => NeedsYouRecord {
                     kind: "milestone",
                     id: row.get(6)?,
@@ -546,7 +647,13 @@ fn push_rounds(conn: &Connection, project_id: &str, items: &mut Vec<NeedsYouItem
                     title: row.get::<_, Option<String>>(7)?.unwrap_or_default(),
                     state: None,
                 },
-                _ => NeedsYouRecord { kind: "roadmap", id: None, key: None, title: String::new(), state: None },
+                _ => NeedsYouRecord {
+                    kind: "roadmap",
+                    id: None,
+                    key: None,
+                    title: String::new(),
+                    state: None,
+                },
             };
             let round = NeedsYouRound {
                 round_id: row.get(0)?,
@@ -556,7 +663,12 @@ fn push_rounds(conn: &Connection, project_id: &str, items: &mut Vec<NeedsYouItem
                 answered: row.get(9)?,
                 questions: row.get(10)?,
             };
-            let mut item = NeedsYouItem::new(NeedsYouKind::ShapingRound, round.round_id.clone(), row.get(8)?, record);
+            let mut item = NeedsYouItem::new(
+                NeedsYouKind::ShapingRound,
+                round.round_id.clone(),
+                row.get(8)?,
+                record,
+            );
             item.round = Some(round);
             Ok(Some(item))
         })?
@@ -566,16 +678,38 @@ fn push_rounds(conn: &Connection, project_id: &str, items: &mut Vec<NeedsYouItem
     Ok(())
 }
 
-fn push_proposals(conn: &Connection, project_id: &str, items: &mut Vec<NeedsYouItem>) -> anyhow::Result<()> {
+fn push_proposals(
+    conn: &Connection,
+    project_id: &str,
+    items: &mut Vec<NeedsYouItem>,
+) -> anyhow::Result<()> {
     let (proposals, since) = conn
         .query_row(PROPOSALS_SQL, params![project_id], |row| {
-            let counts = NeedsYouProposals { count: row.get(0)?, stories: row.get(1)?, epics: row.get(2)?, roadmap: row.get(3)? };
+            let counts = NeedsYouProposals {
+                count: row.get(0)?,
+                stories: row.get(1)?,
+                epics: row.get(2)?,
+                roadmap: row.get(3)?,
+            };
             Ok((counts, row.get::<_, Option<String>>(4)?))
         })
         .context("failed to count the Proposals awaiting triage")?;
-    let Some(since) = since.filter(|_| proposals.count > 0) else { return Ok(()) };
-    let record = NeedsYouRecord { kind: "project", id: Some(project_id.to_string()), key: None, title: String::new(), state: None };
-    let mut item = NeedsYouItem::new(NeedsYouKind::Proposals, project_id.to_string(), since, record);
+    let Some(since) = since.filter(|_| proposals.count > 0) else {
+        return Ok(());
+    };
+    let record = NeedsYouRecord {
+        kind: "project",
+        id: Some(project_id.to_string()),
+        key: None,
+        title: String::new(),
+        state: None,
+    };
+    let mut item = NeedsYouItem::new(
+        NeedsYouKind::Proposals,
+        project_id.to_string(),
+        since,
+        record,
+    );
     item.proposals = Some(proposals);
     items.push(item);
     Ok(())

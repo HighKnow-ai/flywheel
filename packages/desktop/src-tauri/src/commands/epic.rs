@@ -26,8 +26,12 @@ pub struct EpicDto {
     pub rank: String,
 }
 
-pub(crate) fn to_dto(conn: &rusqlite::Connection, epic: flywheel_core::domain::epic::Epic) -> Result<EpicDto, String> {
-    let state = flywheel_core::domain::epic::epic_state(conn, &epic.id).map_err(|e| e.to_string())?;
+pub(crate) fn to_dto(
+    conn: &rusqlite::Connection,
+    epic: flywheel_core::domain::epic::Epic,
+) -> Result<EpicDto, String> {
+    let state =
+        flywheel_core::domain::epic::epic_state(conn, &epic.id).map_err(|e| e.to_string())?;
     Ok(EpicDto {
         id: epic.id,
         project_id: epic.project_id,
@@ -45,12 +49,19 @@ pub(crate) fn to_dto(conn: &rusqlite::Connection, epic: flywheel_core::domain::e
 
 /// Create an Epic at the end of `milestone_id`, in Shaping.
 #[tauri::command]
-pub fn epic_create(state: State<AppState>, app: AppHandle, milestone_id: String, title: String) -> Result<EpicDto, String> {
+pub fn epic_create(
+    state: State<AppState>,
+    app: AppHandle,
+    milestone_id: String,
+    title: String,
+) -> Result<EpicDto, String> {
     validate_text("title", &title, MAX_TITLE_LEN)?;
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    let epic = flywheel_core::domain::epic::create_epic(&mut conn, &actor_id, &milestone_id, &title)
-        .map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    let epic =
+        flywheel_core::domain::epic::create_epic(&mut conn, &actor_id, &milestone_id, &title)
+            .map_err(|e| e.to_string())?;
     let dto = to_dto(&conn, epic)?;
     drop(conn);
     emit_board_changed(&app, Some(&dto.project_id), "epic", Some(&dto.id));
@@ -82,15 +93,27 @@ pub fn epic_update(
     exit_test: Option<String>,
 ) -> Result<(), String> {
     validate_text("title", &title, MAX_TITLE_LEN)?;
-    for (field, value) in [("problem", &problem), ("scope", &scope), ("outOfScope", &out_of_scope), ("exitTest", &exit_test)] {
+    for (field, value) in [
+        ("problem", &problem),
+        ("scope", &scope),
+        ("outOfScope", &out_of_scope),
+        ("exitTest", &exit_test),
+    ] {
         if let Some(value) = value {
             validate_text(field, value, MAX_PROSE_LEN)?;
         }
     }
-    let spec = flywheel_core::domain::epic::EpicSpec { problem, scope, out_of_scope, exit_test };
+    let spec = flywheel_core::domain::epic::EpicSpec {
+        problem,
+        scope,
+        out_of_scope,
+        exit_test,
+    };
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    flywheel_core::domain::epic::update_epic(&mut conn, &actor_id, &epic_id, &title, &spec).map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::epic::update_epic(&mut conn, &actor_id, &epic_id, &title, &spec)
+        .map_err(|e| e.to_string())?;
     let project_id = super::project_of(&conn, "epics", &epic_id);
     drop(conn);
     emit_board_changed(&app, project_id.as_deref(), "epic", Some(&epic_id));
@@ -101,12 +124,19 @@ pub fn epic_update(
 /// test). `done` is refused here: confirming the exit test is `epic_confirm_done`, which starts the
 /// roadmap Round (issue #134). The domain refuses the rest.
 #[tauri::command]
-pub fn epic_set_state(state: State<AppState>, app: AppHandle, epic_id: String, to: String) -> Result<(), String> {
+pub fn epic_set_state(
+    state: State<AppState>,
+    app: AppHandle,
+    epic_id: String,
+    to: String,
+) -> Result<(), String> {
     let to = flywheel_core::domain::epic::EpicState::parse(&to).map_err(|e| e.to_string())?;
     super::roadmap_round::refuse_done_without_round(to.as_str())?;
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    flywheel_core::domain::epic::set_epic_state(&mut conn, &actor_id, &epic_id, to).map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::epic::set_epic_state(&mut conn, &actor_id, &epic_id, to)
+        .map_err(|e| e.to_string())?;
     let project_id = super::project_of(&conn, "epics", &epic_id);
     drop(conn);
     emit_board_changed(&app, project_id.as_deref(), "epic", Some(&epic_id));

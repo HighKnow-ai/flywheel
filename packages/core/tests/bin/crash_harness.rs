@@ -49,8 +49,14 @@ fn main() {
             .expect("create_project should succeed");
 
             for i in 0..n {
-                milestone::create_milestone(&mut conn, &proj.id, &actor_id, &format!("Milestone {i}"), None)
-                    .expect("create_milestone should succeed");
+                milestone::create_milestone(
+                    &mut conn,
+                    &proj.id,
+                    &actor_id,
+                    &format!("Milestone {i}"),
+                    None,
+                )
+                .expect("create_milestone should succeed");
             }
 
             println!("READY");
@@ -84,7 +90,14 @@ fn main() {
                 "INSERT INTO milestones (
                     id, project_id, title, state, rank, created_by, created_at, updated_at
                 ) VALUES (?1, ?2, ?3, 'shaping', ?4, ?5, ?6, ?6)",
-                rusqlite::params![milestone_id, proj.id, "mid-transaction Milestone", "a0", actor_id, now],
+                rusqlite::params![
+                    milestone_id,
+                    proj.id,
+                    "mid-transaction Milestone",
+                    "a0",
+                    actor_id,
+                    now
+                ],
             )
             .expect("failed to insert the mid-transaction Milestone row");
 

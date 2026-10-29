@@ -12,7 +12,9 @@ use std::fs::{self, File};
 use std::time::{Duration, SystemTime};
 
 use flywheel_core::db::backup::{backup_database_file, prune_backups, restore_from_backup};
-use flywheel_core::db::{apply_pragmas, migration_sources, open_and_migrate, open_and_migrate_with};
+use flywheel_core::db::{
+    apply_pragmas, migration_sources, open_and_migrate, open_and_migrate_with,
+};
 use rusqlite::Connection;
 use rusqlite_migration::{Migrations, M};
 
@@ -70,12 +72,22 @@ fn a_baseline_database_migrates_forward_without_data_loss() {
     let conn = open_and_migrate_with(&db_path, &backups_dir, &next)
         .expect("open_and_migrate_with should carry the baseline forward to N");
 
-    let user_version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-    assert_eq!(user_version, sources_with_next().len() as i64, "user_version should advance to N");
+    let user_version: i64 = conn
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(
+        user_version,
+        sources_with_next().len() as i64,
+        "user_version should advance to N"
+    );
 
     // The column the newest migration adds is queryable — the migration actually ran.
     let merged: i64 = conn
-        .query_row("SELECT COUNT(merged_with_failing_check) FROM stories", [], |row| row.get(0))
+        .query_row(
+            "SELECT COUNT(merged_with_failing_check) FROM stories",
+            [],
+            |row| row.get(0),
+        )
         .expect("the column introduced by the newest migration should exist");
     assert_eq!(merged, 0);
 
@@ -100,15 +112,21 @@ fn backup_matches_pre_migration_bytes() {
     let pre_migration_bytes = fs::read(&db_path).expect("should read the baseline file");
 
     let next = Migrations::new(sources_with_next().into_iter().map(M::up).collect());
-    let _conn = open_and_migrate_with(&db_path, &backups_dir, &next).expect("open_and_migrate_with should succeed");
+    let _conn = open_and_migrate_with(&db_path, &backups_dir, &next)
+        .expect("open_and_migrate_with should succeed");
 
     let backup_files: Vec<_> = fs::read_dir(&backups_dir)
         .expect("backups dir should exist after a migration ran")
         .filter_map(|entry| entry.ok())
         .collect();
-    assert_eq!(backup_files.len(), 1, "exactly one backup should exist after the single migration run");
+    assert_eq!(
+        backup_files.len(),
+        1,
+        "exactly one backup should exist after the single migration run"
+    );
 
-    let backup_bytes = fs::read(backup_files[0].path()).expect("should be able to read the backup file");
+    let backup_bytes =
+        fs::read(backup_files[0].path()).expect("should be able to read the backup file");
     assert_eq!(
         backup_bytes, pre_migration_bytes,
         "the backup's bytes must match the database exactly as it stood before the run"
@@ -141,8 +159,8 @@ fn failed_migration_restores_the_file() {
     let bad_migrations = Migrations::new(bad_sources.into_iter().map(M::up).collect());
 
     {
-        let mut conn =
-            Connection::open(&db_path).expect("failed to open the file for the bad-migration attempt");
+        let mut conn = Connection::open(&db_path)
+            .expect("failed to open the file for the bad-migration attempt");
         apply_pragmas(&conn).expect("failed to apply pragmas");
         let result = bad_migrations.to_latest(&mut conn);
         assert!(
@@ -247,7 +265,11 @@ fn prune_keeps_the_retention_limit() {
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.file_name().to_string_lossy().into_owned())
         .collect();
-    assert_eq!(remaining.len(), 5, "exactly the retention limit should remain");
+    assert_eq!(
+        remaining.len(),
+        5,
+        "exactly the retention limit should remain"
+    );
 
     for i in 3..8u64 {
         let name = format!("pre-migration-2-{i:04}.db");

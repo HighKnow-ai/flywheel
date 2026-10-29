@@ -98,8 +98,8 @@ fn killing_after_commits_preserves_every_committed_milestone_and_event() {
         "5",
     ]);
 
-    let conn = open_and_migrate(&db_path, &backups_dir)
-        .expect("reopening after the kill should succeed");
+    let conn =
+        open_and_migrate(&db_path, &backups_dir).expect("reopening after the kill should succeed");
 
     assert_eq!(
         milestone_count(&conn),
@@ -127,8 +127,8 @@ fn killing_mid_transaction_leaves_neither_the_row_nor_its_event() {
         backups_dir.to_str().unwrap(),
     ]);
 
-    let conn = open_and_migrate(&db_path, &backups_dir)
-        .expect("reopening after the kill should succeed");
+    let conn =
+        open_and_migrate(&db_path, &backups_dir).expect("reopening after the kill should succeed");
 
     assert_eq!(
         milestone_count(&conn),

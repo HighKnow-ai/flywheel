@@ -32,7 +32,9 @@ fn round_seven_backslash_split_env_matches_unobfuscated() {
 
     let split = classify(r#"e\nv -S "-P /tmp git push --force""#);
     assert!(
-        split.contains(r#""category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":true"#),
+        split.contains(
+            r#""category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":true"#
+        ),
         "backslash-split env -S form must match its unobfuscated twin (unresolvable), got: {split}"
     );
 
@@ -376,7 +378,8 @@ fn c6_keeps_c5_falsifiability_companions() {
     // must not fire on them.
     let command_v = classify("command -v git");
     assert!(
-        command_v.contains(r#""category":"safe""#) && command_v.contains(r#""textCanShadowPathResolution":false"#),
+        command_v.contains(r#""category":"safe""#)
+            && command_v.contains(r#""textCanShadowPathResolution":false"#),
         "command -v git must stay safe/false, got: {command_v}"
     );
 

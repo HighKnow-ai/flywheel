@@ -87,10 +87,13 @@ pub enum ResolveOutcome {
 /// repository-iteration order the sha path relies on so two reads of the same input agree, and it
 /// reads only repositories the user themselves registered (T-07-05-02).
 fn active_projects_ordered(conn: &Connection) -> anyhow::Result<Vec<(String, String)>> {
-    let mut stmt =
-        conn.prepare("SELECT id, repo_path FROM projects WHERE status = 'active' AND hidden = 0 ORDER BY id ASC")?;
+    let mut stmt = conn.prepare(
+        "SELECT id, repo_path FROM projects WHERE status = 'active' AND hidden = 0 ORDER BY id ASC",
+    )?;
     let rows = stmt
-        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
 }
@@ -141,7 +144,9 @@ fn resolve_sha(conn: &Connection, sha: &str) -> anyhow::Result<ResolveOutcome> {
             let text = String::from_utf8_lossy(&output.stdout);
             let lines: Vec<&str> = text.lines().filter(|line| !line.is_empty()).collect();
             if lines.len() >= 2 {
-                return Ok(ResolveOutcome::AmbiguousPrefix { matches: lines.len() });
+                return Ok(ResolveOutcome::AmbiguousPrefix {
+                    matches: lines.len(),
+                });
             }
             if lines.is_empty() {
                 continue;
@@ -170,15 +175,24 @@ fn resolve_sha(conn: &Connection, sha: &str) -> anyhow::Result<ResolveOutcome> {
         matched.push((
             project_id,
             full_sha,
-            if story_key.is_empty() { None } else { Some(story_key) },
-            if run_val.is_empty() { None } else { Some(run_val) },
+            if story_key.is_empty() {
+                None
+            } else {
+                Some(story_key)
+            },
+            if run_val.is_empty() {
+                None
+            } else {
+                Some(run_val)
+            },
         ));
     }
 
     match matched.len() {
         0 => Ok(ResolveOutcome::NotFound),
         1 => {
-            let (project_id, full_sha, story_key_opt, run_opt) = matched.into_iter().next().unwrap();
+            let (project_id, full_sha, story_key_opt, run_opt) =
+                matched.into_iter().next().unwrap();
             let Some(story_key) = story_key_opt else {
                 // The commit exists in this repository but carries no Story trailer at all —
                 // never an error, just nothing found (D-129: trailer presence, not sha presence,
@@ -216,7 +230,10 @@ fn resolve_sha(conn: &Connection, sha: &str) -> anyhow::Result<ResolveOutcome> {
 /// Resolve a classified identifier against the board and, for a sha, against git — reading fresh
 /// every time (D-128), never from a cache. Two consecutive calls on the same unchanged input and
 /// unchanged board/git state return equal outcomes.
-pub fn resolve_identifier(conn: &Connection, ident: &GitIdentifier) -> anyhow::Result<ResolveOutcome> {
+pub fn resolve_identifier(
+    conn: &Connection,
+    ident: &GitIdentifier,
+) -> anyhow::Result<ResolveOutcome> {
     match ident {
         GitIdentifier::Branch(name) => resolve_branch(conn, name),
         GitIdentifier::Sha(sha) => resolve_sha(conn, sha),

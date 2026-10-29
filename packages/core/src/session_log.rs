@@ -77,7 +77,9 @@ impl SessionLogWriter {
     /// line the writer already accepted.
     pub fn append_event_line(&mut self, line: &str) -> anyhow::Result<()> {
         writeln!(self.file, "{line}").context("failed to write session log line")?;
-        self.file.flush().context("failed to flush session log writer")?;
+        self.file
+            .flush()
+            .context("failed to flush session log writer")?;
         Ok(())
     }
 }
@@ -186,7 +188,12 @@ pub fn read_window(session_id: &str, offset: usize, limit: usize) -> anyhow::Res
     let effective_limit = limit.min(LOG_WINDOW_MAX_LIMIT);
     let total = count_lines(session_id)?;
     if total == 0 {
-        return Ok(LogWindow { entries: Vec::new(), offset, limit: effective_limit, total: 0 });
+        return Ok(LogWindow {
+            entries: Vec::new(),
+            offset,
+            limit: effective_limit,
+            total: 0,
+        });
     }
 
     let path = session_log_path(session_id)?;
@@ -211,7 +218,12 @@ pub fn read_window(session_id: &str, offset: usize, limit: usize) -> anyhow::Res
         entries.push(parse_log_line(&line, line_number));
     }
 
-    Ok(LogWindow { entries, offset, limit: effective_limit, total })
+    Ok(LogWindow {
+        entries,
+        offset,
+        limit: effective_limit,
+        total,
+    })
 }
 
 /// The most bytes [`read_tail`] will examine, counted back from the end of the file (RESEARCH
@@ -251,18 +263,27 @@ fn read_tail_lines(session_id: &str, max_lines: usize) -> anyhow::Result<LogTail
         Ok(file) => file,
         Err(_) => return Ok(LogTail::default()),
     };
-    let len = file.metadata().with_context(|| format!("failed to stat {path:?}"))?.len();
+    let len = file
+        .metadata()
+        .with_context(|| format!("failed to stat {path:?}"))?
+        .len();
     let window = len.min(LOG_TAIL_MAX_BYTES as u64);
     file.seek(SeekFrom::Start(len - window))
         .with_context(|| format!("failed to seek {path:?}"))?;
     let mut buf = vec![0u8; window as usize];
-    file.read_exact(&mut buf).with_context(|| format!("failed to read the tail of {path:?}"))?;
+    file.read_exact(&mut buf)
+        .with_context(|| format!("failed to read the tail of {path:?}"))?;
     let starts_mid_file = window < len;
 
     // Drop the in-flight fragment after the last newline; what remains ends on a line boundary.
     let complete = match buf.iter().rposition(|&b| b == b'\n') {
         Some(last_newline) => &buf[..last_newline],
-        None => return Ok(LogTail { lines: Vec::new(), truncated: starts_mid_file }),
+        None => {
+            return Ok(LogTail {
+                lines: Vec::new(),
+                truncated: starts_mid_file,
+            })
+        }
     };
 
     let text = String::from_utf8_lossy(complete);
@@ -270,19 +291,26 @@ fn read_tail_lines(session_id: &str, max_lines: usize) -> anyhow::Result<LogTail
     if starts_mid_file {
         segments.next(); // cut off by the window: never a whole line
     }
-    let mut lines: Vec<String> =
-        segments.filter(|line| !line.is_empty()).map(str::to_owned).collect();
+    let mut lines: Vec<String> = segments
+        .filter(|line| !line.is_empty())
+        .map(str::to_owned)
+        .collect();
     if lines.len() > max_lines {
         lines.drain(..lines.len() - max_lines);
     }
-    Ok(LogTail { truncated: lines.is_empty() && starts_mid_file, lines })
+    Ok(LogTail {
+        truncated: lines.is_empty() && starts_mid_file,
+        lines,
+    })
 }
 
 /// The last assistant message in `session_id`'s log, for a dead session's stub summary and its
 /// ending label (docs/mvp-spec.md §4.5). Reads only the last [`LOG_TAIL_MAX_BYTES`] of the log, so
 /// a message further back than that reads as none. Best effort: a missing or unreadable log is
 /// `None`, never an error.
-pub fn last_assistant_message(session_id: &str) -> Option<crate::domain::session_ending::LastAssistantMessage> {
+pub fn last_assistant_message(
+    session_id: &str,
+) -> Option<crate::domain::session_ending::LastAssistantMessage> {
     let tail = read_tail_lines(session_id, usize::MAX).ok()?;
     tail.lines.iter().rev().find_map(|line| {
         let value: serde_json::Value = serde_json::from_str(line).ok()?;
@@ -292,7 +320,10 @@ pub fn last_assistant_message(session_id: &str) -> Option<crate::domain::session
         let text = value.get("text").and_then(|t| t.as_str())?.to_string();
         Some(crate::domain::session_ending::LastAssistantMessage {
             text,
-            is_api_error: value.get("isApiErrorMessage").and_then(|v| v.as_bool()).unwrap_or(false),
+            is_api_error: value
+                .get("isApiErrorMessage")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
             rate_limited: value.get("rateLimitTier").and_then(|v| v.as_str()) == Some("rejected"),
         })
     })

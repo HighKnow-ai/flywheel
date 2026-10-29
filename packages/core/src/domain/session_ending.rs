@@ -110,7 +110,9 @@ pub fn classify_session_closed(
     let text_of = |v: Option<&serde_json::Value>| v.and_then(|v| v.as_str()).map(str::to_owned);
     let result = event.get("result").filter(|r| r.is_object());
     let subtype = text_of(result.and_then(|r| r.get("subtype")));
-    let is_error = result.and_then(|r| r.get("isError")).and_then(|v| v.as_bool());
+    let is_error = result
+        .and_then(|r| r.get("isError"))
+        .and_then(|v| v.as_bool());
     let terminal_reason = text_of(result.and_then(|r| r.get("terminalReason")));
     let stop_reason = text_of(result.and_then(|r| r.get("stopReason")));
     let exit_code = event.get("exitCode").and_then(|v| v.as_i64());
@@ -127,13 +129,16 @@ pub fn classify_session_closed(
     if reason.as_deref() == Some("interrupted") {
         return EndingReason::StoppedByDeveloper;
     }
-    if stop_reason.as_deref() == Some("refusal") || last.is_some_and(|m| reads_as_refusal(&m.text)) {
+    if stop_reason.as_deref() == Some("refusal") || last.is_some_and(|m| reads_as_refusal(&m.text))
+    {
         return EndingReason::Refusal;
     }
     let limited_text = last.is_some_and(|m| m.is_api_error && reads_as_usage_limit(&m.text));
     if last.is_some_and(|m| m.rate_limited)
         || limited_text
-        || terminal_reason.as_deref().is_some_and(|t| t.contains("rate_limit"))
+        || terminal_reason
+            .as_deref()
+            .is_some_and(|t| t.contains("rate_limit"))
     {
         return EndingReason::UsageLimit;
     }
@@ -146,7 +151,10 @@ pub fn classify_session_closed(
     if result.is_none() {
         // No result line: the process died under the CLI (a signal, or a crash before it could
         // write one). A missing exit code with no signal either is too thin to call.
-        return if exit_signal.is_some() || exit_code.is_some_and(|c| c != 0) || reason.as_deref() == Some("failed") {
+        return if exit_signal.is_some()
+            || exit_code.is_some_and(|c| c != 0)
+            || reason.as_deref() == Some("failed")
+        {
             EndingReason::Crash
         } else {
             EndingReason::Unknown
@@ -167,7 +175,12 @@ pub fn classify_session_closed(
 
 /// Write how `session_id` ended and expire every request still pending on it, inside the caller's
 /// terminal transaction. Each expiry appends `permission_request.expired`.
-pub fn record_ending_in_tx(tx: &Transaction, session_id: &str, ending: EndingReason, actor_id: &str) -> anyhow::Result<()> {
+pub fn record_ending_in_tx(
+    tx: &Transaction,
+    session_id: &str,
+    ending: EndingReason,
+    actor_id: &str,
+) -> anyhow::Result<()> {
     tx.execute(
         "UPDATE sessions SET ending_reason = ?1 WHERE id = ?2",
         params![ending.as_str(), session_id],
@@ -176,7 +189,11 @@ pub fn record_ending_in_tx(tx: &Transaction, session_id: &str, ending: EndingRea
     expire_pending_requests_in_tx(tx, session_id, actor_id)
 }
 
-fn expire_pending_requests_in_tx(tx: &Transaction, session_id: &str, actor_id: &str) -> anyhow::Result<()> {
+fn expire_pending_requests_in_tx(
+    tx: &Transaction,
+    session_id: &str,
+    actor_id: &str,
+) -> anyhow::Result<()> {
     let now = crate::domain::now();
     let pending: Vec<(String, String, String, String, Option<String>)> = {
         let mut stmt = tx.prepare(
@@ -185,18 +202,27 @@ fn expire_pending_requests_in_tx(tx: &Transaction, session_id: &str, actor_id: &
              WHERE pr.session_id = ?1 AND pr.status = 'pending' AND pr.expired_at IS NULL
              ORDER BY pr.created_at ASC, pr.id ASC",
         )?;
-        let rows = stmt.query_map(params![session_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?;
-        rows.collect::<Result<_, _>>().context("failed to read the session's pending requests")?
+        let rows = stmt.query_map(params![session_id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+        })?;
+        rows.collect::<Result<_, _>>()
+            .context("failed to read the session's pending requests")?
     };
     for (id, project_id, story_id, tool_name, epic_id) in pending {
-        tx.execute("UPDATE permission_requests SET expired_at = ?1 WHERE id = ?2", params![now, id])
-            .context("failed to expire a pending request")?;
+        tx.execute(
+            "UPDATE permission_requests SET expired_at = ?1 WHERE id = ?2",
+            params![now, id],
+        )
+        .context("failed to expire a pending request")?;
         crate::domain::record_event(
             tx,
             &project_id,
             "permission_request",
             &id,
-            crate::domain::EventScope { story_id: Some(&story_id), epic_id: epic_id.as_deref() },
+            crate::domain::EventScope {
+                story_id: Some(&story_id),
+                epic_id: epic_id.as_deref(),
+            },
             actor_id,
             "permission_request.expired",
             &serde_json::json!({

@@ -39,11 +39,18 @@ impl From<flywheel_core::domain::task::Task> for TaskDto {
 
 /// Add a Task at the end of a Story's checklist.
 #[tauri::command]
-pub fn task_add(state: State<AppState>, app: AppHandle, story_id: String, title: String) -> Result<TaskDto, String> {
+pub fn task_add(
+    state: State<AppState>,
+    app: AppHandle,
+    story_id: String,
+    title: String,
+) -> Result<TaskDto, String> {
     validate_text("title", &title, MAX_TITLE_LEN)?;
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    let task = flywheel_core::domain::task::add_task(&mut conn, &actor_id, &story_id, &title).map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    let task = flywheel_core::domain::task::add_task(&mut conn, &actor_id, &story_id, &title)
+        .map_err(|e| e.to_string())?;
     let project_id = super::project_of(&conn, "stories", &story_id);
     drop(conn);
     emit_board_changed(&app, project_id.as_deref(), "task", Some(&task.id));
@@ -54,7 +61,8 @@ pub fn task_add(state: State<AppState>, app: AppHandle, story_id: String, title:
 #[tauri::command]
 pub fn task_list(state: State<AppState>, story_id: String) -> Result<Vec<TaskDto>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let tasks = flywheel_core::domain::task::tasks_for_story(&conn, &story_id).map_err(|e| e.to_string())?;
+    let tasks = flywheel_core::domain::task::tasks_for_story(&conn, &story_id)
+        .map_err(|e| e.to_string())?;
     Ok(tasks.into_iter().map(TaskDto::from).collect())
 }
 
@@ -72,10 +80,17 @@ pub fn task_set_state(
         validate_text("droppedReason", reason, MAX_TITLE_LEN)?;
     }
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     let project_id = super::project_of(&conn, "tasks", &task_id);
-    flywheel_core::domain::task::set_task_state(&mut conn, &actor_id, &task_id, to, dropped_reason.as_deref())
-        .map_err(|e| e.to_string())?;
+    flywheel_core::domain::task::set_task_state(
+        &mut conn,
+        &actor_id,
+        &task_id,
+        to,
+        dropped_reason.as_deref(),
+    )
+    .map_err(|e| e.to_string())?;
     drop(conn);
     emit_board_changed(&app, project_id.as_deref(), "task", Some(&task_id));
     Ok(())
@@ -83,12 +98,19 @@ pub fn task_set_state(
 
 /// Give a Task a new title.
 #[tauri::command]
-pub fn task_rename(state: State<AppState>, app: AppHandle, task_id: String, title: String) -> Result<(), String> {
+pub fn task_rename(
+    state: State<AppState>,
+    app: AppHandle,
+    task_id: String,
+    title: String,
+) -> Result<(), String> {
     validate_text("title", &title, MAX_TITLE_LEN)?;
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     let project_id = super::project_of(&conn, "tasks", &task_id);
-    flywheel_core::domain::task::rename_task(&mut conn, &actor_id, &task_id, &title).map_err(|e| e.to_string())?;
+    flywheel_core::domain::task::rename_task(&mut conn, &actor_id, &task_id, &title)
+        .map_err(|e| e.to_string())?;
     drop(conn);
     emit_board_changed(&app, project_id.as_deref(), "task", Some(&task_id));
     Ok(())
@@ -96,14 +118,24 @@ pub fn task_rename(state: State<AppState>, app: AppHandle, task_id: String, titl
 
 /// Replace a Task's note (issue #96). A blank note clears it.
 #[tauri::command]
-pub fn task_set_note(state: State<AppState>, app: AppHandle, task_id: String, note: String) -> Result<(), String> {
+pub fn task_set_note(
+    state: State<AppState>,
+    app: AppHandle,
+    task_id: String,
+    note: String,
+) -> Result<(), String> {
     if note.chars().count() > flywheel_core::domain::task::MAX_TASK_NOTE_LEN {
-        return Err(format!("note is at most {} characters", flywheel_core::domain::task::MAX_TASK_NOTE_LEN));
+        return Err(format!(
+            "note is at most {} characters",
+            flywheel_core::domain::task::MAX_TASK_NOTE_LEN
+        ));
     }
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     let project_id = super::project_of(&conn, "tasks", &task_id);
-    flywheel_core::domain::task::set_task_note(&mut conn, &actor_id, &task_id, &note).map_err(|e| e.to_string())?;
+    flywheel_core::domain::task::set_task_note(&mut conn, &actor_id, &task_id, &note)
+        .map_err(|e| e.to_string())?;
     drop(conn);
     emit_board_changed(&app, project_id.as_deref(), "task", Some(&task_id));
     Ok(())
@@ -119,10 +151,16 @@ pub fn task_move(
     before_task_id: Option<String>,
 ) -> Result<(), String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     let project_id = super::project_of(&conn, "tasks", &task_id);
-    flywheel_core::domain::task::move_task(&mut conn, &actor_id, &task_id, before_task_id.as_deref())
-        .map_err(|e| e.to_string())?;
+    flywheel_core::domain::task::move_task(
+        &mut conn,
+        &actor_id,
+        &task_id,
+        before_task_id.as_deref(),
+    )
+    .map_err(|e| e.to_string())?;
     drop(conn);
     emit_board_changed(&app, project_id.as_deref(), "task", Some(&task_id));
     Ok(())
@@ -137,13 +175,18 @@ pub fn answer_task_tool_call(
     tool: &str,
     args: &serde_json::Value,
 ) -> (serde_json::Value, Option<String>) {
-    use flywheel_core::domain::task_tool::{apply_task_tool_call, tasks_as_tool_result, TaskToolCall};
+    use flywheel_core::domain::task_tool::{
+        apply_task_tool_call, tasks_as_tool_result, TaskToolCall,
+    };
     let outcome = TaskToolCall::parse(tool, args)
         .and_then(|call| apply_task_tool_call(conn, run_id, &call).map(|outcome| (call, outcome)));
     match outcome {
         Ok((call, outcome)) => {
             let changed = (call != TaskToolCall::List).then_some(outcome.project_id);
-            (serde_json::json!({ "result": tasks_as_tool_result(&outcome.tasks) }), changed)
+            (
+                serde_json::json!({ "result": tasks_as_tool_result(&outcome.tasks) }),
+                changed,
+            )
         }
         // The reason goes to the agent so it can correct its call. A core refusal names a Task
         // state rule or a Task id, never a path.
@@ -165,16 +208,29 @@ pub fn handle_inbound_board_tool_request(app: &AppHandle, event: &serde_json::Va
     ) else {
         return;
     };
-    let args = event.get("args").cloned().unwrap_or(serde_json::Value::Null);
+    let args = event
+        .get("args")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
     if flywheel_core::domain::handoff::HANDOFF_TOOL_NAMES.contains(&tool) {
-        super::handoff::spawn_handoff_tool_call(app.clone(), run_id.to_string(), request_id.to_string(), tool.to_string(), args);
+        super::handoff::spawn_handoff_tool_call(
+            app.clone(),
+            run_id.to_string(),
+            request_id.to_string(),
+            tool.to_string(),
+            args,
+        );
         return;
     }
     // Issue #160: a running Story's `propose` and `proposal_withdraw`, answered at once.
     if flywheel_core::domain::story_proposal_tool::STORY_PROPOSAL_TOOL_NAMES.contains(&tool) {
-        let Some(state) = tauri::Manager::try_state::<AppState>(app) else { return };
+        let Some(state) = tauri::Manager::try_state::<AppState>(app) else {
+            return;
+        };
         let (answer, changed) = {
-            let Ok(mut conn) = state.db.lock() else { return };
+            let Ok(mut conn) = state.db.lock() else {
+                return;
+            };
             super::proposal::answer_story_proposal_tool_call(&mut conn, run_id, tool, &args)
         };
         send_board_tool_answer(app, run_id, request_id, &answer);
@@ -188,9 +244,13 @@ pub fn handle_inbound_board_tool_request(app: &AppHandle, event: &serde_json::Va
         super::shaping::handle_shaping_tool_request(app, run_id, request_id, tool, &args);
         return;
     }
-    let Some(state) = tauri::Manager::try_state::<AppState>(app) else { return };
+    let Some(state) = tauri::Manager::try_state::<AppState>(app) else {
+        return;
+    };
     let (answer, changed) = {
-        let Ok(mut conn) = state.db.lock() else { return };
+        let Ok(mut conn) = state.db.lock() else {
+            return;
+        };
         answer_task_tool_call(&mut conn, run_id, tool, &args)
     };
     send_board_tool_answer(app, run_id, request_id, &answer);
@@ -201,9 +261,18 @@ pub fn handle_inbound_board_tool_request(app: &AppHandle, event: &serde_json::Va
 
 /// Settle one held board tool call: `answer` is `{result}` or `{error}`, sent over the sidecar's
 /// stdin as its `board_tool_answer` op.
-pub(crate) fn send_board_tool_answer(app: &AppHandle, run_id: &str, request_id: &str, answer: &serde_json::Value) {
-    let Some(state) = tauri::Manager::try_state::<AppState>(app) else { return };
-    let Some(sidecar) = state.sidecar.as_ref() else { return };
+pub(crate) fn send_board_tool_answer(
+    app: &AppHandle,
+    run_id: &str,
+    request_id: &str,
+    answer: &serde_json::Value,
+) {
+    let Some(state) = tauri::Manager::try_state::<AppState>(app) else {
+        return;
+    };
+    let Some(sidecar) = state.sidecar.as_ref() else {
+        return;
+    };
     let mut request = serde_json::json!({
         "id": format!("board-tool-answer-{request_id}"),
         "op": "board_tool_answer",
@@ -225,8 +294,11 @@ mod tests {
     /// A migrated scratch database with one Story and one running session row on it.
     fn live_session() -> (rusqlite::Connection, String, String, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let mut conn =
-            flywheel_core::db::open_and_migrate(&dir.path().join("flywheel.db"), &dir.path().join("backups")).unwrap();
+        let mut conn = flywheel_core::db::open_and_migrate(
+            &dir.path().join("flywheel.db"),
+            &dir.path().join("backups"),
+        )
+        .unwrap();
         let human = actor::local_human_actor_id(&conn).unwrap();
         let p = project::create_project(&mut conn, &human, "P", "/repo", "FLY", "main").unwrap();
         let m = milestone::create_milestone(&mut conn, &p.id, &human, "M", None).unwrap();
@@ -245,7 +317,8 @@ mod tests {
     #[test]
     fn a_write_answers_with_the_checklist_and_names_the_changed_project() {
         let (mut conn, run_id, project_id, _dir) = live_session();
-        let (answer, changed) = answer_task_tool_call(&mut conn, &run_id, "task_add", &json!({ "titles": ["A"] }));
+        let (answer, changed) =
+            answer_task_tool_call(&mut conn, &run_id, "task_add", &json!({ "titles": ["A"] }));
         assert_eq!(changed.as_deref(), Some(project_id.as_str()));
         let tasks = answer["result"]["tasks"].as_array().unwrap();
         assert_eq!(tasks.len(), 1);
@@ -260,26 +333,55 @@ mod tests {
     #[test]
     fn a_refusal_answers_with_the_reason_and_changes_nothing() {
         let (mut conn, run_id, _project_id, _dir) = live_session();
-        let (answer, _) = answer_task_tool_call(&mut conn, &run_id, "task_add", &json!({ "titles": ["A", "B"] }));
+        let (answer, _) = answer_task_tool_call(
+            &mut conn,
+            &run_id,
+            "task_add",
+            &json!({ "titles": ["A", "B"] }),
+        );
         let ids: Vec<String> = answer["result"]["tasks"]
             .as_array()
             .unwrap()
             .iter()
             .map(|t| t["task_id"].as_str().unwrap().to_string())
             .collect();
-        answer_task_tool_call(&mut conn, &run_id, "task_update", &json!({ "task_id": ids[0], "state": "doing" }));
+        answer_task_tool_call(
+            &mut conn,
+            &run_id,
+            "task_update",
+            &json!({ "task_id": ids[0], "state": "doing" }),
+        );
 
-        let (answer, changed) =
-            answer_task_tool_call(&mut conn, &run_id, "task_update", &json!({ "task_id": ids[1], "state": "doing" }));
-        assert!(answer["error"].as_str().unwrap().contains("at most one"), "{answer}");
+        let (answer, changed) = answer_task_tool_call(
+            &mut conn,
+            &run_id,
+            "task_update",
+            &json!({ "task_id": ids[1], "state": "doing" }),
+        );
+        assert!(
+            answer["error"].as_str().unwrap().contains("at most one"),
+            "{answer}"
+        );
         assert!(answer.get("result").is_none());
         assert_eq!(changed, None);
 
-        let (answer, _) =
-            answer_task_tool_call(&mut conn, &run_id, "task_update", &json!({ "task_id": ids[1], "state": "dropped" }));
-        assert!(answer["error"].as_str().unwrap().contains("reason"), "{answer}");
+        let (answer, _) = answer_task_tool_call(
+            &mut conn,
+            &run_id,
+            "task_update",
+            &json!({ "task_id": ids[1], "state": "dropped" }),
+        );
+        assert!(
+            answer["error"].as_str().unwrap().contains("reason"),
+            "{answer}"
+        );
 
-        let (answer, _) = answer_task_tool_call(&mut conn, "01NOSUCHSESSION00000000000", "task_list", &json!({}));
+        let (answer, _) = answer_task_tool_call(
+            &mut conn,
+            "01NOSUCHSESSION00000000000",
+            "task_list",
+            &json!({}),
+        );
         assert!(answer["error"].as_str().is_some());
     }
 }

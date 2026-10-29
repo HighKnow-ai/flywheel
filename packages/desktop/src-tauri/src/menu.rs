@@ -105,7 +105,10 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .select_all()
         .build()?;
 
-    let view_menu = SubmenuBuilder::new(app, "View").item(&toggle_palette).item(&open_fleet).build()?;
+    let view_menu = SubmenuBuilder::new(app, "View")
+        .item(&toggle_palette)
+        .item(&open_fleet)
+        .build()?;
 
     // `WINDOW_SUBMENU_ID` is what tells macOS to auto-populate this submenu with the running
     // window list (the same id Tauri's own `Menu::default` uses) — a plain `SubmenuBuilder::new`

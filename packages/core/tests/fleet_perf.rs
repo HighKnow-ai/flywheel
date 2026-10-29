@@ -36,7 +36,9 @@ fn seed() -> Seeded {
         .expect("open_and_migrate should succeed");
 
     let actor_id = local_human_actor_id(&conn).expect("seeded human actor should exist");
-    let tx = conn.transaction().expect("failed to open the seeding transaction");
+    let tx = conn
+        .transaction()
+        .expect("failed to open the seeding transaction");
     let ts = "2025-01-01T00:00:00Z";
     let mut story_ids: Vec<(String, String)> = Vec::new(); // (project, story)
     for p in 0..PROJECTS {
@@ -74,9 +76,22 @@ fn seed() -> Seeded {
         }
     }
 
-    let insert_run = |project_id: &str, story_id: &str, status: &str, n: usize, ack: Option<&str>| {
-        let started = format!("2025-03-{:02}T{:02}:{:02}:00Z", (n / 1440) % 28 + 1, (n / 60) % 24, n % 60);
-        let ended = if status == "running" || status == "blocked" || status == "abandoned" { None } else { Some(started.clone()) };
+    let insert_run = |project_id: &str,
+                      story_id: &str,
+                      status: &str,
+                      n: usize,
+                      ack: Option<&str>| {
+        let started = format!(
+            "2025-03-{:02}T{:02}:{:02}:00Z",
+            (n / 1440) % 28 + 1,
+            (n / 60) % 24,
+            n % 60
+        );
+        let ended = if status == "running" || status == "blocked" || status == "abandoned" {
+            None
+        } else {
+            Some(started.clone())
+        };
         tx.execute(
             "INSERT INTO sessions (id, story_id, project_id, adapter, actor_id, status, permission_mode,
                 log_path, started_at, ended_at, acknowledged_at, cost_usd)
@@ -92,14 +107,26 @@ fn seed() -> Seeded {
     for h in 0..HISTORIC_ACKNOWLEDGED {
         let (project_id, story_id) = &story_ids[h % story_ids.len()];
         let status = ["completed", "failed", "interrupted"][h % 3];
-        insert_run(project_id, story_id, status, n, Some("2025-03-30T00:00:00Z"));
+        insert_run(
+            project_id,
+            story_id,
+            status,
+            n,
+            Some("2025-03-30T00:00:00Z"),
+        );
         n += 1;
     }
     // Four sessions per Story: three old acknowledged terminal sessions, then one latest session
     // whose status cycles through the mix a real fleet holds.
     for (i, (project_id, story_id)) in story_ids.iter().enumerate() {
         for _ in 0..(RUNS_PER_STORY - 1) {
-            insert_run(project_id, story_id, "completed", n, Some("2025-03-30T00:00:00Z"));
+            insert_run(
+                project_id,
+                story_id,
+                "completed",
+                n,
+                Some("2025-03-30T00:00:00Z"),
+            );
             n += 1;
         }
         let (status, ack) = match i % 20 {
@@ -118,7 +145,11 @@ fn seed() -> Seeded {
     for l in 0..EXTRA {
         let (project_id, story_id) = &story_ids[l % story_ids.len()];
         let status = if l % 2 == 0 { "running" } else { "completed" };
-        let ack = if l % 2 == 0 { None } else { Some("2025-03-30T00:00:00Z") };
+        let ack = if l % 2 == 0 {
+            None
+        } else {
+            Some("2025-03-30T00:00:00Z")
+        };
         insert_run(project_id, story_id, status, n, ack);
         n += 1;
     }
@@ -129,17 +160,28 @@ fn seed() -> Seeded {
 #[test]
 fn the_fleet_read_at_5000_runs_is_under_budget_and_uses_the_index() {
     let seeded = seed();
-    let total: i64 = seeded.conn.query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0)).unwrap();
-    assert_eq!(total, 5000, "the fixture must hold exactly 5,000 sessions rows");
+    let total: i64 = seeded
+        .conn
+        .query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(
+        total, 5000,
+        "the fixture must hold exactly 5,000 sessions rows"
+    );
 
     let start = Instant::now();
     let list = fleet_rows(&seeded.conn, FLEET_ROWS_MAX_LIMIT).expect("fleet_rows should succeed");
     let elapsed_ms = start.elapsed().as_millis();
 
     let plan_sql = format!("EXPLAIN QUERY PLAN {FLEET_SQL}");
-    let mut stmt = seeded.conn.prepare(&plan_sql).expect("failed to prepare the query plan");
+    let mut stmt = seeded
+        .conn
+        .prepare(&plan_sql)
+        .expect("failed to prepare the query plan");
     let plan: Vec<String> = stmt
-        .query_map(params![FLEET_ROWS_MAX_LIMIT as i64], |row| row.get::<_, String>(3))
+        .query_map(params![FLEET_ROWS_MAX_LIMIT as i64], |row| {
+            row.get::<_, String>(3)
+        })
         .unwrap()
         .collect::<Result<_, _>>()
         .unwrap();
@@ -149,14 +191,23 @@ fn the_fleet_read_at_5000_runs_is_under_budget_and_uses_the_index() {
     );
     println!("query plan: {plan:#?}");
 
-    assert_eq!(list.total_rows, FLEET_ROWS_MAX_LIMIT, "a busy fleet fills the window");
-    assert!(elapsed_ms < BUDGET_MS, "fleet_rows took {elapsed_ms}ms, budget is {BUDGET_MS}ms");
+    assert_eq!(
+        list.total_rows, FLEET_ROWS_MAX_LIMIT,
+        "a busy fleet fills the window"
+    );
+    assert!(
+        elapsed_ms < BUDGET_MS,
+        "fleet_rows took {elapsed_ms}ms, budget is {BUDGET_MS}ms"
+    );
     assert!(
         plan.iter().any(|line| line.contains("idx_sessions_fleet")),
         "the fleet read must use idx_sessions_fleet, plan was: {plan:?}"
     );
     assert!(
-        !plan.iter().any(|line| line.trim_start().starts_with("SCAN ar") || line.trim_start() == "SCAN sessions"),
+        !plan
+            .iter()
+            .any(|line| line.trim_start().starts_with("SCAN ar")
+                || line.trim_start() == "SCAN sessions"),
         "the fleet read must not full-scan sessions, plan was: {plan:?}"
     );
 }

@@ -49,10 +49,23 @@ fn init_repo(root: &Path, name: &str) -> PathBuf {
     let repo = root.join(name);
     std::fs::create_dir_all(&repo).expect("failed to create repo dir");
     run_git_ok(&repo, &["init", "--initial-branch", "main"]);
-    run_git_ok(&repo, &["config", "user.email", "outside-commit-test@flywheel.invalid"]);
-    run_git_ok(&repo, &["config", "user.name", "Flywheel Outside Commit Test"]);
-    std::fs::write(repo.join("README.md"), "outside_commit_detection.rs scratch repo\n")
-        .expect("failed to write README");
+    run_git_ok(
+        &repo,
+        &[
+            "config",
+            "user.email",
+            "outside-commit-test@flywheel.invalid",
+        ],
+    );
+    run_git_ok(
+        &repo,
+        &["config", "user.name", "Flywheel Outside Commit Test"],
+    );
+    std::fs::write(
+        repo.join("README.md"),
+        "outside_commit_detection.rs scratch repo\n",
+    )
+    .expect("failed to write README");
     run_git_ok(&repo, &["add", "README.md"]);
     run_git_ok(&repo, &["commit", "-m", "initial commit"]);
     repo
@@ -63,7 +76,16 @@ fn init_repo(root: &Path, name: &str) -> PathBuf {
 /// unique to the Story's branch), matching `git_facts.rs`'s own test fixture.
 fn init_bare(root: &Path, name: &str) -> PathBuf {
     let repo = root.join(name);
-    run_git_ok(root, &["init", "--bare", "--initial-branch", "main", repo.to_str().unwrap()]);
+    run_git_ok(
+        root,
+        &[
+            "init",
+            "--bare",
+            "--initial-branch",
+            "main",
+            repo.to_str().unwrap(),
+        ],
+    );
     repo
 }
 
@@ -107,14 +129,24 @@ fn setup() -> Fixture {
 
     let origin = init_bare(root.path(), "origin.git");
     let main_repo = init_repo(root.path(), "main_repo");
-    run_git_ok(&main_repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    run_git_ok(
+        &main_repo,
+        &["remote", "add", "origin", origin.to_str().unwrap()],
+    );
     run_git_ok(&main_repo, &["push", "-u", "origin", "main"]);
 
     let worktree_path = root.path().join("story_worktree");
     let branch = "flywheel/fly-1-a-story".to_string();
     run_git_ok(
         &main_repo,
-        &["worktree", "add", worktree_path.to_str().unwrap(), "-b", &branch, "main"],
+        &[
+            "worktree",
+            "add",
+            worktree_path.to_str().unwrap(),
+            "-b",
+            &branch,
+            "main",
+        ],
     );
 
     let db_dir = tempfile::tempdir().expect("failed to create scratch db dir");
@@ -122,10 +154,12 @@ fn setup() -> Fixture {
     let backups_dir = db_dir.path().join("backups");
     std::mem::forget(db_dir);
 
-    let mut conn =
-        flywheel_core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate should succeed");
+    let mut conn = flywheel_core::db::open_and_migrate(&db_path, &backups_dir)
+        .expect("open_and_migrate should succeed");
     let actor_id = local_human_actor_id(&conn).expect("seeded human actor should exist");
-    let system_actor_id = system_actor(&conn).expect("seeded system actor should exist").id;
+    let system_actor_id = system_actor(&conn)
+        .expect("seeded system actor should exist")
+        .id;
     let project = create_project(
         &mut conn,
         &actor_id,
@@ -177,7 +211,11 @@ fn insert_session(
     ended_at: Option<&str>,
 ) -> String {
     let id = new_id();
-    let status = if ended_at.is_some() { "completed" } else { "running" };
+    let status = if ended_at.is_some() {
+        "completed"
+    } else {
+        "running"
+    };
     conn.execute(
         "INSERT INTO sessions (
             id, worktree_id, story_id, project_id, adapter, actor_id, status,
@@ -240,10 +278,17 @@ fn commit_strictly_inside_an_session_window_is_not_marked() {
         "a commit strictly inside a recorded run window must not be marked"
     );
 
-    let appended = record_outside_commits(&mut fixture.conn, &fixture.story_id, &fixture.system_actor_id)
-        .expect("record_outside_commits should succeed");
+    let appended = record_outside_commits(
+        &mut fixture.conn,
+        &fixture.story_id,
+        &fixture.system_actor_id,
+    )
+    .expect("record_outside_commits should succeed");
     assert_eq!(appended, 0, "a covered commit must append no event");
-    assert_eq!(count_outside_commit_events_for_story(&fixture.conn, &fixture.story_id), 0);
+    assert_eq!(
+        count_outside_commit_events_for_story(&fixture.conn, &fixture.story_id),
+        0
+    );
 }
 
 #[test]
@@ -329,8 +374,12 @@ fn commit_after_a_completed_runs_ended_at_and_inside_no_other_window_is_marked()
         "a commit after a completed run's ended_at, covered by no window, must be marked"
     );
 
-    let appended = record_outside_commits(&mut fixture.conn, &fixture.story_id, &fixture.system_actor_id)
-        .expect("record_outside_commits should succeed");
+    let appended = record_outside_commits(
+        &mut fixture.conn,
+        &fixture.story_id,
+        &fixture.system_actor_id,
+    )
+    .expect("record_outside_commits should succeed");
     assert_eq!(appended, 1);
 }
 
@@ -365,8 +414,20 @@ fn commit_landing_while_a_run_has_ended_at_null_is_not_marked() {
 #[test]
 fn every_commit_on_a_story_with_zero_sessions_rows_is_marked() {
     let fixture = setup();
-    commit_file_at(&fixture.worktree_path, "a.txt", "a\n", "first", "2026-01-01T10:00:00+00:00");
-    commit_file_at(&fixture.worktree_path, "b.txt", "b\n", "second", "2026-01-01T11:00:00+00:00");
+    commit_file_at(
+        &fixture.worktree_path,
+        "a.txt",
+        "a\n",
+        "first",
+        "2026-01-01T10:00:00+00:00",
+    );
+    commit_file_at(
+        &fixture.worktree_path,
+        "b.txt",
+        "b\n",
+        "second",
+        "2026-01-01T11:00:00+00:00",
+    );
 
     let facts = git_facts_for_story(&fixture.conn, &fixture.story_id)
         .expect("git_facts_for_story should succeed")
@@ -385,21 +446,41 @@ fn a_branch_with_zero_commits_yields_no_marker_and_no_event() {
     let facts = git_facts_for_story(&fixture.conn, &fixture.story_id)
         .expect("git_facts_for_story should succeed")
         .expect("facts should be Some");
-    assert!(facts.commits.is_empty(), "a freshly cut branch has no commits of its own yet");
+    assert!(
+        facts.commits.is_empty(),
+        "a freshly cut branch has no commits of its own yet"
+    );
 
-    let appended = record_outside_commits(&mut fixture.conn, &fixture.story_id, &fixture.system_actor_id)
-        .expect("record_outside_commits should succeed");
+    let appended = record_outside_commits(
+        &mut fixture.conn,
+        &fixture.story_id,
+        &fixture.system_actor_id,
+    )
+    .expect("record_outside_commits should succeed");
     assert_eq!(appended, 0);
-    assert_eq!(count_outside_commit_events_for_story(&fixture.conn, &fixture.story_id), 0);
+    assert_eq!(
+        count_outside_commit_events_for_story(&fixture.conn, &fixture.story_id),
+        0
+    );
 }
 
 #[test]
 fn record_outside_commits_appends_one_event_for_a_newly_marked_commit_with_full_payload() {
     let mut fixture = setup();
-    commit_file_at(&fixture.worktree_path, "a.txt", "a\n", "hand-typed", "2026-01-01T10:00:00+00:00");
+    commit_file_at(
+        &fixture.worktree_path,
+        "a.txt",
+        "a\n",
+        "hand-typed",
+        "2026-01-01T10:00:00+00:00",
+    );
 
-    let appended = record_outside_commits(&mut fixture.conn, &fixture.story_id, &fixture.system_actor_id)
-        .expect("record_outside_commits should succeed");
+    let appended = record_outside_commits(
+        &mut fixture.conn,
+        &fixture.story_id,
+        &fixture.system_actor_id,
+    )
+    .expect("record_outside_commits should succeed");
     assert_eq!(appended, 1);
 
     let (actor_id, payload_text): (String, String) = fixture
@@ -411,30 +492,58 @@ fn record_outside_commits_appends_one_event_for_a_newly_marked_commit_with_full_
         )
         .expect("the appended event row should exist");
 
-    assert_eq!(actor_id, fixture.system_actor_id, "the event must be stamped with the system actor");
+    assert_eq!(
+        actor_id, fixture.system_actor_id,
+        "the event must be stamped with the system actor"
+    );
 
     let payload: serde_json::Value =
         serde_json::from_str(&payload_text).expect("payload should be valid JSON");
     assert!(payload["sha"].as_str().is_some());
     assert!(payload["short_sha"].as_str().is_some());
     assert_eq!(payload["branch"].as_str(), Some(fixture.branch.as_str()));
-    let label = payload["label"].as_str().expect("payload should carry a label");
-    assert!(label.contains("outside Flywheel"), "label should name the detection: {label:?}");
+    let label = payload["label"]
+        .as_str()
+        .expect("payload should carry a label");
+    assert!(
+        label.contains("outside Flywheel"),
+        "label should name the detection: {label:?}"
+    );
 }
 
 #[test]
 fn record_outside_commits_is_idempotent_on_a_second_call() {
     let mut fixture = setup();
-    commit_file_at(&fixture.worktree_path, "a.txt", "a\n", "hand-typed", "2026-01-01T10:00:00+00:00");
+    commit_file_at(
+        &fixture.worktree_path,
+        "a.txt",
+        "a\n",
+        "hand-typed",
+        "2026-01-01T10:00:00+00:00",
+    );
 
-    let first = record_outside_commits(&mut fixture.conn, &fixture.story_id, &fixture.system_actor_id)
-        .expect("record_outside_commits should succeed");
-    let second = record_outside_commits(&mut fixture.conn, &fixture.story_id, &fixture.system_actor_id)
-        .expect("record_outside_commits should succeed");
+    let first = record_outside_commits(
+        &mut fixture.conn,
+        &fixture.story_id,
+        &fixture.system_actor_id,
+    )
+    .expect("record_outside_commits should succeed");
+    let second = record_outside_commits(
+        &mut fixture.conn,
+        &fixture.story_id,
+        &fixture.system_actor_id,
+    )
+    .expect("record_outside_commits should succeed");
 
     assert_eq!(first, 1);
-    assert_eq!(second, 0, "re-running over the same unchanged branch must append nothing further");
-    assert_eq!(count_outside_commit_events_for_story(&fixture.conn, &fixture.story_id), 1);
+    assert_eq!(
+        second, 0,
+        "re-running over the same unchanged branch must append nothing further"
+    );
+    assert_eq!(
+        count_outside_commit_events_for_story(&fixture.conn, &fixture.story_id),
+        1
+    );
 }
 
 #[test]
@@ -458,32 +567,56 @@ fn record_outside_commits_never_writes_stories_or_appends_for_covered_commits() 
 
     let status_before: String = fixture
         .conn
-        .query_row("SELECT state FROM stories WHERE id = ?1", params![fixture.story_id], |row| {
-            row.get(0)
-        })
+        .query_row(
+            "SELECT state FROM stories WHERE id = ?1",
+            params![fixture.story_id],
+            |row| row.get(0),
+        )
         .expect("story should exist");
 
-    let appended = record_outside_commits(&mut fixture.conn, &fixture.story_id, &fixture.system_actor_id)
-        .expect("record_outside_commits should succeed");
+    let appended = record_outside_commits(
+        &mut fixture.conn,
+        &fixture.story_id,
+        &fixture.system_actor_id,
+    )
+    .expect("record_outside_commits should succeed");
     assert_eq!(appended, 0);
 
     let status_after: String = fixture
         .conn
-        .query_row("SELECT state FROM stories WHERE id = ?1", params![fixture.story_id], |row| {
-            row.get(0)
-        })
+        .query_row(
+            "SELECT state FROM stories WHERE id = ?1",
+            params![fixture.story_id],
+            |row| row.get(0),
+        )
         .expect("story should exist");
-    assert_eq!(status_before, status_after, "a covered commit must never touch stories.state");
-    assert_eq!(count_outside_commit_events_for_story(&fixture.conn, &fixture.story_id), 0);
+    assert_eq!(
+        status_before, status_after,
+        "a covered commit must never touch stories.state"
+    );
+    assert_eq!(
+        count_outside_commit_events_for_story(&fixture.conn, &fixture.story_id),
+        0
+    );
 }
 
 #[test]
 fn the_appended_events_description_via_activity_trail_equals_the_payload_label() {
     let mut fixture = setup();
-    commit_file_at(&fixture.worktree_path, "a.txt", "a\n", "hand-typed", "2026-01-01T10:00:00+00:00");
+    commit_file_at(
+        &fixture.worktree_path,
+        "a.txt",
+        "a\n",
+        "hand-typed",
+        "2026-01-01T10:00:00+00:00",
+    );
 
-    record_outside_commits(&mut fixture.conn, &fixture.story_id, &fixture.system_actor_id)
-        .expect("record_outside_commits should succeed");
+    record_outside_commits(
+        &mut fixture.conn,
+        &fixture.story_id,
+        &fixture.system_actor_id,
+    )
+    .expect("record_outside_commits should succeed");
 
     let trail = activity_trail(&fixture.conn, "story", &fixture.story_id, 50, 0)
         .expect("activity_trail should succeed");
@@ -492,7 +625,9 @@ fn the_appended_events_description_via_activity_trail_equals_the_payload_label()
         .find(|e| e.event_type == EVENT_OUTSIDE_COMMIT)
         .expect("the outside-commit event should be in the trail");
 
-    let expected_label =
-        event.payload["label"].as_str().expect("payload should carry a label").to_string();
+    let expected_label = event.payload["label"]
+        .as_str()
+        .expect("payload should carry a label")
+        .to_string();
     assert_eq!(event.description, expected_label);
 }

@@ -51,13 +51,18 @@ use serde_json::{json, Value};
 
 use crate::domain::acceptance_criterion::{amend_criterion_in_tx, create_criterion_in_tx};
 use crate::domain::check::{check_for_criterion, mark_last_run_stale_in_tx, set_check_in_tx};
-use crate::domain::epic::{create_epic_in_tx, get_epic, set_epic_state_in_tx, update_epic_in_tx, EpicSpec, EpicState};
+use crate::domain::epic::{
+    create_epic_in_tx, get_epic, set_epic_state_in_tx, update_epic_in_tx, EpicSpec, EpicState,
+};
 use crate::domain::milestone::{
-    create_milestone_in_tx, get_milestone, move_milestone_in_tx, set_milestone_state_in_tx, update_milestone_in_tx,
-    MilestoneState,
+    create_milestone_in_tx, get_milestone, move_milestone_in_tx, set_milestone_state_in_tx,
+    update_milestone_in_tx, MilestoneState,
 };
 use crate::domain::proposal::{ProposalTarget, ProposalVerb};
-use crate::domain::story::{create_story_in_tx, set_runs_after_in_tx, set_story_rank_in_tx, set_story_state_in_tx, StoryState};
+use crate::domain::story::{
+    create_story_in_tx, set_runs_after_in_tx, set_story_rank_in_tx, set_story_state_in_tx,
+    StoryState,
+};
 
 /// The longest an Epic spec field may be: what the desktop's `epic_update` accepts too.
 pub const MAX_SPEC_FIELD_LEN: usize = 20_000;
@@ -72,7 +77,12 @@ pub enum SpecField {
 }
 
 impl SpecField {
-    pub const ALL: [SpecField; 4] = [SpecField::Problem, SpecField::Scope, SpecField::OutOfScope, SpecField::ExitTest];
+    pub const ALL: [SpecField; 4] = [
+        SpecField::Problem,
+        SpecField::Scope,
+        SpecField::OutOfScope,
+        SpecField::ExitTest,
+    ];
 
     /// The payload's `field` value, the same as the `epics` column.
     pub fn as_str(self) -> &'static str {
@@ -121,16 +131,26 @@ impl SpecChange {
     /// Read and check a payload `{ "field", "text" }`: a known field and a text that is neither blank
     /// nor longer than [`MAX_SPEC_FIELD_LEN`]. The text is trimmed.
     pub fn from_payload(payload: &Value) -> anyhow::Result<Self> {
-        let field = payload.get("field").and_then(Value::as_str).context("a spec change needs `field`, a string")?;
+        let field = payload
+            .get("field")
+            .and_then(Value::as_str)
+            .context("a spec change needs `field`, a string")?;
         let field = SpecField::parse(field)?;
-        let text = payload.get("text").and_then(Value::as_str).context("a spec change needs `text`, a string")?.trim();
+        let text = payload
+            .get("text")
+            .and_then(Value::as_str)
+            .context("a spec change needs `text`, a string")?
+            .trim();
         anyhow::ensure!(!text.is_empty(), "the proposed {} is empty", field.label());
         anyhow::ensure!(
             text.chars().count() <= MAX_SPEC_FIELD_LEN,
             "the proposed {} is at most {MAX_SPEC_FIELD_LEN} characters",
             field.label()
         );
-        Ok(SpecChange { field, text: text.to_string() })
+        Ok(SpecChange {
+            field,
+            text: text.to_string(),
+        })
     }
 
     pub fn to_payload(&self) -> Value {
@@ -185,9 +205,25 @@ impl AdrDraft {
             .filter(|t| !t.trim().is_empty())
             .map(str::to_string)
             .with_context(|| format!("{at}`text` is missing: the ADR's whole text"))?;
-        anyhow::ensure!(text.chars().count() <= MAX_ADR_TEXT_LEN, "{at}`text` is at most {MAX_ADR_TEXT_LEN} characters");
-        let AdrBarLines { path, hard_to_reverse, surprising, losing_alternative, relates_to } = bar;
-        Ok(AdrDraft { path, text, hard_to_reverse, surprising, losing_alternative, relates_to })
+        anyhow::ensure!(
+            text.chars().count() <= MAX_ADR_TEXT_LEN,
+            "{at}`text` is at most {MAX_ADR_TEXT_LEN} characters"
+        );
+        let AdrBarLines {
+            path,
+            hard_to_reverse,
+            surprising,
+            losing_alternative,
+            relates_to,
+        } = bar;
+        Ok(AdrDraft {
+            path,
+            text,
+            hard_to_reverse,
+            surprising,
+            losing_alternative,
+            relates_to,
+        })
     }
 
     /// [`Self::from_payload_at`] with no prefix.
@@ -259,9 +295,16 @@ impl AdrBarLines {
     /// Any other key (an [`AdrDraft`]'s `text`) is ignored. `at` prefixes the field a refusal names.
     pub fn from_payload_at(payload: &Value, at: &str) -> anyhow::Result<Self> {
         let text_of = |key: &str| -> Option<String> {
-            payload.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string)
+            payload
+                .get(key)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
         };
-        let path = text_of("path").with_context(|| format!("{at}`path` is missing: the ADR's path, docs/adr/NNNN-slug.md"))?;
+        let path = text_of("path").with_context(|| {
+            format!("{at}`path` is missing: the ADR's path, docs/adr/NNNN-slug.md")
+        })?;
         let mut bar = Vec::with_capacity(3);
         for (key, says) in Self::REQUIRED {
             bar.push(text_of(key).with_context(|| {
@@ -269,8 +312,15 @@ impl AdrBarLines {
             })?);
         }
         let relates_to = text_of("relates_to").filter(|r| !r.eq_ignore_ascii_case("none"));
-        let [hard_to_reverse, surprising, losing_alternative] = <[String; 3]>::try_from(bar).expect("three bar lines");
-        let lines = AdrBarLines { path, hard_to_reverse, surprising, losing_alternative, relates_to };
+        let [hard_to_reverse, surprising, losing_alternative] =
+            <[String; 3]>::try_from(bar).expect("three bar lines");
+        let lines = AdrBarLines {
+            path,
+            hard_to_reverse,
+            surprising,
+            losing_alternative,
+            relates_to,
+        };
         lines.check(at)?;
         Ok(lines)
     }
@@ -282,14 +332,20 @@ impl AdrBarLines {
 
     fn check(&self, at: &str) -> anyhow::Result<()> {
         let path = &self.path;
-        anyhow::ensure!(is_adr_path(path), "{at}`path` {path:?} is not an ADR file: an ADR lives at docs/adr/NNNN-slug.md");
+        anyhow::ensure!(
+            is_adr_path(path),
+            "{at}`path` {path:?} is not an ADR file: an ADR lives at docs/adr/NNNN-slug.md"
+        );
         for (key, value) in [
             ("path", &self.path),
             ("hard_to_reverse", &self.hard_to_reverse),
             ("surprising", &self.surprising),
             ("losing_alternative", &self.losing_alternative),
         ] {
-            anyhow::ensure!(value.chars().count() <= MAX_ADR_LINE_LEN, "{at}`{key}` is at most {MAX_ADR_LINE_LEN} characters");
+            anyhow::ensure!(
+                value.chars().count() <= MAX_ADR_LINE_LEN,
+                "{at}`{key}` is at most {MAX_ADR_LINE_LEN} characters"
+            );
         }
         if let Some(relates_to) = &self.relates_to {
             anyhow::ensure!(
@@ -336,24 +392,60 @@ pub const MAX_ROADMAP_TEXT_LEN: usize = 4_000;
 /// | `drop_epic` | retire epic (target: it) | none |
 #[derive(Debug, Clone, PartialEq)]
 pub enum RoadmapChange {
-    CreateMilestone { title: String, exit_test: Option<String> },
-    AmendMilestone { milestone_id: String, title: Option<String>, exit_test: Option<String> },
-    ReorderMilestone { milestone_id: String, before_milestone_id: Option<String> },
-    RetireMilestone { milestone_id: String },
-    AddEpic { milestone_id: String, title: String, problem: Option<String> },
-    DropEpic { epic_id: String },
+    CreateMilestone {
+        title: String,
+        exit_test: Option<String>,
+    },
+    AmendMilestone {
+        milestone_id: String,
+        title: Option<String>,
+        exit_test: Option<String>,
+    },
+    ReorderMilestone {
+        milestone_id: String,
+        before_milestone_id: Option<String>,
+    },
+    RetireMilestone {
+        milestone_id: String,
+    },
+    AddEpic {
+        milestone_id: String,
+        title: String,
+        problem: Option<String>,
+    },
+    DropEpic {
+        epic_id: String,
+    },
 }
 
 /// A trimmed, non-blank string field of `value`, or `None`; refused when longer than `max`.
-fn optional_text(value: &Value, key: &str, max: usize, what: &str) -> anyhow::Result<Option<String>> {
-    let Some(raw) = value.get(key).filter(|v| !v.is_null()) else { return Ok(None) };
-    let text = raw.as_str().with_context(|| format!("`{key}` is not a string"))?.trim();
-    anyhow::ensure!(text.chars().count() <= max, "{what} is at most {max} characters");
-    Ok(if text.is_empty() { None } else { Some(text.to_string()) })
+fn optional_text(
+    value: &Value,
+    key: &str,
+    max: usize,
+    what: &str,
+) -> anyhow::Result<Option<String>> {
+    let Some(raw) = value.get(key).filter(|v| !v.is_null()) else {
+        return Ok(None);
+    };
+    let text = raw
+        .as_str()
+        .with_context(|| format!("`{key}` is not a string"))?
+        .trim();
+    anyhow::ensure!(
+        text.chars().count() <= max,
+        "{what} is at most {max} characters"
+    );
+    Ok(if text.is_empty() {
+        None
+    } else {
+        Some(text.to_string())
+    })
 }
 
 fn required_text(value: &Value, key: &str, max: usize, what: &str) -> anyhow::Result<String> {
-    optional_text(value, key, max, what)?.with_context(|| format!("{what} (`{key}`) is missing or blank"))
+    optional_text(value, key, max, what)?
+        .with_context(|| format!("{what} (`{key}`) is missing or blank"))
 }
 
 fn required_id(value: &Value, key: &str, what: &str) -> anyhow::Result<String> {
@@ -368,8 +460,14 @@ fn required_id(value: &Value, key: &str, what: &str) -> anyhow::Result<String> {
 
 impl RoadmapChange {
     /// The `change` names the tool takes, in the order it lists them.
-    pub const NAMES: [&'static str; 6] =
-        ["create_milestone", "amend_milestone", "reorder_milestone", "retire_milestone", "add_epic", "drop_epic"];
+    pub const NAMES: [&'static str; 6] = [
+        "create_milestone",
+        "amend_milestone",
+        "reorder_milestone",
+        "retire_milestone",
+        "add_epic",
+        "drop_epic",
+    ];
 
     /// Whether a Proposal of `verb` on `target` is a Roadmap change. An `amend` on an `epic` is a
     /// spec change, never a Roadmap one.
@@ -384,51 +482,109 @@ impl RoadmapChange {
 
     /// Read the tool's arguments: `change` names the kind, the other fields are its own.
     pub fn from_args(args: &Value) -> anyhow::Result<Self> {
-        let change = args.get("change").and_then(Value::as_str).with_context(|| {
-            format!("`change` is missing: one of {}", Self::NAMES.join(", "))
-        })?;
+        let change = args
+            .get("change")
+            .and_then(Value::as_str)
+            .with_context(|| format!("`change` is missing: one of {}", Self::NAMES.join(", ")))?;
         let (verb, target, target_id) = match change {
             "create_milestone" => (ProposalVerb::Create, ProposalTarget::Milestone, None),
-            "amend_milestone" => (ProposalVerb::Amend, ProposalTarget::Milestone, Some(required_id(args, "milestone_id", "Milestone to amend")?)),
-            "reorder_milestone" => {
-                (ProposalVerb::Reorder, ProposalTarget::Milestone, Some(required_id(args, "milestone_id", "Milestone to move")?))
-            }
-            "retire_milestone" => {
-                (ProposalVerb::Retire, ProposalTarget::Milestone, Some(required_id(args, "milestone_id", "Milestone to retire")?))
-            }
+            "amend_milestone" => (
+                ProposalVerb::Amend,
+                ProposalTarget::Milestone,
+                Some(required_id(args, "milestone_id", "Milestone to amend")?),
+            ),
+            "reorder_milestone" => (
+                ProposalVerb::Reorder,
+                ProposalTarget::Milestone,
+                Some(required_id(args, "milestone_id", "Milestone to move")?),
+            ),
+            "retire_milestone" => (
+                ProposalVerb::Retire,
+                ProposalTarget::Milestone,
+                Some(required_id(args, "milestone_id", "Milestone to retire")?),
+            ),
             "add_epic" => {
                 // With no Milestone named, the new Epic goes after the Current Milestone: an empty id
                 // here, resolved against the board where it is filed (`roadmap_round`).
                 return Ok(RoadmapChange::AddEpic {
-                    milestone_id: args.get("milestone_id").and_then(Value::as_str).map(str::trim).unwrap_or("").to_string(),
-                    title: required_text(args, "title", MAX_ROADMAP_TITLE_LEN, "the new Epic's title")?,
-                    problem: optional_text(args, "problem", MAX_ROADMAP_TEXT_LEN, "the Epic's problem")?,
+                    milestone_id: args
+                        .get("milestone_id")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .unwrap_or("")
+                        .to_string(),
+                    title: required_text(
+                        args,
+                        "title",
+                        MAX_ROADMAP_TITLE_LEN,
+                        "the new Epic's title",
+                    )?,
+                    problem: optional_text(
+                        args,
+                        "problem",
+                        MAX_ROADMAP_TEXT_LEN,
+                        "the Epic's problem",
+                    )?,
                 });
             }
-            "drop_epic" => (ProposalVerb::Retire, ProposalTarget::Epic, Some(required_id(args, "epic_id", "Epic to drop")?)),
-            other => anyhow::bail!("`change` is {other:?}; use one of {}", Self::NAMES.join(", ")),
+            "drop_epic" => (
+                ProposalVerb::Retire,
+                ProposalTarget::Epic,
+                Some(required_id(args, "epic_id", "Epic to drop")?),
+            ),
+            other => anyhow::bail!(
+                "`change` is {other:?}; use one of {}",
+                Self::NAMES.join(", ")
+            ),
         };
         Self::from_proposal(verb, target, target_id.as_deref(), args)
     }
 
     /// Read a filed Proposal back. `payload` is checked as [`Self::to_payload`] writes it.
-    pub fn from_proposal(verb: ProposalVerb, target: ProposalTarget, target_id: Option<&str>, payload: &Value) -> anyhow::Result<Self> {
+    pub fn from_proposal(
+        verb: ProposalVerb,
+        target: ProposalTarget,
+        target_id: Option<&str>,
+        payload: &Value,
+    ) -> anyhow::Result<Self> {
         let target_of = |what: &str| -> anyhow::Result<String> {
-            target_id.map(str::to_string).with_context(|| format!("this Roadmap change names the {what} it lands on"))
+            target_id
+                .map(str::to_string)
+                .with_context(|| format!("this Roadmap change names the {what} it lands on"))
         };
         Ok(match (verb, target) {
             (ProposalVerb::Create, ProposalTarget::Milestone) => RoadmapChange::CreateMilestone {
-                title: required_text(payload, "title", MAX_ROADMAP_TITLE_LEN, "the new Milestone's outcome")?,
-                exit_test: optional_text(payload, "exit_test", MAX_ROADMAP_TEXT_LEN, "the exit test")?,
+                title: required_text(
+                    payload,
+                    "title",
+                    MAX_ROADMAP_TITLE_LEN,
+                    "the new Milestone's outcome",
+                )?,
+                exit_test: optional_text(
+                    payload,
+                    "exit_test",
+                    MAX_ROADMAP_TEXT_LEN,
+                    "the exit test",
+                )?,
             },
             (ProposalVerb::Amend, ProposalTarget::Milestone) => {
-                let title = optional_text(payload, "title", MAX_ROADMAP_TITLE_LEN, "the Milestone's title")?;
-                let exit_test = optional_text(payload, "exit_test", MAX_ROADMAP_TEXT_LEN, "the exit test")?;
+                let title = optional_text(
+                    payload,
+                    "title",
+                    MAX_ROADMAP_TITLE_LEN,
+                    "the Milestone's title",
+                )?;
+                let exit_test =
+                    optional_text(payload, "exit_test", MAX_ROADMAP_TEXT_LEN, "the exit test")?;
                 anyhow::ensure!(
                     title.is_some() || exit_test.is_some(),
                     "an amended Milestone changes its `title`, its `exit_test` or both: give the new text"
                 );
-                RoadmapChange::AmendMilestone { milestone_id: target_of("Milestone")?, title, exit_test }
+                RoadmapChange::AmendMilestone {
+                    milestone_id: target_of("Milestone")?,
+                    title,
+                    exit_test,
+                }
             }
             (ProposalVerb::Reorder, ProposalTarget::Milestone) => {
                 let before = match payload.get("before_milestone_id") {
@@ -441,49 +597,90 @@ impl RoadmapChange {
                             .to_string(),
                     ),
                 };
-                RoadmapChange::ReorderMilestone { milestone_id: target_of("Milestone")?, before_milestone_id: before }
+                RoadmapChange::ReorderMilestone {
+                    milestone_id: target_of("Milestone")?,
+                    before_milestone_id: before,
+                }
             }
-            (ProposalVerb::Retire, ProposalTarget::Milestone) => {
-                RoadmapChange::RetireMilestone { milestone_id: target_of("Milestone")? }
-            }
+            (ProposalVerb::Retire, ProposalTarget::Milestone) => RoadmapChange::RetireMilestone {
+                milestone_id: target_of("Milestone")?,
+            },
             (ProposalVerb::Create, ProposalTarget::Epic) => RoadmapChange::AddEpic {
                 milestone_id: required_id(payload, "milestone_id", "Milestone the Epic goes into")?,
-                title: required_text(payload, "title", MAX_ROADMAP_TITLE_LEN, "the new Epic's title")?,
-                problem: optional_text(payload, "problem", MAX_ROADMAP_TEXT_LEN, "the Epic's problem")?,
+                title: required_text(
+                    payload,
+                    "title",
+                    MAX_ROADMAP_TITLE_LEN,
+                    "the new Epic's title",
+                )?,
+                problem: optional_text(
+                    payload,
+                    "problem",
+                    MAX_ROADMAP_TEXT_LEN,
+                    "the Epic's problem",
+                )?,
             },
-            (ProposalVerb::Retire, ProposalTarget::Epic) => RoadmapChange::DropEpic { epic_id: target_of("Epic")? },
-            (verb, target) => anyhow::bail!("{} on a {} is not a Roadmap change", verb.as_str(), target.as_str()),
+            (ProposalVerb::Retire, ProposalTarget::Epic) => RoadmapChange::DropEpic {
+                epic_id: target_of("Epic")?,
+            },
+            (verb, target) => anyhow::bail!(
+                "{} on a {} is not a Roadmap change",
+                verb.as_str(),
+                target.as_str()
+            ),
         })
     }
 
     /// The Proposal this change files: its verb, target, target id and payload.
     pub fn to_proposal(&self) -> (ProposalVerb, ProposalTarget, Option<&str>, Value) {
         match self {
-            RoadmapChange::CreateMilestone { title, exit_test } => {
-                (ProposalVerb::Create, ProposalTarget::Milestone, None, json!({ "title": title, "exit_test": exit_test }))
-            }
-            RoadmapChange::AmendMilestone { milestone_id, title, exit_test } => (
+            RoadmapChange::CreateMilestone { title, exit_test } => (
+                ProposalVerb::Create,
+                ProposalTarget::Milestone,
+                None,
+                json!({ "title": title, "exit_test": exit_test }),
+            ),
+            RoadmapChange::AmendMilestone {
+                milestone_id,
+                title,
+                exit_test,
+            } => (
                 ProposalVerb::Amend,
                 ProposalTarget::Milestone,
                 Some(milestone_id),
                 json!({ "title": title, "exit_test": exit_test }),
             ),
-            RoadmapChange::ReorderMilestone { milestone_id, before_milestone_id } => (
+            RoadmapChange::ReorderMilestone {
+                milestone_id,
+                before_milestone_id,
+            } => (
                 ProposalVerb::Reorder,
                 ProposalTarget::Milestone,
                 Some(milestone_id),
                 json!({ "before_milestone_id": before_milestone_id }),
             ),
-            RoadmapChange::RetireMilestone { milestone_id } => {
-                (ProposalVerb::Retire, ProposalTarget::Milestone, Some(milestone_id), json!({}))
-            }
-            RoadmapChange::AddEpic { milestone_id, title, problem } => (
+            RoadmapChange::RetireMilestone { milestone_id } => (
+                ProposalVerb::Retire,
+                ProposalTarget::Milestone,
+                Some(milestone_id),
+                json!({}),
+            ),
+            RoadmapChange::AddEpic {
+                milestone_id,
+                title,
+                problem,
+            } => (
                 ProposalVerb::Create,
                 ProposalTarget::Epic,
                 None,
                 json!({ "milestone_id": milestone_id, "title": title, "problem": problem }),
             ),
-            RoadmapChange::DropEpic { epic_id } => (ProposalVerb::Retire, ProposalTarget::Epic, Some(epic_id), json!({})),
+            RoadmapChange::DropEpic { epic_id } => (
+                ProposalVerb::Retire,
+                ProposalTarget::Epic,
+                Some(epic_id),
+                json!({}),
+            ),
         }
     }
 
@@ -491,14 +688,21 @@ impl RoadmapChange {
     /// roadmap packet lists for a rejected or a filed Proposal.
     pub fn describe(&self, conn: &rusqlite::Connection) -> String {
         let milestone = |id: &str| {
-            get_milestone(conn, id).ok().flatten().map_or_else(|| format!("Milestone {id}"), |m| format!("Milestone \"{}\"", m.title))
+            get_milestone(conn, id).ok().flatten().map_or_else(
+                || format!("Milestone {id}"),
+                |m| format!("Milestone \"{}\"", m.title),
+            )
         };
         match self {
             RoadmapChange::CreateMilestone { title, exit_test } => match exit_test {
                 Some(exit) => format!("New Milestone \"{title}\" (exit test: {exit})"),
                 None => format!("New Milestone \"{title}\""),
             },
-            RoadmapChange::AmendMilestone { milestone_id, title, exit_test } => {
+            RoadmapChange::AmendMilestone {
+                milestone_id,
+                title,
+                exit_test,
+            } => {
                 let mut parts = Vec::new();
                 if let Some(title) = title {
                     parts.push(format!("title \"{title}\""));
@@ -508,12 +712,25 @@ impl RoadmapChange {
                 }
                 format!("Amend {}: {}", milestone(milestone_id), parts.join(", "))
             }
-            RoadmapChange::ReorderMilestone { milestone_id, before_milestone_id } => match before_milestone_id {
-                Some(before) => format!("Move {} before {}", milestone(milestone_id), milestone(before)),
+            RoadmapChange::ReorderMilestone {
+                milestone_id,
+                before_milestone_id,
+            } => match before_milestone_id {
+                Some(before) => format!(
+                    "Move {} before {}",
+                    milestone(milestone_id),
+                    milestone(before)
+                ),
                 None => format!("Move {} to the end of the Roadmap", milestone(milestone_id)),
             },
-            RoadmapChange::RetireMilestone { milestone_id } => format!("Retire {}", milestone(milestone_id)),
-            RoadmapChange::AddEpic { milestone_id, title, .. } => format!("New Epic \"{title}\" in {}", milestone(milestone_id)),
+            RoadmapChange::RetireMilestone { milestone_id } => {
+                format!("Retire {}", milestone(milestone_id))
+            }
+            RoadmapChange::AddEpic {
+                milestone_id,
+                title,
+                ..
+            } => format!("New Epic \"{title}\" in {}", milestone(milestone_id)),
             RoadmapChange::DropEpic { epic_id } => match get_epic(conn, epic_id).ok().flatten() {
                 Some(e) => format!("Drop Epic {} \"{}\"", e.key, e.title),
                 None => format!("Drop Epic {epic_id}"),
@@ -578,7 +795,9 @@ impl NewStoryCriterion {
         let items = match value {
             None | Some(Value::Null) => return Ok(Vec::new()),
             Some(Value::Array(items)) => items,
-            Some(_) => anyhow::bail!("a New Story's `criteria` is an array of {{ statement, check? }}"),
+            Some(_) => {
+                anyhow::bail!("a New Story's `criteria` is an array of {{ statement, check? }}")
+            }
         };
         anyhow::ensure!(
             items.len() <= MAX_NEW_STORY_CRITERIA,
@@ -589,14 +808,21 @@ impl NewStoryCriterion {
             .iter()
             .enumerate()
             .map(|(i, item)| {
-                anyhow::ensure!(item.is_object(), "criterion {} is not an object {{ statement, check? }}", i + 1);
+                anyhow::ensure!(
+                    item.is_object(),
+                    "criterion {} is not an object {{ statement, check? }}",
+                    i + 1
+                );
                 let checked = NewCriterion::from_payload(&json!({
                     "story_id": "new",
                     "statement": item.get("statement").cloned().unwrap_or(Value::Null),
                     "check_command": item.get("check").cloned().unwrap_or(Value::Null),
                 }))
                 .with_context(|| format!("criterion {}", i + 1))?;
-                Ok(NewStoryCriterion { statement: checked.statement, check: checked.check_command })
+                Ok(NewStoryCriterion {
+                    statement: checked.statement,
+                    check: checked.check_command,
+                })
             })
             .collect()
     }
@@ -615,9 +841,18 @@ impl NewStory {
     /// "runs_after_proposal_id"?, "runs_after_reason"? }`: a title, a parseable rank, at most one
     /// thing it runs after, and a reason exactly when it runs after something.
     pub fn from_payload(payload: &Value) -> anyhow::Result<Self> {
-        let text = |key: &str| payload.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty());
+        let text = |key: &str| {
+            payload
+                .get(key)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+        };
         let title = text("title").context("a New Story needs a `title`")?;
-        anyhow::ensure!(title.chars().count() <= MAX_STORY_TITLE_LEN, "a Story title is at most {MAX_STORY_TITLE_LEN} characters");
+        anyhow::ensure!(
+            title.chars().count() <= MAX_STORY_TITLE_LEN,
+            "a Story title is at most {MAX_STORY_TITLE_LEN} characters"
+        );
         let description = text("description");
         if let Some(d) = description {
             anyhow::ensure!(
@@ -630,7 +865,9 @@ impl NewStory {
             crate::ranking::check_rank(rank)?;
         }
         let after = match (text("runs_after_story_id"), text("runs_after_proposal_id")) {
-            (Some(_), Some(_)) => anyhow::bail!("a New Story runs after one thing: a Story or a New Story Proposal, not both"),
+            (Some(_), Some(_)) => anyhow::bail!(
+                "a New Story runs after one thing: a Story or a New Story Proposal, not both"
+            ),
             (Some(id), None) => Some(RunsAfter::Story(id.to_string())),
             (None, Some(id)) => Some(RunsAfter::Proposal(id.to_string())),
             (None, None) => None,
@@ -645,7 +882,9 @@ impl NewStory {
                 );
                 Some((after, reason.to_string()))
             }
-            (Some(_), None) => anyhow::bail!("a New Story that runs after another needs its one-line reason"),
+            (Some(_), None) => {
+                anyhow::bail!("a New Story that runs after another needs its one-line reason")
+            }
             (None, Some(_)) => anyhow::bail!("a runs-after reason needs the Story it runs after"),
             (None, None) => None,
         };
@@ -674,7 +913,12 @@ impl NewStory {
             "runs_after_reason": reason,
         });
         if !self.criteria.is_empty() {
-            payload["criteria"] = Value::Array(self.criteria.iter().map(NewStoryCriterion::to_value).collect());
+            payload["criteria"] = Value::Array(
+                self.criteria
+                    .iter()
+                    .map(NewStoryCriterion::to_value)
+                    .collect(),
+            );
         }
         payload
     }
@@ -687,7 +931,10 @@ pub fn is_new_story(verb: ProposalVerb, target: ProposalTarget) -> bool {
 
 /// A reorder Proposal's payload (`reorder` on `story`, issue #127): the Story's new rank.
 pub fn reorder_rank(payload: &Value) -> anyhow::Result<String> {
-    let rank = payload.get("rank").and_then(Value::as_str).context("a reorder names the Story's new `rank`")?;
+    let rank = payload
+        .get("rank")
+        .and_then(Value::as_str)
+        .context("a reorder names the Story's new `rank`")?;
     crate::ranking::check_rank(rank)?;
     Ok(rank.to_string())
 }
@@ -695,7 +942,11 @@ pub fn reorder_rank(payload: &Value) -> anyhow::Result<String> {
 /// Check a payload for its kind, before it is filed or applied. Kinds this module does not check yet
 /// pass unchecked. A Roadmap change's target is checked where it is filed (`roadmap_round`), since
 /// the payload alone does not carry it.
-pub fn validate_payload(verb: ProposalVerb, target: ProposalTarget, payload: &Value) -> anyhow::Result<()> {
+pub fn validate_payload(
+    verb: ProposalVerb,
+    target: ProposalTarget,
+    payload: &Value,
+) -> anyhow::Result<()> {
     if is_spec_change(verb, target) {
         SpecChange::from_payload(payload)?;
     }
@@ -736,10 +987,16 @@ pub enum Applied {
     /// A Story was retired: Dropped (issue #127).
     StoryRetired { story_id: String },
     /// A criterion was created on its Story, with its Check when it carried one (issue #128).
-    CriterionCreated { criterion_id: String, story_id: String },
+    CriterionCreated {
+        criterion_id: String,
+        story_id: String,
+    },
     /// A criterion's statement was rewritten and its acceptance cleared; its Check was replaced, or its
     /// last run marked stale (issue #163).
-    CriterionAmended { criterion_id: String, story_id: String },
+    CriterionAmended {
+        criterion_id: String,
+        story_id: String,
+    },
     /// No effect for this kind yet: the decision alone was recorded.
     RecordedOnly,
 }
@@ -758,23 +1015,51 @@ pub(crate) struct Accepted<'a> {
 /// Apply `payload` (the Proposal's own, or the developer's amended one) inside the deciding
 /// transaction, writing as `actor_id`, the developer who accepted it. An error rolls the decision
 /// back with it.
-pub(crate) fn apply_in_tx(tx: &Transaction, actor_id: &str, accepted: &Accepted, payload: &Value) -> anyhow::Result<Applied> {
+pub(crate) fn apply_in_tx(
+    tx: &Transaction,
+    actor_id: &str,
+    accepted: &Accepted,
+    payload: &Value,
+) -> anyhow::Result<Applied> {
     if RoadmapChange::is_kind(accepted.verb, accepted.target) {
-        let change = RoadmapChange::from_proposal(accepted.verb, accepted.target, accepted.target_id, payload)?;
+        let change = RoadmapChange::from_proposal(
+            accepted.verb,
+            accepted.target,
+            accepted.target_id,
+            payload,
+        )?;
         return apply_roadmap_change(tx, actor_id, accepted, &change);
     }
     match (accepted.verb, accepted.target) {
-        (ProposalVerb::Create, ProposalTarget::Story) => return apply_new_story(tx, actor_id, accepted, payload),
-        (ProposalVerb::Create, ProposalTarget::Criterion) => return apply_new_criterion(tx, actor_id, accepted, payload),
-        (ProposalVerb::Amend, ProposalTarget::Criterion) => return apply_amend_criterion(tx, actor_id, accepted, payload),
+        (ProposalVerb::Create, ProposalTarget::Story) => {
+            return apply_new_story(tx, actor_id, accepted, payload)
+        }
+        (ProposalVerb::Create, ProposalTarget::Criterion) => {
+            return apply_new_criterion(tx, actor_id, accepted, payload)
+        }
+        (ProposalVerb::Amend, ProposalTarget::Criterion) => {
+            return apply_amend_criterion(tx, actor_id, accepted, payload)
+        }
         (ProposalVerb::Reorder, ProposalTarget::Story) => {
-            let story_id = accepted.target_id.context("a reorder names the Story it moves")?;
+            let story_id = accepted
+                .target_id
+                .context("a reorder names the Story it moves")?;
             story_in_epic(tx, story_id, accepted.epic_id)?;
-            set_story_rank_in_tx(tx, actor_id, story_id, &reorder_rank(payload)?, Some(accepted.id))?;
-            return Ok(Applied::StoryMoved { story_id: story_id.to_string() });
+            set_story_rank_in_tx(
+                tx,
+                actor_id,
+                story_id,
+                &reorder_rank(payload)?,
+                Some(accepted.id),
+            )?;
+            return Ok(Applied::StoryMoved {
+                story_id: story_id.to_string(),
+            });
         }
         (ProposalVerb::Retire, ProposalTarget::Story) => {
-            let story_id = accepted.target_id.context("a retirement names the Story it retires")?;
+            let story_id = accepted
+                .target_id
+                .context("a retirement names the Story it retires")?;
             let (key, state) = story_in_epic(tx, story_id, accepted.epic_id)?;
             // Retiring is for a Story not started yet, in Shaping or Ready (issue #160): it has no
             // worktree to wipe. A Story already started is dropped by the developer, through Drop.
@@ -783,7 +1068,9 @@ pub(crate) fn apply_in_tx(tx: &Transaction, actor_id: &str, accepted: &Accepted,
                 "{key} is {state}; only a Story not started yet (Shaping or Ready) is retired by a Proposal: drop it instead"
             );
             set_story_state_in_tx(tx, actor_id, story_id, StoryState::Dropped)?;
-            return Ok(Applied::StoryRetired { story_id: story_id.to_string() });
+            return Ok(Applied::StoryRetired {
+                story_id: story_id.to_string(),
+            });
         }
         _ => {}
     }
@@ -791,7 +1078,9 @@ pub(crate) fn apply_in_tx(tx: &Transaction, actor_id: &str, accepted: &Accepted,
         return Ok(Applied::RecordedOnly);
     }
     let change = SpecChange::from_payload(payload)?;
-    let epic_id = accepted.target_id.context("a spec change names the Epic it amends")?;
+    let epic_id = accepted
+        .target_id
+        .context("a spec change names the Epic it amends")?;
     let epic = get_epic(tx, epic_id)?.with_context(|| format!("Epic {epic_id:?} not found"))?;
     let mut spec = epic.spec.clone();
     *change.field.slot(&mut spec) = Some(change.text.clone());
@@ -807,13 +1096,21 @@ pub(crate) fn apply_in_tx(tx: &Transaction, actor_id: &str, accepted: &Accepted,
             "proposal_id": accepted.id,
         }),
     )?;
-    Ok(Applied::SpecChange { epic_id: epic_id.to_string(), field: change.field })
+    Ok(Applied::SpecChange {
+        epic_id: epic_id.to_string(),
+        field: change.field,
+    })
 }
 
 /// Apply an accepted Roadmap change through each record's own writer, so every refusal those writers
 /// make (a Done Milestone is frozen, a Milestone holding an open Epic is not dropped, an Epic holding an
 /// open Story is not dropped) refuses the acceptance too, and rolls the decision back with it.
-fn apply_roadmap_change(tx: &Transaction, actor_id: &str, accepted: &Accepted, change: &RoadmapChange) -> anyhow::Result<Applied> {
+fn apply_roadmap_change(
+    tx: &Transaction,
+    actor_id: &str,
+    accepted: &Accepted,
+    change: &RoadmapChange,
+) -> anyhow::Result<Applied> {
     let detail = |label: String| json!({ "label": label, "proposal_id": accepted.id });
     let record_id = match change {
         RoadmapChange::CreateMilestone { title, exit_test } => {
@@ -823,12 +1120,19 @@ fn apply_roadmap_change(tx: &Transaction, actor_id: &str, accepted: &Accepted, c
                 actor_id,
                 title,
                 exit_test.as_deref(),
-                detail(format!("Accepted a Proposal: added Milestone \"{title}\", in Shaping")),
+                detail(format!(
+                    "Accepted a Proposal: added Milestone \"{title}\", in Shaping"
+                )),
             )?
             .id
         }
-        RoadmapChange::AmendMilestone { milestone_id, title, exit_test } => {
-            let m = get_milestone(tx, milestone_id)?.with_context(|| format!("Milestone {milestone_id:?} not found"))?;
+        RoadmapChange::AmendMilestone {
+            milestone_id,
+            title,
+            exit_test,
+        } => {
+            let m = get_milestone(tx, milestone_id)?
+                .with_context(|| format!("Milestone {milestone_id:?} not found"))?;
             let new_title = title.clone().unwrap_or(m.title.clone());
             let new_exit = exit_test.clone().or(m.exit_test.clone());
             update_milestone_in_tx(
@@ -837,12 +1141,23 @@ fn apply_roadmap_change(tx: &Transaction, actor_id: &str, accepted: &Accepted, c
                 milestone_id,
                 &new_title,
                 new_exit.as_deref(),
-                detail(format!("Accepted a Proposal: amended Milestone \"{new_title}\"")),
+                detail(format!(
+                    "Accepted a Proposal: amended Milestone \"{new_title}\""
+                )),
             )?;
             milestone_id.clone()
         }
-        RoadmapChange::ReorderMilestone { milestone_id, before_milestone_id } => {
-            move_milestone_in_tx(tx, actor_id, milestone_id, before_milestone_id.as_deref(), json!({ "proposal_id": accepted.id }))?;
+        RoadmapChange::ReorderMilestone {
+            milestone_id,
+            before_milestone_id,
+        } => {
+            move_milestone_in_tx(
+                tx,
+                actor_id,
+                milestone_id,
+                before_milestone_id.as_deref(),
+                json!({ "proposal_id": accepted.id }),
+            )?;
             milestone_id.clone()
         }
         RoadmapChange::RetireMilestone { milestone_id } => {
@@ -855,12 +1170,33 @@ fn apply_roadmap_change(tx: &Transaction, actor_id: &str, accepted: &Accepted, c
             )?;
             milestone_id.clone()
         }
-        RoadmapChange::AddEpic { milestone_id, title, problem } => {
-            let spec = EpicSpec { problem: problem.clone(), ..EpicSpec::default() };
-            create_epic_in_tx(tx, actor_id, milestone_id, title, &spec, json!({ "proposal_id": accepted.id }))?.id
+        RoadmapChange::AddEpic {
+            milestone_id,
+            title,
+            problem,
+        } => {
+            let spec = EpicSpec {
+                problem: problem.clone(),
+                ..EpicSpec::default()
+            };
+            create_epic_in_tx(
+                tx,
+                actor_id,
+                milestone_id,
+                title,
+                &spec,
+                json!({ "proposal_id": accepted.id }),
+            )?
+            .id
         }
         RoadmapChange::DropEpic { epic_id } => {
-            set_epic_state_in_tx(tx, actor_id, epic_id, EpicState::Dropped, detail("Accepted a Proposal: dropped the Epic".to_string()))?;
+            set_epic_state_in_tx(
+                tx,
+                actor_id,
+                epic_id,
+                EpicState::Dropped,
+                detail("Accepted a Proposal: dropped the Epic".to_string()),
+            )?;
             epic_id.clone()
         }
     };
@@ -868,15 +1204,24 @@ fn apply_roadmap_change(tx: &Transaction, actor_id: &str, accepted: &Accepted, c
 }
 
 /// `(key, state)` of Story `story_id`, refused unless it sits in the Proposal's Epic.
-fn story_in_epic(tx: &Transaction, story_id: &str, epic_id: Option<&str>) -> anyhow::Result<(String, String)> {
+fn story_in_epic(
+    tx: &Transaction,
+    story_id: &str,
+    epic_id: Option<&str>,
+) -> anyhow::Result<(String, String)> {
     let epic_id = epic_id.context("a Story Proposal is filed on the Epic the Story sits in")?;
     let (key, state, in_epic): (String, String, String) = tx
-        .query_row("SELECT key, state, epic_id FROM stories WHERE id = ?1", params![story_id], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-        })
+        .query_row(
+            "SELECT key, state, epic_id FROM stories WHERE id = ?1",
+            params![story_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
         .optional()?
         .with_context(|| format!("Story {story_id:?} not found"))?;
-    anyhow::ensure!(in_epic == epic_id, "{key} is not in the Epic this Proposal was filed on");
+    anyhow::ensure!(
+        in_epic == epic_id,
+        "{key} is not in the Epic this Proposal was filed on"
+    );
     Ok((key, state))
 }
 
@@ -896,12 +1241,29 @@ fn story_created_by(tx: &Transaction, proposal_id: &str) -> anyhow::Result<Optio
 /// criteria and their Checks (issue #166) and its runs-after marker and reason (issue #127). The Proposal then names the Story it created. A New
 /// Story that runs after a Proposal not accepted yet gets its marker once that one is: any accepted
 /// Story waiting on this Proposal gets its marker here.
-fn apply_new_story(tx: &Transaction, actor_id: &str, accepted: &Accepted, payload: &Value) -> anyhow::Result<Applied> {
+fn apply_new_story(
+    tx: &Transaction,
+    actor_id: &str,
+    accepted: &Accepted,
+    payload: &Value,
+) -> anyhow::Result<Applied> {
     let story = NewStory::from_payload(payload)?;
-    let epic_id = accepted.epic_id.context("a New Story Proposal is filed on the Epic the Story goes into")?;
-    let created = create_story_in_tx(tx, actor_id, epic_id, &story.title, story.description.as_deref(), story.rank.as_deref())?;
-    tx.execute("UPDATE proposals SET target_id = ?1 WHERE id = ?2", params![created.id, accepted.id])
-        .context("failed to record the Story the Proposal created")?;
+    let epic_id = accepted
+        .epic_id
+        .context("a New Story Proposal is filed on the Epic the Story goes into")?;
+    let created = create_story_in_tx(
+        tx,
+        actor_id,
+        epic_id,
+        &story.title,
+        story.description.as_deref(),
+        story.rank.as_deref(),
+    )?;
+    tx.execute(
+        "UPDATE proposals SET target_id = ?1 WHERE id = ?2",
+        params![created.id, accepted.id],
+    )
+    .context("failed to record the Story the Proposal created")?;
     // Its criteria and their Checks (issue #166), in order, as `apply_new_criterion` writes one: as the
     // developer who accepted it, the criterion itself not accepted until review.
     for criterion in &story.criteria {
@@ -917,7 +1279,13 @@ fn apply_new_story(tx: &Transaction, actor_id: &str, accepted: &Accepted, payloa
             RunsAfter::Proposal(id) => story_created_by(tx, id)?,
         };
         if let Some(after_story) = after_story {
-            set_runs_after_in_tx(tx, actor_id, &created.id, Some((&after_story, reason)), Some(accepted.id))?;
+            set_runs_after_in_tx(
+                tx,
+                actor_id,
+                &created.id,
+                Some((&after_story, reason)),
+                Some(accepted.id),
+            )?;
         }
     }
 
@@ -928,17 +1296,35 @@ fn apply_new_story(tx: &Transaction, actor_id: &str, accepted: &Accepted, payloa
            AND p.id != ?2 AND s.runs_after_story_id IS NULL ORDER BY p.created_at, p.id",
     )?;
     let waiting = stmt
-        .query_map(params![epic_id, accepted.id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))?
+        .query_map(params![epic_id, accepted.id], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })?
         .collect::<Result<Vec<_>, _>>()?;
     for (proposal_id, waiting_payload, story_id) in waiting {
-        let Ok(waiting_story) = NewStory::from_payload(&serde_json::from_str(&waiting_payload).unwrap_or(Value::Null)) else { continue };
+        let Ok(waiting_story) =
+            NewStory::from_payload(&serde_json::from_str(&waiting_payload).unwrap_or(Value::Null))
+        else {
+            continue;
+        };
         if let Some((RunsAfter::Proposal(after), reason)) = &waiting_story.runs_after {
             if after == accepted.id {
-                set_runs_after_in_tx(tx, actor_id, &story_id, Some((&created.id, reason)), Some(&proposal_id))?;
+                set_runs_after_in_tx(
+                    tx,
+                    actor_id,
+                    &story_id,
+                    Some((&created.id, reason)),
+                    Some(&proposal_id),
+                )?;
             }
         }
     }
-    Ok(Applied::StoryCreated { story_id: created.id })
+    Ok(Applied::StoryCreated {
+        story_id: created.id,
+    })
 }
 
 /// The longest a criterion statement may be.
@@ -960,8 +1346,15 @@ impl NewCriterion {
     /// Read and check a payload `{ "story_id", "statement", "check_command"? }`: a Story, a statement,
     /// and a command that is not blank when one is given. A blank or null command is judged at review.
     pub fn from_payload(payload: &Value) -> anyhow::Result<Self> {
-        let text = |key: &str| payload.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty());
-        let story_id = text("story_id").context("a criterion names the `story_id` it is anchored to")?;
+        let text = |key: &str| {
+            payload
+                .get(key)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+        };
+        let story_id =
+            text("story_id").context("a criterion names the `story_id` it is anchored to")?;
         let statement = text("statement").context("a criterion needs a `statement`")?;
         anyhow::ensure!(
             statement.chars().count() <= MAX_CRITERION_STATEMENT_LEN,
@@ -977,9 +1370,15 @@ impl NewCriterion {
                 );
                 Some(c.trim().to_string())
             }
-            Some(_) => anyhow::bail!("a criterion's `check_command` is a string, or null when it is judged at review"),
+            Some(_) => anyhow::bail!(
+                "a criterion's `check_command` is a string, or null when it is judged at review"
+            ),
         };
-        Ok(NewCriterion { story_id: story_id.to_string(), statement: statement.to_string(), check_command })
+        Ok(NewCriterion {
+            story_id: story_id.to_string(),
+            statement: statement.to_string(),
+            check_command,
+        })
     }
 
     pub fn to_payload(&self) -> Value {
@@ -1000,17 +1399,31 @@ pub fn is_new_criterion(verb: ProposalVerb, target: ProposalTarget) -> bool {
 /// it (issue #128): `set_check` is human-only, and the accepting human is who sets it. The criterion
 /// is not accepted here: in shaping, an accepted criterion is one whose Proposal was accepted, and
 /// `accepted_by` stays empty until review. The Proposal then names the criterion it created.
-fn apply_new_criterion(tx: &Transaction, actor_id: &str, accepted: &Accepted, payload: &Value) -> anyhow::Result<Applied> {
+fn apply_new_criterion(
+    tx: &Transaction,
+    actor_id: &str,
+    accepted: &Accepted,
+    payload: &Value,
+) -> anyhow::Result<Applied> {
     let criterion = NewCriterion::from_payload(payload)?;
     let (key, state) = story_in_epic(tx, &criterion.story_id, accepted.epic_id)?;
-    anyhow::ensure!(state == "shaping", "{key} is {state}; criteria are written on a Story still in Shaping");
+    anyhow::ensure!(
+        state == "shaping",
+        "{key} is {state}; criteria are written on a Story still in Shaping"
+    );
     let created = create_criterion_in_tx(tx, actor_id, &criterion.story_id, &criterion.statement)?;
     if let Some(command) = &criterion.check_command {
         set_check_in_tx(tx, actor_id, &created.id, command, None)?;
     }
-    tx.execute("UPDATE proposals SET target_id = ?1 WHERE id = ?2", params![created.id, accepted.id])
-        .context("failed to record the criterion the Proposal created")?;
-    Ok(Applied::CriterionCreated { criterion_id: created.id, story_id: criterion.story_id })
+    tx.execute(
+        "UPDATE proposals SET target_id = ?1 WHERE id = ?2",
+        params![created.id, accepted.id],
+    )
+    .context("failed to record the criterion the Proposal created")?;
+    Ok(Applied::CriterionCreated {
+        criterion_id: created.id,
+        story_id: criterion.story_id,
+    })
 }
 
 /// An Amend criterion Proposal's payload (`amend` on `criterion`, issue #160): the criterion it
@@ -1034,7 +1447,11 @@ impl AmendCriterion {
             "statement": payload.get("statement").cloned().unwrap_or(Value::Null),
             "check_command": payload.get("check_command").cloned().unwrap_or(Value::Null),
         }))?;
-        Ok(AmendCriterion { criterion_id, statement: checked.statement, check_command: checked.check_command })
+        Ok(AmendCriterion {
+            criterion_id,
+            statement: checked.statement,
+            check_command: checked.check_command,
+        })
     }
 
     pub fn to_payload(&self) -> Value {
@@ -1055,15 +1472,27 @@ pub fn is_amend_criterion(verb: ProposalVerb, target: ProposalTarget) -> bool {
 /// criterion or an Amend Epic spec filed by a Story session. Shaping files its changes in a Round, where
 /// they are decided. Needs you lists each judged-on Proposal as its own item, ranked with Review, and
 /// leaves it out of the Proposals row (`query::awaits_triage!`). Mirrors `query::judged_on_proposal!`.
-pub fn is_judged_on(conn: &rusqlite::Connection, proposal: &crate::domain::proposal::Proposal) -> anyhow::Result<bool> {
+pub fn is_judged_on(
+    conn: &rusqlite::Connection,
+    proposal: &crate::domain::proposal::Proposal,
+) -> anyhow::Result<bool> {
     let verb = ProposalVerb::parse(&proposal.verb)?;
     let target = ProposalTarget::parse(&proposal.target_type)?;
-    if !(is_amend_criterion(verb, target) || is_spec_change(verb, target)) || proposal.stage_id.is_some() {
+    if !(is_amend_criterion(verb, target) || is_spec_change(verb, target))
+        || proposal.stage_id.is_some()
+    {
         return Ok(false);
     }
-    let Some(session_id) = &proposal.session_id else { return Ok(false) };
-    let kind: Option<String> =
-        conn.query_row("SELECT kind FROM sessions WHERE id = ?1", params![session_id], |r| r.get(0)).optional()?;
+    let Some(session_id) = &proposal.session_id else {
+        return Ok(false);
+    };
+    let kind: Option<String> = conn
+        .query_row(
+            "SELECT kind FROM sessions WHERE id = ?1",
+            params![session_id],
+            |r| r.get(0),
+        )
+        .optional()?;
     Ok(kind.as_deref() == Some("story"))
 }
 
@@ -1072,14 +1501,26 @@ pub fn is_judged_on(conn: &rusqlite::Connection, proposal: &crate::domain::propo
 /// it to not run; otherwise mark the Check's last run stale. Runs are never deleted. The criterion must
 /// sit in the Proposal's Epic, on a Story not closed: accepted while the Story is In review is allowed,
 /// and Merge then holds until the criterion is judged again.
-fn apply_amend_criterion(tx: &Transaction, actor_id: &str, accepted: &Accepted, payload: &Value) -> anyhow::Result<Applied> {
+fn apply_amend_criterion(
+    tx: &Transaction,
+    actor_id: &str,
+    accepted: &Accepted,
+    payload: &Value,
+) -> anyhow::Result<Applied> {
     let change = AmendCriterion::from_payload(payload)?;
     let story_id: String = tx
-        .query_row("SELECT story_id FROM acceptance_criteria WHERE id = ?1", params![change.criterion_id], |r| r.get(0))
+        .query_row(
+            "SELECT story_id FROM acceptance_criteria WHERE id = ?1",
+            params![change.criterion_id],
+            |r| r.get(0),
+        )
         .optional()?
         .with_context(|| format!("criterion {:?} not found", change.criterion_id))?;
     let (key, state) = story_in_epic(tx, &story_id, accepted.epic_id)?;
-    anyhow::ensure!(!StoryState::parse(&state)?.is_closed(), "{key} is {state}; a closed Story's criteria stay as they are");
+    anyhow::ensure!(
+        !StoryState::parse(&state)?.is_closed(),
+        "{key} is {state}; a closed Story's criteria stay as they are"
+    );
     amend_criterion_in_tx(
         tx,
         actor_id,
@@ -1090,11 +1531,20 @@ fn apply_amend_criterion(tx: &Transaction, actor_id: &str, accepted: &Accepted, 
     let current = check_for_criterion(tx, &change.criterion_id)?;
     match &change.check_command {
         Some(command) if current.as_ref().map(|c| c.command.as_str()) != Some(command.as_str()) => {
-            set_check_in_tx(tx, actor_id, &change.criterion_id, command, current.map(|c| c.timeout_secs))?;
+            set_check_in_tx(
+                tx,
+                actor_id,
+                &change.criterion_id,
+                command,
+                current.map(|c| c.timeout_secs),
+            )?;
         }
         _ => {
             mark_last_run_stale_in_tx(tx, actor_id, &change.criterion_id, accepted.id)?;
         }
     }
-    Ok(Applied::CriterionAmended { criterion_id: change.criterion_id, story_id })
+    Ok(Applied::CriterionAmended {
+        criterion_id: change.criterion_id,
+        story_id,
+    })
 }

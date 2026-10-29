@@ -12,11 +12,17 @@
 mod common;
 
 use flywheel_core::context_packet::build_context_packet;
-use flywheel_core::domain::acceptance_criterion::{accept_criterion, create_criterion, get_criterion};
-use flywheel_core::domain::check::{check_for_criterion, current_result, record_check_run, set_check, CheckResult, CheckRunRecord};
+use flywheel_core::domain::acceptance_criterion::{
+    accept_criterion, create_criterion, get_criterion,
+};
+use flywheel_core::domain::check::{
+    check_for_criterion, current_result, record_check_run, set_check, CheckResult, CheckRunRecord,
+};
 use flywheel_core::domain::epic;
 use flywheel_core::domain::milestone;
-use flywheel_core::domain::proposal::{accept_proposal, accept_proposal_amended, get_proposal, reject_proposal};
+use flywheel_core::domain::proposal::{
+    accept_proposal, accept_proposal_amended, get_proposal, reject_proposal,
+};
 use flywheel_core::domain::proposal_apply::{is_judged_on, Applied};
 use flywheel_core::domain::session::agent_actor_id;
 use flywheel_core::domain::story::{self, StoryState};
@@ -39,7 +45,8 @@ struct Fixture {
 /// session on it; a sibling Story in the same Epic.
 fn fixture() -> Fixture {
     let (mut conn, human, project) = common::seeded_project();
-    let m = milestone::create_milestone(&mut conn, &project.id, &human, "Board and review", None).unwrap();
+    let m = milestone::create_milestone(&mut conn, &project.id, &human, "Board and review", None)
+        .unwrap();
     let e = epic::create_epic(&mut conn, &human, &m.id, "Execution").unwrap();
     let s = story::create_story(&mut conn, &human, &e.id, "Parser").unwrap();
     let sibling = story::create_story(&mut conn, &human, &e.id, "Printer").unwrap();
@@ -68,7 +75,16 @@ fn fixture() -> Fixture {
         params![session_id, s.id, project.id, agent],
     )
     .unwrap();
-    Fixture { conn, human, epic_id: e.id, story: s, sibling, criterion_id: c.id, check_id: check.id, session_id }
+    Fixture {
+        conn,
+        human,
+        epic_id: e.id,
+        story: s,
+        sibling,
+        criterion_id: c.id,
+        check_id: check.id,
+        session_id,
+    }
 }
 
 /// File one Proposal from the Story session, as the core runs `propose`.
@@ -82,7 +98,8 @@ fn propose(f: &mut Fixture, mut args: Value) -> String {
 
 fn amend(f: &mut Fixture, statement: &str, command: Option<&str>) -> String {
     let criterion_id = f.criterion_id.clone();
-    let mut args = json!({ "kind": "amend_criterion", "criterion_id": criterion_id, "statement": statement });
+    let mut args =
+        json!({ "kind": "amend_criterion", "criterion_id": criterion_id, "statement": statement });
     if let Some(command) = command {
         args["check_command"] = json!(command);
     }
@@ -90,7 +107,13 @@ fn amend(f: &mut Fixture, statement: &str, command: Option<&str>) -> String {
 }
 
 fn runs(f: &Fixture) -> i64 {
-    f.conn.query_row("SELECT COUNT(*) FROM check_runs WHERE check_id = ?1", [&f.check_id], |r| r.get(0)).unwrap()
+    f.conn
+        .query_row(
+            "SELECT COUNT(*) FROM check_runs WHERE check_id = ?1",
+            [&f.check_id],
+            |r| r.get(0),
+        )
+        .unwrap()
 }
 
 #[test]
@@ -98,44 +121,97 @@ fn accepting_amend_criterion_rewrites_it_clears_its_acceptance_and_marks_the_las
     let mut f = fixture();
     let before = current_result(&f.conn, &f.check_id).unwrap();
     assert_eq!(before.result, CheckResult::Passed);
-    assert!(!before.is_stale(Some("abc123")), "it passed at the branch head");
+    assert!(
+        !before.is_stale(Some("abc123")),
+        "it passed at the branch head"
+    );
 
     let id = amend(&mut f, "Parses an empty line as no token", None);
     let applied = accept_proposal(&mut f.conn, &f.human, &id).unwrap();
-    assert_eq!(applied, Applied::CriterionAmended { criterion_id: f.criterion_id.clone(), story_id: f.story.id.clone() });
+    assert_eq!(
+        applied,
+        Applied::CriterionAmended {
+            criterion_id: f.criterion_id.clone(),
+            story_id: f.story.id.clone()
+        }
+    );
 
     let criterion = get_criterion(&f.conn, &f.criterion_id).unwrap().unwrap();
     assert_eq!(criterion.statement, "Parses an empty line as no token");
-    assert_eq!(criterion.accepted_by, None, "a changed statement is a new thing to judge");
+    assert_eq!(
+        criterion.accepted_by, None,
+        "a changed statement is a new thing to judge"
+    );
 
     let after = current_result(&f.conn, &f.check_id).unwrap();
-    assert_eq!(after.result, CheckResult::Passed, "the run is kept, as it said");
-    assert!(after.is_stale(Some("abc123")), "the last run is stale though the branch has not moved");
-    assert!(after.is_stale(None), "stale even where the branch head cannot be read");
+    assert_eq!(
+        after.result,
+        CheckResult::Passed,
+        "the run is kept, as it said"
+    );
+    assert!(
+        after.is_stale(Some("abc123")),
+        "the last run is stale though the branch has not moved"
+    );
+    assert!(
+        after.is_stale(None),
+        "stale even where the branch head cannot be read"
+    );
     assert_eq!(runs(&f), 1, "runs are never deleted");
-    assert_eq!(check_for_criterion(&f.conn, &f.criterion_id).unwrap().unwrap().command, "cargo test parser", "the Check is kept");
+    assert_eq!(
+        check_for_criterion(&f.conn, &f.criterion_id)
+            .unwrap()
+            .unwrap()
+            .command,
+        "cargo test parser",
+        "the Check is kept"
+    );
 
     let packet = build_context_packet(&f.conn, &f.story.id, "").unwrap();
-    assert!(packet.contains("1. Parses an empty line as no token"), "the next session reads the new statement");
-    assert!(packet.contains("passed at abc123 (stale: the criterion changed since)"), "{packet}");
+    assert!(
+        packet.contains("1. Parses an empty line as no token"),
+        "the next session reads the new statement"
+    );
+    assert!(
+        packet.contains("passed at abc123 (stale: the criterion changed since)"),
+        "{packet}"
+    );
 }
 
 /// The roster's "criteria x/y" reads the same staleness (ADR 0012's SQL, issue #163).
 #[test]
 fn the_roster_stops_counting_the_amended_criterion() {
     let mut f = fixture();
-    let milestone_id: String =
-        f.conn.query_row("SELECT milestone_id FROM epics WHERE id = ?1", [&f.epic_id], |r| r.get(0)).unwrap();
+    let milestone_id: String = f
+        .conn
+        .query_row(
+            "SELECT milestone_id FROM epics WHERE id = ?1",
+            [&f.epic_id],
+            |r| r.get(0),
+        )
+        .unwrap();
     let met = |f: &Fixture| {
         let rows = flywheel_core::query::roster::roster_rows(&f.conn, &milestone_id).unwrap();
-        rows.into_iter().find(|r| r.story_id == f.story.id).unwrap().criteria_met
+        rows.into_iter()
+            .find(|r| r.story_id == f.story.id)
+            .unwrap()
+            .criteria_met
     };
     let human = f.human.clone();
-    flywheel_core::domain::acceptance_criterion::unaccept_criterion(&mut f.conn, &human, &f.criterion_id).unwrap();
+    flywheel_core::domain::acceptance_criterion::unaccept_criterion(
+        &mut f.conn,
+        &human,
+        &f.criterion_id,
+    )
+    .unwrap();
     assert_eq!(met(&f), 1, "its Check passed");
     let id = amend(&mut f, "Parses an empty line", None);
     accept_proposal(&mut f.conn, &f.human, &id).unwrap();
-    assert_eq!(met(&f), 0, "its passed run is stale and its acceptance is cleared");
+    assert_eq!(
+        met(&f),
+        0,
+        "its passed run is stale and its acceptance is cleared"
+    );
 }
 
 #[test]
@@ -155,23 +231,38 @@ fn a_run_after_the_change_is_current_again() {
     record_check_run(&mut f.conn, &f.check_id, &run).unwrap();
     let current = current_result(&f.conn, &f.check_id).unwrap();
     assert_eq!(current.result, CheckResult::Failed);
-    assert!(!current.is_stale(Some("abc123")), "a run that started after the change is not stale");
+    assert!(
+        !current.is_stale(Some("abc123")),
+        "a run that started after the change is not stale"
+    );
     assert_eq!(runs(&f), 2);
 }
 
 #[test]
 fn with_a_new_command_the_check_is_replaced_and_reads_not_run() {
     let mut f = fixture();
-    let id = amend(&mut f, "Parses an empty line", Some("cargo test parser::empty_line"));
+    let id = amend(
+        &mut f,
+        "Parses an empty line",
+        Some("cargo test parser::empty_line"),
+    );
     accept_proposal(&mut f.conn, &f.human, &id).unwrap();
-    let check = check_for_criterion(&f.conn, &f.criterion_id).unwrap().unwrap();
+    let check = check_for_criterion(&f.conn, &f.criterion_id)
+        .unwrap()
+        .unwrap();
     assert_eq!(check.id, f.check_id, "the Check is edited, not recreated");
     assert_eq!(check.command, "cargo test parser::empty_line");
     let current = current_result(&f.conn, &f.check_id).unwrap();
     assert_eq!(current.result, CheckResult::NotRun);
     assert!(!current.is_stale(Some("abc123")), "not run is never stale");
     assert_eq!(runs(&f), 1, "runs are never deleted");
-    assert_eq!(get_criterion(&f.conn, &f.criterion_id).unwrap().unwrap().accepted_by, None);
+    assert_eq!(
+        get_criterion(&f.conn, &f.criterion_id)
+            .unwrap()
+            .unwrap()
+            .accepted_by,
+        None
+    );
 }
 
 #[test]
@@ -195,9 +286,14 @@ fn a_criterion_with_no_check_gets_the_new_command_as_its_check() {
         json!({ "kind": "amend_criterion", "criterion_id": bare_id, "statement": "Prints an empty line", "check_command": "cargo test printer" }),
     );
     accept_proposal(&mut f.conn, &f.human, &id).unwrap();
-    let check = check_for_criterion(&f.conn, &bare.id).unwrap().expect("the command became its Check");
+    let check = check_for_criterion(&f.conn, &bare.id)
+        .unwrap()
+        .expect("the command became its Check");
     assert_eq!(check.command, "cargo test printer");
-    assert_eq!(current_result(&f.conn, &check.id).unwrap().result, CheckResult::NotRun);
+    assert_eq!(
+        current_result(&f.conn, &check.id).unwrap().result,
+        CheckResult::NotRun
+    );
 }
 
 #[test]
@@ -207,22 +303,48 @@ fn edit_applies_the_developers_statement_and_command() {
     let criterion_id = f.criterion_id.clone();
     let edited = json!({ "criterion_id": criterion_id, "statement": "Parses an empty line as no token", "check_command": "cargo test empty" });
     accept_proposal_amended(&mut f.conn, &f.human, &id, &edited).unwrap();
-    assert_eq!(get_criterion(&f.conn, &f.criterion_id).unwrap().unwrap().statement, "Parses an empty line as no token");
-    assert_eq!(check_for_criterion(&f.conn, &f.criterion_id).unwrap().unwrap().command, "cargo test empty");
-    assert_eq!(get_proposal(&f.conn, &id).unwrap().unwrap().payload, edited, "the row keeps what was applied");
+    assert_eq!(
+        get_criterion(&f.conn, &f.criterion_id)
+            .unwrap()
+            .unwrap()
+            .statement,
+        "Parses an empty line as no token"
+    );
+    assert_eq!(
+        check_for_criterion(&f.conn, &f.criterion_id)
+            .unwrap()
+            .unwrap()
+            .command,
+        "cargo test empty"
+    );
+    assert_eq!(
+        get_proposal(&f.conn, &id).unwrap().unwrap().payload,
+        edited,
+        "the row keeps what was applied"
+    );
 
     let other = amend(&mut f, "Something else", None);
-    let sibling_criterion = create_criterion(&mut f.conn, &f.human.clone(), &f.sibling.id, "Prints").unwrap();
+    let sibling_criterion =
+        create_criterion(&mut f.conn, &f.human.clone(), &f.sibling.id, "Prints").unwrap();
     let moved = json!({ "criterion_id": sibling_criterion.id, "statement": "Something else" });
     let err = accept_proposal_amended(&mut f.conn, &f.human, &other, &moved).unwrap_err();
-    assert!(format!("{err:#}").contains("keeps the criterion"), "{err:#}");
+    assert!(
+        format!("{err:#}").contains("keeps the criterion"),
+        "{err:#}"
+    );
 }
 
 #[test]
 fn reject_leaves_the_criterion_and_its_run_alone() {
     let mut f = fixture();
     let id = amend(&mut f, "Parses an empty line", Some("cargo test other"));
-    reject_proposal(&mut f.conn, &f.human, &id, Some("the empty line is out of scope")).unwrap();
+    reject_proposal(
+        &mut f.conn,
+        &f.human,
+        &id,
+        Some("the empty line is out of scope"),
+    )
+    .unwrap();
     let criterion = get_criterion(&f.conn, &f.criterion_id).unwrap().unwrap();
     assert_eq!(criterion.statement, "Parses a line");
     assert!(criterion.accepted_by.is_some(), "its acceptance stands");
@@ -237,10 +359,23 @@ fn reject_leaves_the_criterion_and_its_run_alone() {
 fn accepted_while_the_story_is_in_review_it_holds_merge_until_judged_again() {
     let mut f = fixture();
     let id = amend(&mut f, "Parses an empty line", None);
-    f.conn.execute("UPDATE stories SET state = 'in_review' WHERE id = ?1", [&f.story.id]).unwrap();
+    f.conn
+        .execute(
+            "UPDATE stories SET state = 'in_review' WHERE id = ?1",
+            [&f.story.id],
+        )
+        .unwrap();
     accept_proposal(&mut f.conn, &f.human, &id).unwrap();
-    assert_eq!(get_criterion(&f.conn, &f.criterion_id).unwrap().unwrap().accepted_by, None);
-    assert!(current_result(&f.conn, &f.check_id).unwrap().is_stale(Some("abc123")));
+    assert_eq!(
+        get_criterion(&f.conn, &f.criterion_id)
+            .unwrap()
+            .unwrap()
+            .accepted_by,
+        None
+    );
+    assert!(current_result(&f.conn, &f.check_id)
+        .unwrap()
+        .is_stale(Some("abc123")));
 }
 
 /// A Story that closed after the Proposal was filed keeps its criteria: accepting is refused and
@@ -249,27 +384,56 @@ fn accepted_while_the_story_is_in_review_it_holds_merge_until_judged_again() {
 fn a_closed_storys_criterion_is_not_amended() {
     let mut f = fixture();
     let id = amend(&mut f, "Parses an empty line", None);
-    f.conn.execute("UPDATE stories SET state = 'merged' WHERE id = ?1", [&f.story.id]).unwrap();
+    f.conn
+        .execute(
+            "UPDATE stories SET state = 'merged' WHERE id = ?1",
+            [&f.story.id],
+        )
+        .unwrap();
     let err = accept_proposal(&mut f.conn, &f.human, &id).unwrap_err();
     assert!(format!("{err:#}").contains("merged"), "{err:#}");
-    assert_eq!(get_proposal(&f.conn, &id).unwrap().unwrap().state, "pending", "the decision rolled back");
-    assert_eq!(get_criterion(&f.conn, &f.criterion_id).unwrap().unwrap().statement, "Parses a line");
+    assert_eq!(
+        get_proposal(&f.conn, &id).unwrap().unwrap().state,
+        "pending",
+        "the decision rolled back"
+    );
+    assert_eq!(
+        get_criterion(&f.conn, &f.criterion_id)
+            .unwrap()
+            .unwrap()
+            .statement,
+        "Parses a line"
+    );
 }
 
 #[test]
 fn an_accepted_epic_spec_change_reaches_every_story_packet_from_the_next_session() {
     let mut f = fixture();
-    let id = propose(&mut f, json!({ "kind": "amend_epic_spec", "field": "scope", "text": "Parse and print, empty lines included" }));
+    let id = propose(
+        &mut f,
+        json!({ "kind": "amend_epic_spec", "field": "scope", "text": "Parse and print, empty lines included" }),
+    );
     for story_id in [&f.story.id, &f.sibling.id] {
-        assert!(!build_context_packet(&f.conn, story_id, "").unwrap().contains("empty lines included"), "nothing changes before");
+        assert!(
+            !build_context_packet(&f.conn, story_id, "")
+                .unwrap()
+                .contains("empty lines included"),
+            "nothing changes before"
+        );
     }
     assert_eq!(
         accept_proposal(&mut f.conn, &f.human, &id).unwrap(),
-        Applied::SpecChange { epic_id: f.epic_id.clone(), field: flywheel_core::domain::proposal_apply::SpecField::Scope }
+        Applied::SpecChange {
+            epic_id: f.epic_id.clone(),
+            field: flywheel_core::domain::proposal_apply::SpecField::Scope
+        }
     );
     for story_id in [&f.story.id, &f.sibling.id] {
         let packet = build_context_packet(&f.conn, story_id, "").unwrap();
-        assert!(packet.contains("Parse and print, empty lines included"), "the packet of {story_id} carries it");
+        assert!(
+            packet.contains("Parse and print, empty lines included"),
+            "the packet of {story_id} carries it"
+        );
     }
 }
 
@@ -278,9 +442,17 @@ fn an_accepted_epic_spec_change_reaches_every_story_packet_from_the_next_session
 fn judged_on_is_an_amend_criterion_or_a_story_sessions_amend_epic_spec() {
     let mut f = fixture();
     let criterion = amend(&mut f, "Parses an empty line", None);
-    let spec = propose(&mut f, json!({ "kind": "amend_epic_spec", "field": "scope", "text": "More" }));
-    let story = propose(&mut f, json!({ "kind": "new_story", "title": "Recovery", "criteria": [{ "statement": "It recovers" }] }));
-    let judged = |f: &Fixture, id: &str| is_judged_on(&f.conn, &get_proposal(&f.conn, id).unwrap().unwrap()).unwrap();
+    let spec = propose(
+        &mut f,
+        json!({ "kind": "amend_epic_spec", "field": "scope", "text": "More" }),
+    );
+    let story = propose(
+        &mut f,
+        json!({ "kind": "new_story", "title": "Recovery", "criteria": [{ "statement": "It recovers" }] }),
+    );
+    let judged = |f: &Fixture, id: &str| {
+        is_judged_on(&f.conn, &get_proposal(&f.conn, id).unwrap().unwrap()).unwrap()
+    };
     assert!(judged(&f, &criterion));
     assert!(judged(&f, &spec));
     assert!(!judged(&f, &story));
@@ -311,16 +483,29 @@ fn judged_on_is_an_amend_criterion_or_a_story_sessions_amend_epic_spec() {
 fn a_judged_on_duplicate_names_the_change_it_repeats_in_needs_you() {
     let mut f = fixture();
     let first = amend(&mut f, "Parses an empty line as no token", None);
-    let second = amend(&mut f, "Parses an empty line and a blank one as no token", None);
+    let second = amend(
+        &mut f,
+        "Parses an empty line and a blank one as no token",
+        None,
+    );
     let items = flywheel_core::query::needs_you::needs_you(&f.conn, &f.story.project_id).unwrap();
     let judged: Vec<_> = items.iter().filter_map(|i| i.judged_on.as_ref()).collect();
     assert_eq!(judged.len(), 2, "each judged-on change is its own item");
     let original = judged.iter().find(|j| j.proposal_id == first).unwrap();
     assert_eq!(original.duplicate, None, "the first is no one's duplicate");
-    let duplicate = judged.iter().find(|j| j.proposal_id == second).unwrap().duplicate.as_ref().expect("flagged");
+    let duplicate = judged
+        .iter()
+        .find(|j| j.proposal_id == second)
+        .unwrap()
+        .duplicate
+        .as_ref()
+        .expect("flagged");
     assert_eq!(duplicate.proposal_id, first);
     assert_eq!(duplicate.story_key.as_deref(), Some(f.story.key.as_str()));
-    assert_eq!(duplicate.title, "Parses a line", "it names the criterion both change");
+    assert_eq!(
+        duplicate.title, "Parses a line",
+        "it names the criterion both change"
+    );
 }
 
 /// Migration 0013 adds `checks.stale_since`, NULL until a judged-on change marks the run stale.
@@ -328,10 +513,23 @@ fn a_judged_on_duplicate_names_the_change_it_repeats_in_needs_you() {
 fn a_fresh_database_migrates_through_0013() {
     let sources = flywheel_core::db::migration_sources();
     assert!(sources.len() >= 13, "0001 through 0013, none missing");
-    assert!(sources[12].contains("stale_since"), "0013 is the thirteenth migration");
+    assert!(
+        sources[12].contains("stale_since"),
+        "0013 is the thirteenth migration"
+    );
     let f = fixture();
-    let version: i64 = f.conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+    let version: i64 = f
+        .conn
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap();
     assert_eq!(version, sources.len() as i64, "every migration ran");
-    let stale: Option<String> = f.conn.query_row("SELECT stale_since FROM checks WHERE id = ?1", [&f.check_id], |r| r.get(0)).unwrap();
+    let stale: Option<String> = f
+        .conn
+        .query_row(
+            "SELECT stale_since FROM checks WHERE id = ?1",
+            [&f.check_id],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(stale, None);
 }

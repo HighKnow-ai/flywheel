@@ -103,9 +103,7 @@ pub fn render_description(event_type: &str, payload: &serde_json::Value) -> Stri
     let after = payload.get("after");
 
     match (field, before, after) {
-        (Some(field), Some(before), Some(after))
-            if !before.is_null() || !after.is_null() =>
-        {
+        (Some(field), Some(before), Some(after)) if !before.is_null() || !after.is_null() => {
             format!(
                 "Changed {field} from {} to {}",
                 render_json_value(before),

@@ -14,7 +14,9 @@ use flywheel_core::domain::milestone;
 use flywheel_core::domain::proposal::accept_proposal;
 use flywheel_core::domain::proposal_apply::Applied;
 use flywheel_core::domain::session::agent_actor_id;
-use flywheel_core::domain::story::{self, get_story, make_ready, make_ready_offer, MakeReadyOffer, StoryState};
+use flywheel_core::domain::story::{
+    self, get_story, make_ready, make_ready_offer, MakeReadyOffer, StoryState,
+};
 use flywheel_core::domain::story_proposal_tool::{apply_story_proposal_call, StoryProposalCall};
 use flywheel_core::query::roster::roster_rows;
 use rusqlite::Connection;
@@ -33,7 +35,8 @@ struct Fixture {
 /// Story session on it.
 fn fixture() -> Fixture {
     let (mut conn, human, project) = common::seeded_project();
-    let m = milestone::create_milestone(&mut conn, &project.id, &human, "Board and review", None).unwrap();
+    let m = milestone::create_milestone(&mut conn, &project.id, &human, "Board and review", None)
+        .unwrap();
     let e = epic::create_epic(&mut conn, &human, &m.id, "Execution").unwrap();
     let running = story::create_story(&mut conn, &human, &e.id, "Parser").unwrap();
     create_criterion(&mut conn, &human, &running.id, "Parses a line").unwrap();
@@ -48,7 +51,14 @@ fn fixture() -> Fixture {
         rusqlite::params![session_id, running.id, project.id, agent],
     )
     .unwrap();
-    Fixture { conn, human, milestone_id: m.id, epic_id: e.id, running, session_id }
+    Fixture {
+        conn,
+        human,
+        milestone_id: m.id,
+        epic_id: e.id,
+        running,
+        session_id,
+    }
 }
 
 /// The running Story files a New Story with `criteria`, and the developer accepts it: the new Story's id.
@@ -60,7 +70,10 @@ fn accepted_new_story(f: &mut Fixture, criteria: serde_json::Value) -> String {
     let call = StoryProposalCall::parse("propose", &args).unwrap();
     let outcome = apply_story_proposal_call(&mut f.conn, &f.session_id, &call).unwrap();
     let id = outcome.result["proposal_id"].as_str().unwrap().to_string();
-    let Applied::StoryCreated { story_id } = accept_proposal(&mut f.conn, &f.human, &id).unwrap() else { panic!("a New Story") };
+    let Applied::StoryCreated { story_id } = accept_proposal(&mut f.conn, &f.human, &id).unwrap()
+    else {
+        panic!("a New Story")
+    };
     story_id
 }
 
@@ -69,7 +82,12 @@ fn state(f: &Fixture, story_id: &str) -> String {
 }
 
 fn roster_offers(f: &Fixture, story_id: &str) -> bool {
-    roster_rows(&f.conn, &f.milestone_id).unwrap().into_iter().find(|r| r.story_id == story_id).unwrap().can_make_ready
+    roster_rows(&f.conn, &f.milestone_id)
+        .unwrap()
+        .into_iter()
+        .find(|r| r.story_id == story_id)
+        .unwrap()
+        .can_make_ready
 }
 
 #[test]
@@ -79,14 +97,28 @@ fn a_running_story_files_a_new_story_with_criteria_and_the_developer_makes_it_re
         &mut f,
         json!([{ "statement": "An empty line yields no token", "check": "cargo test lexer" }, { "statement": "It reads well" }]),
     );
-    assert_eq!(state(&f, &story_id), "shaping", "accepting creates it in Shaping");
+    assert_eq!(
+        state(&f, &story_id),
+        "shaping",
+        "accepting creates it in Shaping"
+    );
     assert_eq!(criteria_for_story(&f.conn, &story_id).unwrap().len(), 2);
-    assert_eq!(make_ready_offer(&f.conn, &story_id).unwrap(), MakeReadyOffer { offered: true, refusal: None });
+    assert_eq!(
+        make_ready_offer(&f.conn, &story_id).unwrap(),
+        MakeReadyOffer {
+            offered: true,
+            refusal: None
+        }
+    );
     assert!(roster_offers(&f, &story_id), "its row offers Make Ready");
 
     make_ready(&mut f.conn, &f.human, &story_id).unwrap();
     assert_eq!(state(&f, &story_id), "ready");
-    assert_eq!(get_epic(&f.conn, &f.epic_id).unwrap().unwrap().state, "ready", "the Epic's shaping is never reopened");
+    assert_eq!(
+        get_epic(&f.conn, &f.epic_id).unwrap().unwrap().state,
+        "ready",
+        "the Epic's shaping is never reopened"
+    );
     let label: String = f
         .conn
         .query_row(
@@ -96,7 +128,10 @@ fn a_running_story_files_a_new_story_with_criteria_and_the_developer_makes_it_re
         )
         .unwrap();
     assert_eq!(label, "Moved Story from shaping to ready");
-    assert!(!roster_offers(&f, &story_id), "a Ready Story offers Start, not Make Ready");
+    assert!(
+        !roster_offers(&f, &story_id),
+        "a Ready Story offers Start, not Make Ready"
+    );
     assert!(!make_ready_offer(&f.conn, &story_id).unwrap().offered);
 
     // It is now an ordinary Ready Story: the developer starts it.
@@ -119,12 +154,19 @@ fn make_ready_needs_a_criterion() {
     let mut f = fixture();
     let bare = story::create_story(&mut f.conn, &f.human, &f.epic_id, "No criterion yet").unwrap();
     let offer = make_ready_offer(&f.conn, &bare.id).unwrap();
-    assert!(offer.offered, "a Shaping Story of a shaped Epic is offered Make Ready");
+    assert!(
+        offer.offered,
+        "a Shaping Story of a shaped Epic is offered Make Ready"
+    );
     let refusal = offer.refusal.expect("held back by its missing criterion");
     assert!(refusal.contains("no Acceptance criterion"), "{refusal}");
     assert!(!roster_offers(&f, &bare.id));
     let err = make_ready(&mut f.conn, &f.human, &bare.id).unwrap_err();
-    assert_eq!(format!("{err:#}"), refusal, "the refusal is the offer's words");
+    assert_eq!(
+        format!("{err:#}"),
+        refusal,
+        "the refusal is the offer's words"
+    );
     assert_eq!(state(&f, &bare.id), "shaping");
 
     create_criterion(&mut f.conn, &f.human, &bare.id, "It holds").unwrap();
@@ -141,7 +183,10 @@ fn make_ready_needs_the_epics_shaping_closed() {
     let s = story::create_story(&mut conn, &human, &e.id, "Lexer").unwrap();
     create_criterion(&mut conn, &human, &s.id, "Lexes").unwrap();
     let offer = make_ready_offer(&conn, &s.id).unwrap();
-    assert!(!offer.offered, "closing the criteria Stage makes it Ready: Make Ready is not offered");
+    assert!(
+        !offer.offered,
+        "closing the criteria Stage makes it Ready: Make Ready is not offered"
+    );
     let err = make_ready(&mut conn, &human, &s.id).unwrap_err();
     assert!(format!("{err:#}").contains("still being shaped"), "{err:#}");
     assert_eq!(get_story(&conn, &s.id).unwrap().unwrap().state, "shaping");
@@ -152,7 +197,10 @@ fn make_ready_moves_only_a_story_in_shaping() {
     let mut f = fixture();
     let running = f.running.id.clone();
     let err = make_ready(&mut f.conn, &f.human, &running).unwrap_err();
-    assert!(format!("{err:#}").contains("only a Story in Shaping"), "{err:#}");
+    assert!(
+        format!("{err:#}").contains("only a Story in Shaping"),
+        "{err:#}"
+    );
     assert_eq!(state(&f, &running), "running");
     assert!(!make_ready_offer(&f.conn, &running).unwrap().offered);
 }

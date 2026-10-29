@@ -79,21 +79,32 @@ fn row_to_task(row: &Row) -> rusqlite::Result<Task> {
 }
 
 /// Add a Task at the end of a Story's checklist, open.
-pub fn add_task(conn: &mut Connection, actor_id: &str, story_id: &str, title: &str) -> anyhow::Result<Task> {
+pub fn add_task(
+    conn: &mut Connection,
+    actor_id: &str,
+    story_id: &str,
+    title: &str,
+) -> anyhow::Result<Task> {
     let title = title.trim();
     anyhow::ensure!(!title.is_empty(), "a Task needs a title");
     let now = now();
     let id = new_id();
     let tx = conn.transaction()?;
     let (project_id, epic_id): (String, String) = tx
-        .query_row("SELECT project_id, epic_id FROM stories WHERE id = ?1", params![story_id], |r| {
-            Ok((r.get(0)?, r.get(1)?))
-        })
-        .with_context(|| format!("Story {story_id:?} not found; a Task always belongs to a Story"))?;
+        .query_row(
+            "SELECT project_id, epic_id FROM stories WHERE id = ?1",
+            params![story_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .with_context(|| {
+            format!("Story {story_id:?} not found; a Task always belongs to a Story")
+        })?;
     let last_rank: Option<String> = tx
-        .query_row("SELECT rank FROM tasks WHERE story_id = ?1 ORDER BY rank DESC LIMIT 1", params![story_id], |r| {
-            r.get(0)
-        })
+        .query_row(
+            "SELECT rank FROM tasks WHERE story_id = ?1 ORDER BY rank DESC LIMIT 1",
+            params![story_id],
+            |r| r.get(0),
+        )
         .optional()?;
     let rank = rank_after(last_rank.as_deref())?;
     tx.execute(
@@ -107,14 +118,25 @@ pub fn add_task(conn: &mut Connection, actor_id: &str, story_id: &str, title: &s
         &project_id,
         "task",
         &id,
-        EventScope { story_id: Some(story_id), epic_id: Some(&epic_id) },
+        EventScope {
+            story_id: Some(story_id),
+            epic_id: Some(&epic_id),
+        },
         actor_id,
         "task.added",
         &serde_json::json!({ "title": title, "label": format!("Added Task \"{title}\"") }),
         &now,
     )?;
     tx.commit().context("failed to commit add_task")?;
-    Ok(Task { id, story_id: story_id.to_string(), title: title.to_string(), state: "open".into(), dropped_reason: None, rank, note: None })
+    Ok(Task {
+        id,
+        story_id: story_id.to_string(),
+        title: title.to_string(),
+        state: "open".into(),
+        dropped_reason: None,
+        rank,
+        note: None,
+    })
 }
 
 /// A Story's checklist, in order.
@@ -122,7 +144,9 @@ pub fn tasks_for_story(conn: &Connection, story_id: &str) -> anyhow::Result<Vec<
     let mut stmt = conn.prepare(
         "SELECT id, story_id, title, state, dropped_reason, rank, note FROM tasks WHERE story_id = ?1 ORDER BY rank, id",
     )?;
-    let rows = stmt.query_map(params![story_id], row_to_task)?.collect::<Result<Vec<_>, _>>();
+    let rows = stmt
+        .query_map(params![story_id], row_to_task)?
+        .collect::<Result<Vec<_>, _>>();
     rows.context("failed to read the Story's Tasks")
 }
 
@@ -137,7 +161,9 @@ pub fn set_task_state(
 ) -> anyhow::Result<()> {
     let reason = dropped_reason.map(str::trim).filter(|r| !r.is_empty());
     match to {
-        TaskState::Dropped => anyhow::ensure!(reason.is_some(), "a dropped Task needs a one-line reason"),
+        TaskState::Dropped => {
+            anyhow::ensure!(reason.is_some(), "a dropped Task needs a one-line reason")
+        }
         _ => anyhow::ensure!(reason.is_none(), "only a dropped Task carries a reason"),
     }
     let now = now();
@@ -155,7 +181,10 @@ pub fn set_task_state(
             params![story_id, task_id],
             |r| r.get(0),
         )?;
-        anyhow::ensure!(!other_doing, "another Task of this Story is already doing; at most one is");
+        anyhow::ensure!(
+            !other_doing,
+            "another Task of this Story is already doing; at most one is"
+        );
     }
     tx.execute(
         "UPDATE tasks SET state = ?1, dropped_reason = ?2, updated_at = ?3 WHERE id = ?4",
@@ -167,7 +196,10 @@ pub fn set_task_state(
         &project_id,
         "task",
         task_id,
-        EventScope { story_id: Some(&story_id), epic_id: Some(&epic_id) },
+        EventScope {
+            story_id: Some(&story_id),
+            epic_id: Some(&epic_id),
+        },
         actor_id,
         "task.state_changed",
         &serde_json::json!({
@@ -181,7 +213,10 @@ pub fn set_task_state(
 }
 
 /// The Story, current rank, project and Epic of a Task, read inside the caller's transaction.
-fn task_scope(tx: &rusqlite::Transaction, task_id: &str) -> anyhow::Result<(String, String, String, String)> {
+fn task_scope(
+    tx: &rusqlite::Transaction,
+    task_id: &str,
+) -> anyhow::Result<(String, String, String, String)> {
     tx.query_row(
         "SELECT t.story_id, t.rank, s.project_id, s.epic_id FROM tasks t JOIN stories s ON s.id = t.story_id WHERE t.id = ?1",
         params![task_id],
@@ -191,21 +226,36 @@ fn task_scope(tx: &rusqlite::Transaction, task_id: &str) -> anyhow::Result<(Stri
 }
 
 /// Give a Task a new title. The developer edits the checklist at any time (docs/mvp-spec.md §4.3).
-pub fn rename_task(conn: &mut Connection, actor_id: &str, task_id: &str, title: &str) -> anyhow::Result<()> {
+pub fn rename_task(
+    conn: &mut Connection,
+    actor_id: &str,
+    task_id: &str,
+    title: &str,
+) -> anyhow::Result<()> {
     let title = title.trim();
     anyhow::ensure!(!title.is_empty(), "a Task needs a title");
     let now = now();
     let tx = conn.transaction()?;
     let (story_id, _rank, project_id, epic_id) = task_scope(&tx, task_id)?;
-    let before: String = tx.query_row("SELECT title FROM tasks WHERE id = ?1", params![task_id], |r| r.get(0))?;
-    tx.execute("UPDATE tasks SET title = ?1, updated_at = ?2 WHERE id = ?3", params![title, now, task_id])
-        .context("failed to write the Task title")?;
+    let before: String = tx.query_row(
+        "SELECT title FROM tasks WHERE id = ?1",
+        params![task_id],
+        |r| r.get(0),
+    )?;
+    tx.execute(
+        "UPDATE tasks SET title = ?1, updated_at = ?2 WHERE id = ?3",
+        params![title, now, task_id],
+    )
+    .context("failed to write the Task title")?;
     record_event(
         &tx,
         &project_id,
         "task",
         task_id,
-        EventScope { story_id: Some(&story_id), epic_id: Some(&epic_id) },
+        EventScope {
+            story_id: Some(&story_id),
+            epic_id: Some(&epic_id),
+        },
         actor_id,
         "task.renamed",
         &serde_json::json!({
@@ -220,7 +270,12 @@ pub fn rename_task(conn: &mut Connection, actor_id: &str, task_id: &str, title: 
 
 /// Replace a Task's note with `note`. A blank note clears it. Written at once, like every Task
 /// change, so a session killed a moment later keeps what it wrote down.
-pub fn set_task_note(conn: &mut Connection, actor_id: &str, task_id: &str, note: &str) -> anyhow::Result<()> {
+pub fn set_task_note(
+    conn: &mut Connection,
+    actor_id: &str,
+    task_id: &str,
+    note: &str,
+) -> anyhow::Result<()> {
     let note = note.trim();
     anyhow::ensure!(
         note.chars().count() <= MAX_TASK_NOTE_LEN,
@@ -230,14 +285,20 @@ pub fn set_task_note(conn: &mut Connection, actor_id: &str, task_id: &str, note:
     let now = now();
     let tx = conn.transaction()?;
     let (story_id, _rank, project_id, epic_id) = task_scope(&tx, task_id)?;
-    tx.execute("UPDATE tasks SET note = ?1, updated_at = ?2 WHERE id = ?3", params![note, now, task_id])
-        .context("failed to write the Task note")?;
+    tx.execute(
+        "UPDATE tasks SET note = ?1, updated_at = ?2 WHERE id = ?3",
+        params![note, now, task_id],
+    )
+    .context("failed to write the Task note")?;
     record_event(
         &tx,
         &project_id,
         "task",
         task_id,
-        EventScope { story_id: Some(&story_id), epic_id: Some(&epic_id) },
+        EventScope {
+            story_id: Some(&story_id),
+            epic_id: Some(&epic_id),
+        },
         actor_id,
         "task.note_set",
         &serde_json::json!({
@@ -252,14 +313,24 @@ pub fn set_task_note(conn: &mut Connection, actor_id: &str, task_id: &str, note:
 
 /// Move a Task within its Story's checklist: just before `before_task_id`, or to the end when that
 /// is `None`. The anchor must be another Task of the same Story.
-pub fn move_task(conn: &mut Connection, actor_id: &str, task_id: &str, before_task_id: Option<&str>) -> anyhow::Result<()> {
-    anyhow::ensure!(before_task_id != Some(task_id), "a Task cannot move before itself");
+pub fn move_task(
+    conn: &mut Connection,
+    actor_id: &str,
+    task_id: &str,
+    before_task_id: Option<&str>,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        before_task_id != Some(task_id),
+        "a Task cannot move before itself"
+    );
     let now = now();
     let tx = conn.transaction()?;
     let (story_id, before_rank, project_id, epic_id) = task_scope(&tx, task_id)?;
     // The Story's other Tasks, in order: the moved Task is placed among them.
     let others: Vec<(String, String)> = {
-        let mut stmt = tx.prepare("SELECT id, rank FROM tasks WHERE story_id = ?1 AND id != ?2 ORDER BY rank, id")?;
+        let mut stmt = tx.prepare(
+            "SELECT id, rank FROM tasks WHERE story_id = ?1 AND id != ?2 ORDER BY rank, id",
+        )?;
         let rows = stmt.query_map(params![story_id, task_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
         rows.collect::<Result<_, _>>()?
     };
@@ -276,14 +347,20 @@ pub fn move_task(conn: &mut Connection, actor_id: &str, task_id: &str, before_ta
             }
         }
     };
-    tx.execute("UPDATE tasks SET rank = ?1, updated_at = ?2 WHERE id = ?3", params![rank, now, task_id])
-        .context("failed to write the Task rank")?;
+    tx.execute(
+        "UPDATE tasks SET rank = ?1, updated_at = ?2 WHERE id = ?3",
+        params![rank, now, task_id],
+    )
+    .context("failed to write the Task rank")?;
     record_event(
         &tx,
         &project_id,
         "task",
         task_id,
-        EventScope { story_id: Some(&story_id), epic_id: Some(&epic_id) },
+        EventScope {
+            story_id: Some(&story_id),
+            epic_id: Some(&epic_id),
+        },
         actor_id,
         "task.moved",
         &serde_json::json!({ "field": "rank", "before": before_rank, "after": rank, "label": "Moved Task in the checklist" }),

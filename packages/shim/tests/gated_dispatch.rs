@@ -28,7 +28,9 @@ fn shim_as(name: &str, cwd: &Path) -> Command {
     cmd.arg0(name);
     cmd.current_dir(cwd);
     for (key, _) in std::env::vars_os() {
-        if key.to_string_lossy().starts_with("FLYWHEEL_") || key.to_string_lossy().starts_with("GIT_CONFIG") {
+        if key.to_string_lossy().starts_with("FLYWHEEL_")
+            || key.to_string_lossy().starts_with("GIT_CONFIG")
+        {
             cmd.env_remove(key);
         }
     }
@@ -43,7 +45,14 @@ fn refused_for_lack_of_a_supervisor(output: &Output) -> bool {
 
 fn git_in(dir: &Path, args: &[&str]) {
     let status = Command::new(real("git"))
-        .args(["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"])
+        .args([
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@example.com",
+            "-c",
+            "commit.gpgsign=false",
+        ])
         .args(args)
         .current_dir(dir)
         .env_remove("GIT_CONFIG_COUNT")
@@ -86,7 +95,14 @@ fn read_only_git_runs_with_no_request() {
         &["ls-files"],
         &["rev-parse", "HEAD"],
         &["diff", "main"],
-        &["-C", ".", "-c", "core.quotepath=false", "rev-parse", "--show-toplevel"],
+        &[
+            "-C",
+            ".",
+            "-c",
+            "core.quotepath=false",
+            "rev-parse",
+            "--show-toplevel",
+        ],
         &["worktree", "list"],
     ] {
         let output = story_git(&repo).args(args).output().expect("shim runs");
@@ -101,18 +117,35 @@ fn read_only_git_runs_with_no_request() {
 #[test]
 fn a_push_behind_global_options_is_still_gated() {
     let (_dir, repo) = story_repo();
-    let output = story_git(&repo).args(["-C", ".", "-c", "a.b=c", "push"]).output().expect("shim runs");
-    assert!(refused_for_lack_of_a_supervisor(&output), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    let output = story_git(&repo)
+        .args(["-C", ".", "-c", "a.b=c", "push"])
+        .output()
+        .expect("shim runs");
+    assert!(
+        refused_for_lack_of_a_supervisor(&output),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]
 fn rebasing_the_story_branch_is_allowed_and_rebasing_another_is_gated() {
     let (_dir, repo) = story_repo();
-    let own = story_git(&repo).args(["rebase", "main"]).output().expect("shim runs");
-    assert!(own.status.success(), "rebase on the Story branch must run, stderr: {}", String::from_utf8_lossy(&own.stderr));
+    let own = story_git(&repo)
+        .args(["rebase", "main"])
+        .output()
+        .expect("shim runs");
+    assert!(
+        own.status.success(),
+        "rebase on the Story branch must run, stderr: {}",
+        String::from_utf8_lossy(&own.stderr)
+    );
 
     git_in(&repo, &["checkout", "-q", "other"]);
-    let elsewhere = story_git(&repo).args(["rebase", "flywheel/s-1"]).output().expect("shim runs");
+    let elsewhere = story_git(&repo)
+        .args(["rebase", "flywheel/s-1"])
+        .output()
+        .expect("shim runs");
     assert!(
         refused_for_lack_of_a_supervisor(&elsewhere),
         "rebase while HEAD is another branch must ask, stderr: {}",
@@ -128,15 +161,27 @@ fn recursive_rm_inside_the_worktree_runs_and_outside_is_gated() {
     fs::create_dir_all(&outside).unwrap();
 
     let mut inside_rm = shim_as("rm", &repo);
-    inside_rm.env("FLYWHEEL_WORKTREE_PATH", &repo).args(["-rf", "build"]);
+    inside_rm
+        .env("FLYWHEEL_WORKTREE_PATH", &repo)
+        .args(["-rf", "build"]);
     let output = inside_rm.output().expect("shim runs");
-    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(!repo.join("build").exists(), "the allowed rm must have run");
 
     let mut outside_rm = shim_as("rm", &repo);
-    outside_rm.env("FLYWHEEL_WORKTREE_PATH", &repo).args(["-rf", "../outside"]);
+    outside_rm
+        .env("FLYWHEEL_WORKTREE_PATH", &repo)
+        .args(["-rf", "../outside"]);
     let output = outside_rm.output().expect("shim runs");
-    assert!(refused_for_lack_of_a_supervisor(&output), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        refused_for_lack_of_a_supervisor(&output),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(outside.exists(), "a gated rm must never run");
 }
 
@@ -144,7 +189,14 @@ fn recursive_rm_inside_the_worktree_runs_and_outside_is_gated() {
 fn fake_tool(dir: &Path, name: &str) -> (PathBuf, PathBuf) {
     let marker = dir.join(format!("{name}.ran"));
     let script = dir.join(format!("real-{name}"));
-    fs::write(&script, format!("#!/bin/sh\necho \"$@\" > '{}'\necho ran-{name}\n", marker.display())).unwrap();
+    fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\necho \"$@\" > '{}'\necho ran-{name}\n",
+            marker.display()
+        ),
+    )
+    .unwrap();
     fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
     (script, marker)
 }
@@ -154,22 +206,72 @@ fn publishing_commands_are_gated_and_everything_else_passes_through() {
     let dir = tempfile::tempdir().expect("scratch dir");
     for (name, env_var, allowed, gated) in [
         ("npm", "FLYWHEEL_REAL_NPM", &["test"][..], &["publish"][..]),
-        ("cargo", "FLYWHEEL_REAL_CARGO", &["build", "--release"], &["publish"]),
-        ("gh", "FLYWHEEL_REAL_GH", &["pr", "view", "1"], &["pr", "merge", "1"]),
-        ("gh", "FLYWHEEL_REAL_GH", &["issue", "list"], &["release", "create", "v1"]),
-        ("gh", "FLYWHEEL_REAL_GH", &["release", "list"], &["release", "upload", "v1", "a.tgz"]),
-        ("gh", "FLYWHEEL_REAL_GH", &["release", "view", "v1"], &["release", "delete", "v1"]),
+        (
+            "cargo",
+            "FLYWHEEL_REAL_CARGO",
+            &["build", "--release"],
+            &["publish"],
+        ),
+        (
+            "gh",
+            "FLYWHEEL_REAL_GH",
+            &["pr", "view", "1"],
+            &["pr", "merge", "1"],
+        ),
+        (
+            "gh",
+            "FLYWHEEL_REAL_GH",
+            &["issue", "list"],
+            &["release", "create", "v1"],
+        ),
+        (
+            "gh",
+            "FLYWHEEL_REAL_GH",
+            &["release", "list"],
+            &["release", "upload", "v1", "a.tgz"],
+        ),
+        (
+            "gh",
+            "FLYWHEEL_REAL_GH",
+            &["release", "view", "v1"],
+            &["release", "delete", "v1"],
+        ),
     ] {
         let (script, marker) = fake_tool(dir.path(), name);
 
-        let output = shim_as(name, dir.path()).env(env_var, &script).args(allowed).output().expect("shim runs");
-        assert!(output.status.success(), "{name} {allowed:?} stderr: {}", String::from_utf8_lossy(&output.stderr));
-        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), format!("ran-{name}"));
-        assert_eq!(fs::read_to_string(&marker).unwrap().trim(), allowed.join(" "));
+        let output = shim_as(name, dir.path())
+            .env(env_var, &script)
+            .args(allowed)
+            .output()
+            .expect("shim runs");
+        assert!(
+            output.status.success(),
+            "{name} {allowed:?} stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout).trim(),
+            format!("ran-{name}")
+        );
+        assert_eq!(
+            fs::read_to_string(&marker).unwrap().trim(),
+            allowed.join(" ")
+        );
         fs::remove_file(&marker).unwrap();
 
-        let output = shim_as(name, dir.path()).env(env_var, &script).args(gated).output().expect("shim runs");
-        assert!(refused_for_lack_of_a_supervisor(&output), "{name} {gated:?} stderr: {}", String::from_utf8_lossy(&output.stderr));
-        assert!(!marker.exists(), "{name} {gated:?} must never reach the real binary");
+        let output = shim_as(name, dir.path())
+            .env(env_var, &script)
+            .args(gated)
+            .output()
+            .expect("shim runs");
+        assert!(
+            refused_for_lack_of_a_supervisor(&output),
+            "{name} {gated:?} stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            !marker.exists(),
+            "{name} {gated:?} must never reach the real binary"
+        );
     }
 }

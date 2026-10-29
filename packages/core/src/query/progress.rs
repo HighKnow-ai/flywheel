@@ -219,18 +219,22 @@ pub fn milestone_progress(
     project_id: &str,
     milestone_id: Option<&str>,
 ) -> anyhow::Result<Option<MilestoneProgress>> {
-    conn.query_row(MILESTONE_PROGRESS_SQL, params![project_id, milestone_id], |row| {
-        Ok(MilestoneProgress {
-            milestone_id: row.get(0)?,
-            title: row.get(1)?,
-            exit_test: row.get(2)?,
-            state: row.get(3)?,
-            next_milestone_title: row.get(4)?,
-            counts: counts_at(row, 5)?,
-            epics_done: row.get(14)?,
-            epics_total: row.get(15)?,
-        })
-    })
+    conn.query_row(
+        MILESTONE_PROGRESS_SQL,
+        params![project_id, milestone_id],
+        |row| {
+            Ok(MilestoneProgress {
+                milestone_id: row.get(0)?,
+                title: row.get(1)?,
+                exit_test: row.get(2)?,
+                state: row.get(3)?,
+                next_milestone_title: row.get(4)?,
+                counts: counts_at(row, 5)?,
+                epics_done: row.get(14)?,
+                epics_total: row.get(15)?,
+            })
+        },
+    )
     .optional()
     .context("failed to read the Milestone's progress")
 }

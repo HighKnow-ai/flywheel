@@ -29,7 +29,9 @@ static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// against every other caller in this binary, so no test's `register_project`/`install_*_hook`
 /// call ever touches the real `~/Flywheel` worktree root or the real app-data runtime directory.
 fn with_scratch_envs<T>(worktree_root: &Path, runtime_dir: &Path, f: impl FnOnce() -> T) -> T {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     // SAFETY: the mutex above serializes every caller in this binary, so no other thread reads or
     // mutates these vars while they're set, and this helper always clears them before returning.
     unsafe {
@@ -70,11 +72,27 @@ fn fresh_repo(root: &Path) -> PathBuf {
     let dir = tempfile::tempdir_in(root).expect("failed to create scratch repo dir");
     let repo = dir.path().to_path_buf();
     std::mem::forget(dir);
-    run_git_ok(root, &["init", "--initial-branch", "main", repo.to_str().unwrap()]);
-    run_git_ok(&repo, &["config", "user.email", "commit-msg-hook-test@flywheel.invalid"]);
-    run_git_ok(&repo, &["config", "user.name", "Flywheel Commit Msg Hook Test"]);
-    std::fs::write(repo.join("README.md"), "# commit_msg_hook.rs scratch repo\n")
-        .expect("failed to write README");
+    run_git_ok(
+        root,
+        &["init", "--initial-branch", "main", repo.to_str().unwrap()],
+    );
+    run_git_ok(
+        &repo,
+        &[
+            "config",
+            "user.email",
+            "commit-msg-hook-test@flywheel.invalid",
+        ],
+    );
+    run_git_ok(
+        &repo,
+        &["config", "user.name", "Flywheel Commit Msg Hook Test"],
+    );
+    std::fs::write(
+        repo.join("README.md"),
+        "# commit_msg_hook.rs scratch repo\n",
+    )
+    .expect("failed to write README");
     run_git_ok(&repo, &["add", "README.md"]);
     run_git_ok(&repo, &["commit", "-m", "initial commit"]);
     repo
@@ -82,16 +100,28 @@ fn fresh_repo(root: &Path) -> PathBuf {
 
 /// Register `work_path` as a real Flywheel project (so both hooks arrive by the real install
 /// path, never a test-only shortcut) and return the project id.
-fn register(worktree_root: &Path, runtime_dir: &Path, work_path: &Path, key_prefix: &str) -> String {
+fn register(
+    worktree_root: &Path,
+    runtime_dir: &Path,
+    work_path: &Path,
+    key_prefix: &str,
+) -> String {
     with_scratch_envs(worktree_root, runtime_dir, || {
         let db_dir = tempfile::tempdir().expect("failed to create scratch db dir");
         let db_path = db_dir.path().join("flywheel.db");
         let backups_dir = db_dir.path().join("backups");
         std::mem::forget(db_dir);
-        let mut conn = flywheel_core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
+        let mut conn =
+            flywheel_core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
         let actor_id = local_human_actor_id(&conn).expect("seeded human actor should exist");
-        let project = register_project(&mut conn, &actor_id, work_path, "Commit Msg Hook Fixture", key_prefix)
-            .expect("register_project should succeed");
+        let project = register_project(
+            &mut conn,
+            &actor_id,
+            work_path,
+            "Commit Msg Hook Fixture",
+            key_prefix,
+        )
+        .expect("register_project should succeed");
         project.id
     })
 }
@@ -102,7 +132,9 @@ fn register(worktree_root: &Path, runtime_dir: &Path, work_path: &Path, key_pref
 fn commit_on_branch(repo: &Path, branch: &str, run_id: Option<&str>) {
     run_git_ok(repo, &["checkout", "-B", branch]);
     let mut cmd = Command::new("git");
-    cmd.arg("-C").arg(repo).args(["commit", "--allow-empty", "-m", "test commit"]);
+    cmd.arg("-C")
+        .arg(repo)
+        .args(["commit", "--allow-empty", "-m", "test commit"]);
     match run_id {
         Some(id) => {
             cmd.env("FLYWHEEL_RUN_ID", id);
@@ -126,7 +158,10 @@ fn commit_message(repo: &Path) -> String {
 }
 
 fn trailer_line_count(message: &str, key: &str) -> usize {
-    message.lines().filter(|line| line.starts_with(&format!("{key}: "))).count()
+    message
+        .lines()
+        .filter(|line| line.starts_with(&format!("{key}: ")))
+        .count()
 }
 
 // --- Stamping, ordering, and the namespace guard --------------------------------------------
@@ -167,7 +202,9 @@ fn amending_the_commit_does_not_duplicate_the_trailer() {
     // would legitimately re-stamp fresh trailers against the new env — a different, unrelated
     // scenario, not the one LINK-03's "stamped exactly once" guarantee is about.)
     let mut cmd = Command::new("git");
-    cmd.arg("-C").arg(&repo).args(["commit", "--amend", "--allow-empty", "--no-edit"]);
+    cmd.arg("-C")
+        .arg(&repo)
+        .args(["commit", "--amend", "--allow-empty", "--no-edit"]);
     cmd.env("FLYWHEEL_RUN_ID", "run-2");
     let output = cmd.output().expect("failed to spawn git commit --amend");
     assert!(
@@ -204,12 +241,21 @@ fn commit_on_main_carries_neither_trailer() {
     register(scratch.path(), runtime.path(), &repo, "CMH3");
 
     run_git_ok(&repo, &["checkout", "main"]);
-    let output = run_git_ok(&repo, &["commit", "--allow-empty", "-m", "a commit on main"]);
+    let output = run_git_ok(
+        &repo,
+        &["commit", "--allow-empty", "-m", "a commit on main"],
+    );
     assert!(output.status.success());
 
     let message = commit_message(&repo);
-    assert!(!message.contains("Flywheel-Story:"), "main commit must carry no story trailer; got: {message:?}");
-    assert!(!message.contains("Flywheel-Run:"), "main commit must carry no run trailer; got: {message:?}");
+    assert!(
+        !message.contains("Flywheel-Story:"),
+        "main commit must carry no story trailer; got: {message:?}"
+    );
+    assert!(
+        !message.contains("Flywheel-Run:"),
+        "main commit must carry no run trailer; got: {message:?}"
+    );
 }
 
 #[test]
@@ -282,11 +328,18 @@ fn extraction_matches_story_branch_name_across_keys_and_titles() {
 
 /// Assert `hooks_dir` holds both marked hooks, each carrying its own marker.
 fn assert_both_hooks_present(hooks_dir: &Path) {
-    let pre_push = std::fs::read_to_string(hooks_dir.join("pre-push")).expect("pre-push hook should exist");
-    assert!(pre_push.contains(PRE_PUSH_MARKER), "pre-push hook must carry its own marker");
-    let commit_msg =
-        std::fs::read_to_string(hooks_dir.join("commit-msg")).expect("commit-msg hook should exist");
-    assert!(commit_msg.contains(COMMIT_MSG_MARKER), "commit-msg hook must carry its own marker");
+    let pre_push =
+        std::fs::read_to_string(hooks_dir.join("pre-push")).expect("pre-push hook should exist");
+    assert!(
+        pre_push.contains(PRE_PUSH_MARKER),
+        "pre-push hook must carry its own marker"
+    );
+    let commit_msg = std::fs::read_to_string(hooks_dir.join("commit-msg"))
+        .expect("commit-msg hook should exist");
+    assert!(
+        commit_msg.contains(COMMIT_MSG_MARKER),
+        "commit-msg hook must carry its own marker"
+    );
 }
 
 #[test]
@@ -297,13 +350,19 @@ fn commit_msg_installed_first_then_pre_push_neither_refuses_the_others_directory
     let project_id = "coexistence-order-a";
 
     with_scratch_envs(scratch.path(), runtime.path(), || {
-        let commit_msg_result =
-            install_commit_msg_hook(&repo, project_id).expect("install_commit_msg_hook should succeed");
-        assert!(matches!(commit_msg_result, CommitMsgInstall::Installed { .. }), "{commit_msg_result:?}");
+        let commit_msg_result = install_commit_msg_hook(&repo, project_id)
+            .expect("install_commit_msg_hook should succeed");
+        assert!(
+            matches!(commit_msg_result, CommitMsgInstall::Installed { .. }),
+            "{commit_msg_result:?}"
+        );
 
         let pre_push_result =
             install_pre_push_hook(&repo, project_id).expect("install_pre_push_hook should succeed");
-        assert!(matches!(pre_push_result, PrePushInstall::Installed { .. }), "{pre_push_result:?}");
+        assert!(
+            matches!(pre_push_result, PrePushInstall::Installed { .. }),
+            "{pre_push_result:?}"
+        );
 
         // hooks_dir_for_repo reads FLYWHEEL_RUNTIME_DIR — must be resolved inside this closure,
         // while the scratch override is still in effect.
@@ -315,14 +374,29 @@ fn commit_msg_installed_first_then_pre_push_neither_refuses_the_others_directory
     let branch = story_branch_name("FLY-55", "Order A proof");
     commit_on_branch(&repo, &branch, Some("run-order-a"));
     let message = commit_message(&repo);
-    assert!(message.contains("Flywheel-Story: fly-55"), "commit-msg hook should have fired; got: {message:?}");
+    assert!(
+        message.contains("Flywheel-Story: fly-55"),
+        "commit-msg hook should have fired; got: {message:?}"
+    );
 
     // A push-shaped operation reaches its own hook: an ordinary fast-forward push is allowed
     // through (the pre-push script's default-allow path for a non-destructive push), proving the
     // hook ran rather than core.hooksPath pointing nowhere.
     let remote = scratch.path().join("remote-a.git");
-    run_git_ok(scratch.path(), &["init", "--bare", "--initial-branch", "main", remote.to_str().unwrap()]);
-    run_git_ok(&repo, &["remote", "add", "origin", remote.to_str().unwrap()]);
+    run_git_ok(
+        scratch.path(),
+        &[
+            "init",
+            "--bare",
+            "--initial-branch",
+            "main",
+            remote.to_str().unwrap(),
+        ],
+    );
+    run_git_ok(
+        &repo,
+        &["remote", "add", "origin", remote.to_str().unwrap()],
+    );
     run_git_ok(&repo, &["checkout", "main"]);
     let push = run_git(&repo, &["push", "-u", "origin", "main"]);
     assert!(
@@ -342,11 +416,17 @@ fn pre_push_installed_first_then_commit_msg_neither_refuses_the_others_directory
     with_scratch_envs(scratch.path(), runtime.path(), || {
         let pre_push_result =
             install_pre_push_hook(&repo, project_id).expect("install_pre_push_hook should succeed");
-        assert!(matches!(pre_push_result, PrePushInstall::Installed { .. }), "{pre_push_result:?}");
+        assert!(
+            matches!(pre_push_result, PrePushInstall::Installed { .. }),
+            "{pre_push_result:?}"
+        );
 
-        let commit_msg_result =
-            install_commit_msg_hook(&repo, project_id).expect("install_commit_msg_hook should succeed");
-        assert!(matches!(commit_msg_result, CommitMsgInstall::Installed { .. }), "{commit_msg_result:?}");
+        let commit_msg_result = install_commit_msg_hook(&repo, project_id)
+            .expect("install_commit_msg_hook should succeed");
+        assert!(
+            matches!(commit_msg_result, CommitMsgInstall::Installed { .. }),
+            "{commit_msg_result:?}"
+        );
 
         // hooks_dir_for_repo reads FLYWHEEL_RUNTIME_DIR — must be resolved inside this closure,
         // while the scratch override is still in effect.
@@ -357,11 +437,26 @@ fn pre_push_installed_first_then_commit_msg_neither_refuses_the_others_directory
     let branch = story_branch_name("FLY-56", "Order B proof");
     commit_on_branch(&repo, &branch, Some("run-order-b"));
     let message = commit_message(&repo);
-    assert!(message.contains("Flywheel-Story: fly-56"), "commit-msg hook should have fired; got: {message:?}");
+    assert!(
+        message.contains("Flywheel-Story: fly-56"),
+        "commit-msg hook should have fired; got: {message:?}"
+    );
 
     let remote = scratch.path().join("remote-b.git");
-    run_git_ok(scratch.path(), &["init", "--bare", "--initial-branch", "main", remote.to_str().unwrap()]);
-    run_git_ok(&repo, &["remote", "add", "origin", remote.to_str().unwrap()]);
+    run_git_ok(
+        scratch.path(),
+        &[
+            "init",
+            "--bare",
+            "--initial-branch",
+            "main",
+            remote.to_str().unwrap(),
+        ],
+    );
+    run_git_ok(
+        &repo,
+        &["remote", "add", "origin", remote.to_str().unwrap()],
+    );
     run_git_ok(&repo, &["checkout", "main"]);
     let push = run_git(&repo, &["push", "-u", "origin", "main"]);
     assert!(

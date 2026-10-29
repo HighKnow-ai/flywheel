@@ -20,7 +20,7 @@
 mod common;
 
 use flywheel_core::credentials::{
-    self, ANTHROPIC_API_KEY_ENV_VAR, CredentialMode, KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE,
+    self, CredentialMode, ANTHROPIC_API_KEY_ENV_VAR, KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE,
 };
 use flywheel_core::domain::settings;
 use rusqlite::{params, Connection};
@@ -138,8 +138,14 @@ fn event_count(conn: &Connection, event_type: &str, stream_id: &str) -> i64 {
 fn credential_mode_as_str_and_parse_round_trip_for_both_modes() {
     assert_eq!(CredentialMode::Local.as_str(), "local");
     assert_eq!(CredentialMode::ApiKey.as_str(), "api_key");
-    assert!(matches!(CredentialMode::parse("local"), Ok(CredentialMode::Local)));
-    assert!(matches!(CredentialMode::parse("api_key"), Ok(CredentialMode::ApiKey)));
+    assert!(matches!(
+        CredentialMode::parse("local"),
+        Ok(CredentialMode::Local)
+    ));
+    assert!(matches!(
+        CredentialMode::parse("api_key"),
+        Ok(CredentialMode::ApiKey)
+    ));
     assert!(CredentialMode::parse("bogus").is_err());
 }
 
@@ -234,7 +240,8 @@ fn clear_api_key_on_an_already_absent_key_is_a_no_op_not_an_error() {
 
     // Ensure absent first, then clear again — idempotent, never errors.
     credentials::clear_api_key(&mut conn).expect("first clear should succeed");
-    credentials::clear_api_key(&mut conn).expect("clearing an already-absent key should be a no-op, not an error");
+    credentials::clear_api_key(&mut conn)
+        .expect("clearing an already-absent key should be a no-op, not an error");
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -266,7 +273,10 @@ fn set_global_credential_mode_rejects_an_unrecognised_value() {
 #[test]
 fn project_credential_mode_is_none_without_an_override() {
     let (conn, _actor_id, project) = common::seeded_project();
-    assert_eq!(settings::project_credential_mode(&conn, &project.id).unwrap(), None);
+    assert_eq!(
+        settings::project_credential_mode(&conn, &project.id).unwrap(),
+        None
+    );
 }
 
 #[test]
@@ -280,10 +290,16 @@ fn setting_a_project_override_different_from_the_global_default_persists_it_and_
         settings::project_credential_mode(&conn, &project.id).unwrap(),
         Some("api_key".to_string())
     );
-    assert_eq!(event_count(&conn, "project.credential_mode_set", &project.id), 1);
+    assert_eq!(
+        event_count(&conn, "project.credential_mode_set", &project.id),
+        1
+    );
 
     let payload = event_payload(&conn, "project.credential_mode_set", &project.id);
-    assert!(payload.contains("api_key"), "payload should name the mode: {payload}");
+    assert!(
+        payload.contains("api_key"),
+        "payload should name the mode: {payload}"
+    );
     assert!(
         !payload.to_lowercase().contains("sk-ant"),
         "payload must never carry a key-shaped value: {payload}"
@@ -291,14 +307,18 @@ fn setting_a_project_override_different_from_the_global_default_persists_it_and_
 }
 
 #[test]
-fn setting_a_project_override_equal_to_the_global_default_clears_it_instead_of_storing_a_redundant_row() {
+fn setting_a_project_override_equal_to_the_global_default_clears_it_instead_of_storing_a_redundant_row(
+) {
     let (mut conn, actor_id, project) = common::seeded_project();
     // Global default is "local" — setting the SAME value as a project override must clear
     // (leave NULL), not persist a redundant explicit "local" row.
     settings::set_project_credential_mode(&mut conn, &actor_id, &project.id, Some("local"))
         .expect("set_project_credential_mode should succeed");
 
-    assert_eq!(settings::project_credential_mode(&conn, &project.id).unwrap(), None);
+    assert_eq!(
+        settings::project_credential_mode(&conn, &project.id).unwrap(),
+        None
+    );
 
     let credential_mode: Option<String> = conn
         .query_row(
@@ -307,7 +327,10 @@ fn setting_a_project_override_equal_to_the_global_default_clears_it_instead_of_s
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(credential_mode, None, "the column itself must be NULL, not the string \"local\"");
+    assert_eq!(
+        credential_mode, None,
+        "the column itself must be NULL, not the string \"local\""
+    );
 }
 
 #[test]
@@ -318,8 +341,14 @@ fn clearing_a_project_override_appends_an_event_naming_the_project() {
     settings::set_project_credential_mode(&mut conn, &actor_id, &project.id, None)
         .expect("clearing the override should succeed");
 
-    assert_eq!(settings::project_credential_mode(&conn, &project.id).unwrap(), None);
-    assert_eq!(event_count(&conn, "project.credential_mode_cleared", &project.id), 1);
+    assert_eq!(
+        settings::project_credential_mode(&conn, &project.id).unwrap(),
+        None
+    );
+    assert_eq!(
+        event_count(&conn, "project.credential_mode_cleared", &project.id),
+        1
+    );
 
     let payload = event_payload(&conn, "project.credential_mode_cleared", &project.id);
     assert!(
@@ -348,7 +377,8 @@ fn an_out_of_set_projects_credential_mode_value_is_rejected_by_the_schema_not_ap
 #[test]
 fn resolve_credential_in_local_mode_returns_an_empty_environment() {
     let (conn, _actor_id, project) = common::seeded_project();
-    let resolved = credentials::resolve_credential(&conn, &project.id).expect("resolve_credential should succeed");
+    let resolved = credentials::resolve_credential(&conn, &project.id)
+        .expect("resolve_credential should succeed");
     assert!(matches!(resolved.mode, CredentialMode::Local));
     assert!(resolved.env.is_empty());
 }
@@ -390,18 +420,23 @@ fn resolve_credential_in_api_key_mode_with_a_key_stored_returns_exactly_one_env_
     settings::set_global_credential_mode(&mut conn, &actor_id, "api_key").unwrap();
     credentials::store_api_key(&mut conn, &actor_id, TEST_API_KEY_VALUE).unwrap();
 
-    let resolved = credentials::resolve_credential(&conn, &project.id).expect("resolve_credential should succeed");
+    let resolved = credentials::resolve_credential(&conn, &project.id)
+        .expect("resolve_credential should succeed");
     assert!(matches!(resolved.mode, CredentialMode::ApiKey));
     assert_eq!(resolved.env.len(), 1);
     assert_eq!(
-        resolved.env.get(ANTHROPIC_API_KEY_ENV_VAR).map(String::as_str),
+        resolved
+            .env
+            .get(ANTHROPIC_API_KEY_ENV_VAR)
+            .map(String::as_str),
         Some(TEST_API_KEY_VALUE)
     );
 }
 
 #[test]
 #[ignore = "hits the real macOS keychain; an unsigned test binary blocks ~60s on the access prompt. Run with: cargo test -- --ignored"]
-fn resolve_credential_in_api_key_mode_with_no_key_stored_names_the_missing_key_rather_than_falling_back() {
+fn resolve_credential_in_api_key_mode_with_no_key_stored_names_the_missing_key_rather_than_falling_back(
+) {
     skip_unless_keychain_accessible!();
     let _guard = KeychainRestoreGuard::capture();
     let (mut conn, actor_id, project) = common::seeded_project();
@@ -425,12 +460,20 @@ fn a_project_override_takes_precedence_over_the_global_default() {
     let (mut conn, actor_id, project) = common::seeded_project();
 
     // Global stays "local"; the project overrides to "api_key".
-    settings::set_project_credential_mode(&mut conn, &actor_id, &project.id, Some("api_key")).unwrap();
+    settings::set_project_credential_mode(&mut conn, &actor_id, &project.id, Some("api_key"))
+        .unwrap();
     credentials::store_api_key(&mut conn, &actor_id, TEST_API_KEY_VALUE).unwrap();
 
-    let resolved = credentials::resolve_credential(&conn, &project.id).expect("resolve_credential should succeed");
+    let resolved = credentials::resolve_credential(&conn, &project.id)
+        .expect("resolve_credential should succeed");
     assert!(matches!(resolved.mode, CredentialMode::ApiKey));
-    assert_eq!(resolved.env.get(ANTHROPIC_API_KEY_ENV_VAR).map(String::as_str), Some(TEST_API_KEY_VALUE));
+    assert_eq!(
+        resolved
+            .env
+            .get(ANTHROPIC_API_KEY_ENV_VAR)
+            .map(String::as_str),
+        Some(TEST_API_KEY_VALUE)
+    );
 }
 
 #[test]
@@ -441,12 +484,19 @@ fn changing_the_projects_mode_between_two_resolutions_yields_two_different_envir
     let (mut conn, actor_id, project) = common::seeded_project();
     credentials::store_api_key(&mut conn, &actor_id, TEST_API_KEY_VALUE).unwrap();
 
-    let first = credentials::resolve_credential(&conn, &project.id).expect("first resolve should succeed");
+    let first =
+        credentials::resolve_credential(&conn, &project.id).expect("first resolve should succeed");
     assert!(first.env.is_empty(), "starts on the local default");
 
-    settings::set_project_credential_mode(&mut conn, &actor_id, &project.id, Some("api_key")).unwrap();
-    let second = credentials::resolve_credential(&conn, &project.id).expect("second resolve should succeed");
-    assert_eq!(second.env.len(), 1, "switches to exactly one env entry after the override");
+    settings::set_project_credential_mode(&mut conn, &actor_id, &project.id, Some("api_key"))
+        .unwrap();
+    let second =
+        credentials::resolve_credential(&conn, &project.id).expect("second resolve should succeed");
+    assert_eq!(
+        second.env.len(),
+        1,
+        "switches to exactly one env entry after the override"
+    );
 
     assert_ne!(
         first.env.is_empty(),

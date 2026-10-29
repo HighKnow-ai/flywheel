@@ -82,8 +82,8 @@ fn same_repository_pair_is_staggered_while_a_different_repository_is_not() {
 fn session_rs_contains_no_bare_send_request_call_and_at_least_one_gated_spawn_call() {
     let root = workspace_root();
     let path = root.join("packages/desktop/src-tauri/src/commands/session.rs");
-    let contents = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("failed to read {path:?}: {e}"));
+    let contents =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("failed to read {path:?}: {e}"));
 
     let mut bare_send_request_count = 0;
     let mut gated_send_spawn_request_count = 0;

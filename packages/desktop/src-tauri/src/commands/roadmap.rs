@@ -32,7 +32,8 @@ pub(crate) fn to_dto(
     m: flywheel_core::domain::milestone::Milestone,
     current_id: Option<&str>,
 ) -> Result<MilestoneDto, String> {
-    let state = flywheel_core::domain::milestone::milestone_state(conn, &m.id).map_err(|e| e.to_string())?;
+    let state = flywheel_core::domain::milestone::milestone_state(conn, &m.id)
+        .map_err(|e| e.to_string())?;
     let (epics_done, epics_total): (i64, i64) = conn
         .query_row(
             "SELECT COUNT(*) FILTER (WHERE state = 'done'), COUNT(*) FILTER (WHERE state != 'dropped') FROM epics WHERE milestone_id = ?1",
@@ -67,10 +68,18 @@ pub fn milestone_create(
         validate_text("exitTest", exit_test, MAX_PROSE_LEN)?;
     }
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    let m = flywheel_core::domain::milestone::create_milestone(&mut conn, &project_id, &actor_id, &title, exit_test.as_deref())
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    let m = flywheel_core::domain::milestone::create_milestone(
+        &mut conn,
+        &project_id,
+        &actor_id,
+        &title,
+        exit_test.as_deref(),
+    )
+    .map_err(|e| e.to_string())?;
+    let current = flywheel_core::domain::milestone::current_milestone(&conn, &project_id)
         .map_err(|e| e.to_string())?;
-    let current = flywheel_core::domain::milestone::current_milestone(&conn, &project_id).map_err(|e| e.to_string())?;
     let dto = to_dto(&conn, m, current.as_ref().map(|c| c.id.as_str()))?;
     drop(conn);
     emit_board_changed(&app, Some(&project_id), "milestone", Some(&dto.id));
@@ -79,9 +88,13 @@ pub fn milestone_create(
 
 /// The project's Roadmap: every Milestone in rank order, with its derived state.
 #[tauri::command]
-pub fn milestone_list(state: State<AppState>, project_id: String) -> Result<Vec<MilestoneDto>, String> {
+pub fn milestone_list(
+    state: State<AppState>,
+    project_id: String,
+) -> Result<Vec<MilestoneDto>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let current = flywheel_core::domain::milestone::current_milestone(&conn, &project_id).map_err(|e| e.to_string())?;
+    let current = flywheel_core::domain::milestone::current_milestone(&conn, &project_id)
+        .map_err(|e| e.to_string())?;
     let current_id = current.as_ref().map(|c| c.id.as_str());
     flywheel_core::domain::milestone::roadmap(&conn, &project_id)
         .map_err(|e| e.to_string())?
@@ -106,12 +119,24 @@ pub fn milestone_update(
         validate_text("exitTest", exit_test, MAX_PROSE_LEN)?;
     }
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    flywheel_core::domain::milestone::update_milestone(&mut conn, &actor_id, &milestone_id, &title, exit_test.as_deref())
-        .map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::milestone::update_milestone(
+        &mut conn,
+        &actor_id,
+        &milestone_id,
+        &title,
+        exit_test.as_deref(),
+    )
+    .map_err(|e| e.to_string())?;
     let project_id = super::project_of(&conn, "milestones", &milestone_id);
     drop(conn);
-    emit_board_changed(&app, project_id.as_deref(), "milestone", Some(&milestone_id));
+    emit_board_changed(
+        &app,
+        project_id.as_deref(),
+        "milestone",
+        Some(&milestone_id),
+    );
     Ok(())
 }
 
@@ -125,15 +150,22 @@ pub fn milestone_set_state(
     milestone_id: String,
     to: String,
 ) -> Result<(), String> {
-    let to = flywheel_core::domain::milestone::MilestoneState::parse(&to).map_err(|e| e.to_string())?;
+    let to =
+        flywheel_core::domain::milestone::MilestoneState::parse(&to).map_err(|e| e.to_string())?;
     super::roadmap_round::refuse_done_without_round(to.as_str())?;
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     flywheel_core::domain::milestone::set_milestone_state(&mut conn, &actor_id, &milestone_id, to)
         .map_err(|e| e.to_string())?;
     let project_id = super::project_of(&conn, "milestones", &milestone_id);
     drop(conn);
-    emit_board_changed(&app, project_id.as_deref(), "milestone", Some(&milestone_id));
+    emit_board_changed(
+        &app,
+        project_id.as_deref(),
+        "milestone",
+        Some(&milestone_id),
+    );
     Ok(())
 }
 
@@ -148,12 +180,23 @@ pub fn milestone_move(
     before_id: Option<String>,
 ) -> Result<(), String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    flywheel_core::domain::milestone::move_milestone(&mut conn, &actor_id, &milestone_id, before_id.as_deref())
-        .map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::milestone::move_milestone(
+        &mut conn,
+        &actor_id,
+        &milestone_id,
+        before_id.as_deref(),
+    )
+    .map_err(|e| e.to_string())?;
     let project_id = super::project_of(&conn, "milestones", &milestone_id);
     drop(conn);
-    emit_board_changed(&app, project_id.as_deref(), "milestone", Some(&milestone_id));
+    emit_board_changed(
+        &app,
+        project_id.as_deref(),
+        "milestone",
+        Some(&milestone_id),
+    );
     Ok(())
 }
 
@@ -262,9 +305,12 @@ pub fn milestone_progress(
     milestone_id: Option<String>,
 ) -> Result<Option<MilestoneProgressDto>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let Some(header) =
-        flywheel_core::query::progress::milestone_progress(&conn, &project_id, milestone_id.as_deref())
-            .map_err(|e| e.to_string())?
+    let Some(header) = flywheel_core::query::progress::milestone_progress(
+        &conn,
+        &project_id,
+        milestone_id.as_deref(),
+    )
+    .map_err(|e| e.to_string())?
     else {
         return Ok(None);
     };
@@ -333,9 +379,13 @@ pub struct RosterRowDto {
 /// Every Story row of `milestone_id`'s roster, in Roadmap order (docs/mvp-spec.md §7). Read-only and
 /// one core statement, so the roster issues no read per row.
 #[tauri::command]
-pub fn roster_rows(state: State<AppState>, milestone_id: String) -> Result<Vec<RosterRowDto>, String> {
+pub fn roster_rows(
+    state: State<AppState>,
+    milestone_id: String,
+) -> Result<Vec<RosterRowDto>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let rows = flywheel_core::query::roster::roster_rows(&conn, &milestone_id).map_err(|e| e.to_string())?;
+    let rows = flywheel_core::query::roster::roster_rows(&conn, &milestone_id)
+        .map_err(|e| e.to_string())?;
     Ok(rows
         .into_iter()
         .map(|r| RosterRowDto {
@@ -348,7 +398,11 @@ pub fn roster_rows(state: State<AppState>, milestone_id: String) -> Result<Vec<R
             criteria_total: r.criteria_total,
             tasks_done: r.tasks_done,
             tasks_total: r.tasks_total,
-            review: r.review.map(|d| ReviewDiffSizeDto { files: d.files, added: d.added, removed: d.removed }),
+            review: r.review.map(|d| ReviewDiffSizeDto {
+                files: d.files,
+                added: d.added,
+                removed: d.removed,
+            }),
             can_make_ready: r.can_make_ready,
         })
         .collect())

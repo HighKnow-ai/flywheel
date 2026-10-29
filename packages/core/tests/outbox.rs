@@ -42,7 +42,8 @@ fn seeded_project() -> (Connection, String, Project) {
     // Connection for their own duration and the OS reclaims the directory on process exit.
     std::mem::forget(dir);
 
-    let mut conn = open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate should succeed");
+    let mut conn =
+        open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate should succeed");
     let actor_id = local_human_actor_id(&conn).expect("seeded human actor should exist");
     let proj = project::create_project(&mut conn, &actor_id, "Threadfin", "/repo", "FLY", "main")
         .expect("create_project should succeed");
@@ -53,11 +54,18 @@ fn seeded_project() -> (Connection, String, Project) {
 fn fixture_epic(conn: &mut Connection, project_id: &str, actor_id: &str) -> String {
     let m = milestone::create_milestone(conn, project_id, actor_id, "Fixture milestone", None)
         .expect("create_milestone should succeed");
-    epic::create_epic(conn, actor_id, &m.id, "Fixture epic").expect("create_epic should succeed").id
+    epic::create_epic(conn, actor_id, &m.id, "Fixture epic")
+        .expect("create_epic should succeed")
+        .id
 }
 
 /// A Story created through the domain writer, in its own fresh Milestone and Epic.
-fn create_story_in_fresh_epic(conn: &mut Connection, project_id: &str, actor_id: &str, title: &str) -> story::Story {
+fn create_story_in_fresh_epic(
+    conn: &mut Connection,
+    project_id: &str,
+    actor_id: &str,
+    title: &str,
+) -> story::Story {
     let epic_id = fixture_epic(conn, project_id, actor_id);
     story::create_story(conn, actor_id, &epic_id, title).expect("create_story should succeed")
 }
@@ -105,7 +113,8 @@ fn outbox_rollback_writes_neither() {
         )
         .expect("insert inside the transaction should succeed");
 
-        let sequence = next_sequence(&tx, &project.id, "local").expect("should allocate a sequence");
+        let sequence =
+            next_sequence(&tx, &project.id, "local").expect("should allocate a sequence");
         append_event(
             &tx,
             &project.id,
@@ -126,9 +135,19 @@ fn outbox_rollback_writes_neither() {
     }
 
     let story_count = count_rows(&conn, "SELECT COUNT(*) FROM stories WHERE id = ?1", &[&id]);
-    let event_count = count_rows(&conn, "SELECT COUNT(*) FROM events WHERE stream_id = ?1", &[&id]);
-    assert_eq!(story_count, 0, "rolled-back transaction must leave no stories row");
-    assert_eq!(event_count, 0, "rolled-back transaction must leave no events row");
+    let event_count = count_rows(
+        &conn,
+        "SELECT COUNT(*) FROM events WHERE stream_id = ?1",
+        &[&id],
+    );
+    assert_eq!(
+        story_count, 0,
+        "rolled-back transaction must leave no stories row"
+    );
+    assert_eq!(
+        event_count, 0,
+        "rolled-back transaction must leave no events row"
+    );
 }
 
 #[test]
@@ -203,7 +222,11 @@ fn ids_same_millisecond_are_distinct_and_ascending() {
     }
 
     let unique_ids: std::collections::HashSet<&String> = story_ids.iter().collect();
-    assert_eq!(unique_ids.len(), story_ids.len(), "expected no duplicate story ids");
+    assert_eq!(
+        unique_ids.len(),
+        story_ids.len(),
+        "expected no duplicate story ids"
+    );
 
     for pair in story_ids.windows(2) {
         assert!(pair[0] < pair[1], "expected strictly ascending story ULIDs");
@@ -227,7 +250,8 @@ fn events_order_is_stable_under_equal_timestamps() {
     let mut appended_ids = Vec::new();
     for i in 0..2 {
         let tx = conn.transaction().expect("should open a transaction");
-        let sequence = next_sequence(&tx, &project.id, "local").expect("should allocate a sequence");
+        let sequence =
+            next_sequence(&tx, &project.id, "local").expect("should allocate a sequence");
         let event_id = append_event(
             &tx,
             &project.id,
@@ -260,7 +284,10 @@ fn events_order_is_stable_under_equal_timestamps() {
         &story.id,
         shared_timestamp,
     );
-    assert_eq!(by_sequence_first, by_sequence_second, "(origin, sequence) order must be stable");
+    assert_eq!(
+        by_sequence_first, by_sequence_second,
+        "(origin, sequence) order must be stable"
+    );
 
     // Ordered by id: also stable across repeated reads.
     let by_id_first: Vec<String> = query_event_ids(
@@ -276,10 +303,19 @@ fn events_order_is_stable_under_equal_timestamps() {
         shared_timestamp,
     );
     assert_eq!(by_id_first, by_id_second, "id order must be stable");
-    assert_eq!(by_id_first.len(), 2, "expected both appended events to be present");
+    assert_eq!(
+        by_id_first.len(),
+        2,
+        "expected both appended events to be present"
+    );
 }
 
-fn query_event_ids(conn: &Connection, sql: &str, stream_id: &str, occurred_at: &str) -> Vec<String> {
+fn query_event_ids(
+    conn: &Connection,
+    sql: &str,
+    stream_id: &str,
+    occurred_at: &str,
+) -> Vec<String> {
     let mut stmt = conn.prepare(sql).expect("prepare should succeed");
     stmt.query_map(params![stream_id, occurred_at], |row| row.get(0))
         .expect("query_map should succeed")
@@ -294,7 +330,10 @@ fn empty_id_is_rejected_by_the_length_check() {
         "INSERT INTO actors (id, type, display_name, created_at) VALUES (?1, 'human', 'Nobody', ?2)",
         params!["", "2026-01-01T00:00:00Z"],
     );
-    assert!(result.is_err(), "an empty id must be rejected by the length CHECK");
+    assert!(
+        result.is_err(),
+        "an empty id must be rejected by the length CHECK"
+    );
     // Sanity: the seeded actor's real id has the expected shape, so the constraint is on length,
     // not on the well-formed id path.
     assert_eq!(actor_id.len(), 26);
@@ -321,7 +360,10 @@ fn rows_ordered_by_id_come_back_in_creation_order_for_one_origin() {
         .collect::<Result<Vec<_>, _>>()
         .expect("collecting ids should succeed");
 
-    assert_eq!(read_back, created_ids, "id ordering must reproduce creation order");
+    assert_eq!(
+        read_back, created_ids,
+        "id ordering must reproduce creation order"
+    );
 }
 
 #[test]
@@ -347,7 +389,10 @@ fn two_actors_with_identical_display_name_are_distinct_rows() {
         "SELECT COUNT(*) FROM actors WHERE display_name = 'Ada'",
         &[],
     );
-    assert_eq!(count, 2, "two actors with the same display_name must remain two distinct rows");
+    assert_eq!(
+        count, 2,
+        "two actors with the same display_name must remain two distinct rows"
+    );
 }
 
 #[test]
@@ -363,7 +408,10 @@ fn actor_attribution_is_not_nullable() {
         ) VALUES (?1, ?2, 'local', 9999, 'story', ?3, ?3, NULL, NULL, 'story.updated', '{}', ?4)",
         params![new_id(), project.id, story.id, "2026-01-01T00:00:00Z"],
     );
-    assert!(null_actor_result.is_err(), "a NULL actor_id must be rejected");
+    assert!(
+        null_actor_result.is_err(),
+        "a NULL actor_id must be rejected"
+    );
 
     // An actor_id naming no `actors` row must fail with a foreign-key error — this is the
     // assertion that proves `foreign_keys` is genuinely ON, not silently reverted (Pitfall 1):
@@ -396,7 +444,8 @@ fn three_mutations_by_one_actor_in_one_transaction_share_actor_id_and_write_orde
     let tx = conn.transaction().expect("should open a transaction");
     let mut sequences = Vec::new();
     for i in 0..3 {
-        let sequence = next_sequence(&tx, &project.id, "local").expect("should allocate a sequence");
+        let sequence =
+            next_sequence(&tx, &project.id, "local").expect("should allocate a sequence");
         sequences.push(sequence);
         append_event(
             &tx,
@@ -465,5 +514,8 @@ fn project_key_prefix_is_immutable_once_an_item_exists() {
             |row| row.get(0),
         )
         .expect("reading the project's key_prefix should succeed");
-    assert_eq!(key_prefix, "FLYX", "a rejected update must not have changed the stored prefix");
+    assert_eq!(
+        key_prefix, "FLYX",
+        "a rejected update must not have changed the stored prefix"
+    );
 }

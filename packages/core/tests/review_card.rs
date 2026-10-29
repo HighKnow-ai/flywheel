@@ -4,10 +4,10 @@
 //! Check objections, the diff's files and Re-run Checks) are in `review_card/checks.rs`. Every test
 //! runs against temporary repositories only.
 
-mod common;
 /// Issue #157: failing Checks first, Check objections, the diff's files and Re-run Checks.
 #[path = "review_card/checks.rs"]
 mod checks;
+mod common;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -17,8 +17,8 @@ use flywheel_core::domain::handoff::hand_off;
 use flywheel_core::domain::request_changes::request_changes;
 use flywheel_core::domain::review::{rebase_comment, review_for_story};
 use flywheel_core::domain::session::{agent_actor_id, close_session, start_session, SessionStatus};
-use flywheel_core::domain::task::{add_task, set_task_state, TaskState};
 use flywheel_core::domain::story::{set_story_state, Story, StoryState};
+use flywheel_core::domain::task::{add_task, set_task_state, TaskState};
 use flywheel_core::domain::worktree::ensure_worktree;
 use rusqlite::Connection;
 use tempfile::TempDir;
@@ -31,7 +31,11 @@ fn git(dir: &Path, args: &[&str]) {
         .args(args)
         .output()
         .expect("git should spawn");
-    assert!(out.status.success(), "git {args:?} failed: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 fn commit_file(dir: &Path, name: &str, body: &str) {
@@ -63,8 +67,22 @@ fn in_review() -> Fixture {
     commit_file(&worktree, "README.md", "the branch's readme\n");
     commit_file(&worktree, "notes.md", "the branch's notes\n");
     hand_off(&mut conn, &session.id, "Done.", "").unwrap();
-    close_session(&mut conn, &session.id, SessionStatus::Completed, None, None, None).unwrap();
-    Fixture { conn, human, repo, story, worktree }
+    close_session(
+        &mut conn,
+        &session.id,
+        SessionStatus::Completed,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    Fixture {
+        conn,
+        human,
+        repo,
+        story,
+        worktree,
+    }
 }
 
 #[test]
@@ -87,10 +105,20 @@ fn a_conflicting_branch_reads_rebase_needed_with_its_paths() {
 
         let review = review_for_story(&f.conn, &f.story.id).unwrap();
 
-        assert_eq!(review.conflicts, vec!["README.md".to_string(), "notes.md".to_string()]);
-        let comment = review.rebase_comment().expect("a conflict has a pre-filled comment");
+        assert_eq!(
+            review.conflicts,
+            vec!["README.md".to_string(), "notes.md".to_string()]
+        );
+        let comment = review
+            .rebase_comment()
+            .expect("a conflict has a pre-filled comment");
         assert!(comment.starts_with("Rebase needed:"), "{comment}");
-        assert!(comment.contains("README.md") && comment.contains("notes.md") && comment.contains("main"), "{comment}");
+        assert!(
+            comment.contains("README.md")
+                && comment.contains("notes.md")
+                && comment.contains("main"),
+            "{comment}"
+        );
         assert!(f.worktree.is_dir(), "the read writes nothing");
     });
 }
@@ -100,12 +128,18 @@ fn the_rebase_action_sends_the_story_back_with_the_paths_in_its_comment() {
     with_scratch_worktree_root(|_| {
         let mut f = in_review();
         commit_file(f.repo.path(), "README.md", "main's readme\n");
-        let comment = review_for_story(&f.conn, &f.story.id).unwrap().rebase_comment().unwrap();
+        let comment = review_for_story(&f.conn, &f.story.id)
+            .unwrap()
+            .rebase_comment()
+            .unwrap();
 
         let human = f.human.clone();
         request_changes(&mut f.conn, &human, &f.story.id, &comment).unwrap();
 
-        let review = flywheel_core::domain::review::reviews_for_story(&f.conn, &f.story.id).unwrap().pop().unwrap();
+        let review = flywheel_core::domain::review::reviews_for_story(&f.conn, &f.story.id)
+            .unwrap()
+            .pop()
+            .unwrap();
         assert_eq!(review.outcome.as_deref(), Some("changes_requested"));
         assert!(review.comments.unwrap().contains("README.md"));
     });
@@ -119,7 +153,10 @@ fn only_a_story_in_review_is_checked_for_conflicts() {
         let human = f.human.clone();
         request_changes(&mut f.conn, &human, &f.story.id, "Rebase.").unwrap();
         let review = review_for_story(&f.conn, &f.story.id).unwrap();
-        assert!(review.conflicts.is_empty(), "a Running Story is not judged for a merge");
+        assert!(
+            review.conflicts.is_empty(),
+            "a Running Story is not judged for a merge"
+        );
     });
 }
 
@@ -135,7 +172,10 @@ fn needs_you_carries_the_conflicting_paths_on_the_review_item() {
                 .find(|i| i.kind == flywheel_core::query::needs_you::NeedsYouKind::Review)
                 .expect("a Review item")
         };
-        assert!(review_item(&f).conflicts.is_empty(), "a clean branch is a plain Review");
+        assert!(
+            review_item(&f).conflicts.is_empty(),
+            "a clean branch is a plain Review"
+        );
 
         commit_file(f.repo.path(), "README.md", "main's readme\n");
         assert_eq!(review_item(&f).conflicts, vec!["README.md".to_string()]);

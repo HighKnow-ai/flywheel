@@ -24,7 +24,10 @@ fn board_tool(name: &str) -> String {
 
 /// The Proposal tools in `--allowedTools` syntax.
 pub fn proposal_tools() -> Vec<String> {
-    PROPOSAL_TOOL_NAMES.iter().map(|name| board_tool(name)).collect()
+    PROPOSAL_TOOL_NAMES
+        .iter()
+        .map(|name| board_tool(name))
+        .collect()
 }
 
 /// The Story agent's board tools in `--allowedTools` syntax: the Task tools (issue #52), then the
@@ -88,7 +91,10 @@ pub const MCP_TOOL_TIMEOUT_MS: u64 = 7 * 24 * 60 * 60 * 1000;
 /// MCP tool timeouts. The idle timeout is capped at `MCP_TOOL_TIMEOUT`, so both are raised.
 fn waiting_request_env() -> Vec<(&'static str, String)> {
     let ms = MCP_TOOL_TIMEOUT_MS.to_string();
-    vec![("CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT", ms.clone()), ("MCP_TOOL_TIMEOUT", ms)]
+    vec![
+        ("CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT", ms.clone()),
+        ("MCP_TOOL_TIMEOUT", ms),
+    ]
 }
 
 impl SessionKind {
@@ -105,7 +111,9 @@ impl SessionKind {
 
     /// The kind a `sessions.kind` value names, or `None` for a value the schema would refuse.
     pub fn parse(value: &str) -> Option<SessionKind> {
-        SessionKind::ALL.into_iter().find(|kind| kind.as_str() == value)
+        SessionKind::ALL
+            .into_iter()
+            .find(|kind| kind.as_str() == value)
     }
 
     /// The launch flags this kind fixes.
@@ -126,15 +134,25 @@ impl SessionKind {
         match self {
             SessionKind::Story => LaunchPolicy {
                 permission_mode: "acceptEdits",
-                allowed_tools: std::iter::once("Bash".to_string()).chain(story_board_tools()).collect(),
+                allowed_tools: std::iter::once("Bash".to_string())
+                    .chain(story_board_tools())
+                    .collect(),
                 disallowed_tools: Vec::new(),
                 raises_requests: true,
                 env: waiting_request_env(),
             },
             SessionKind::Shaping => LaunchPolicy {
                 permission_mode: "dontAsk",
-                allowed_tools: READ_ONLY_TOOLS.iter().map(|t| t.to_string()).chain(proposal_tools()).collect(),
-                disallowed_tools: WRITING_TOOLS.iter().chain(std::iter::once(&QUESTION_TOOL)).map(|t| t.to_string()).collect(),
+                allowed_tools: READ_ONLY_TOOLS
+                    .iter()
+                    .map(|t| t.to_string())
+                    .chain(proposal_tools())
+                    .collect(),
+                disallowed_tools: WRITING_TOOLS
+                    .iter()
+                    .chain(std::iter::once(&QUESTION_TOOL))
+                    .map(|t| t.to_string())
+                    .collect(),
                 raises_requests: false,
                 env: waiting_request_env(),
             },
@@ -157,11 +175,18 @@ mod tests {
         for kind in SessionKind::ALL {
             let vars = kind.launch_policy().env;
             let names: Vec<&str> = vars.iter().map(|(name, _)| *name).collect();
-            assert_eq!(names, ["CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT", "MCP_TOOL_TIMEOUT"], "{kind:?}");
+            assert_eq!(
+                names,
+                ["CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT", "MCP_TOOL_TIMEOUT"],
+                "{kind:?}"
+            );
             for (name, value) in &vars {
                 let ms: u64 = value.parse().expect("milliseconds");
                 assert!(ms >= SEVEN_DAYS_MS, "{kind:?}: {name}={ms} is under 7 days");
-                assert!(ms <= NODE_TIMER_CEILING_MS, "{kind:?}: {name}={ms} would overflow a Node timer");
+                assert!(
+                    ms <= NODE_TIMER_CEILING_MS,
+                    "{kind:?}: {name}={ms} would overflow a Node timer"
+                );
             }
         }
     }
@@ -169,8 +194,14 @@ mod tests {
     #[test]
     fn a_shaping_session_pre_approves_round_post_and_a_story_session_does_not() {
         let allowed = SessionKind::Shaping.launch_policy().allowed_tools;
-        assert!(allowed.contains(&"mcp__flywheel-board__round_post".to_string()), "{allowed:?}");
+        assert!(
+            allowed.contains(&"mcp__flywheel-board__round_post".to_string()),
+            "{allowed:?}"
+        );
         let story = SessionKind::Story.launch_policy().allowed_tools;
-        assert!(!story.iter().any(|t| t.ends_with("__round_post")), "a Story session never posts a Round: {story:?}");
+        assert!(
+            !story.iter().any(|t| t.ends_with("__round_post")),
+            "a Story session never posts a Round: {story:?}"
+        );
     }
 }

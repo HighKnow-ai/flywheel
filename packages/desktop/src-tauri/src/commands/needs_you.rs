@@ -119,7 +119,11 @@ impl From<flywheel_core::query::needs_you::NeedsYouItem> for NeedsYouItemDto {
             },
             session_id: item.session_id,
             request: item.request.map(|r| NeedsYouRequestDto {
-                suggested_rule: card_suggested_rule(&r.tool_name, r.input_payload.as_deref(), r.destructive_category.as_deref()),
+                suggested_rule: card_suggested_rule(
+                    &r.tool_name,
+                    r.input_payload.as_deref(),
+                    r.destructive_category.as_deref(),
+                ),
                 id: r.request_id,
                 tool_name: r.tool_name,
                 input_payload: r.input_payload,
@@ -173,11 +177,15 @@ impl From<flywheel_core::query::needs_you::NeedsYouItem> for NeedsYouItemDto {
 /// the board mutex (issue #215), and on the blocking pool, never the thread IPC dispatches on
 /// (issue #220).
 #[tauri::command]
-pub async fn needs_you_list(state: State<'_, AppState>, project_id: String) -> Result<Vec<NeedsYouItemDto>, String> {
+pub async fn needs_you_list(
+    state: State<'_, AppState>,
+    project_id: String,
+) -> Result<Vec<NeedsYouItemDto>, String> {
     let path = super::board_path(&state.db)?;
     tauri::async_runtime::spawn_blocking(move || {
         let conn = super::open_beside(&path)?;
-        let items = flywheel_core::query::needs_you::needs_you(&conn, &project_id).map_err(|e| e.to_string())?;
+        let items = flywheel_core::query::needs_you::needs_you(&conn, &project_id)
+            .map_err(|e| e.to_string())?;
         Ok(items.into_iter().map(Into::into).collect())
     })
     .await

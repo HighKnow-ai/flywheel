@@ -36,8 +36,10 @@ fn interrupt_session_closes_interrupted_leaves_story_running_and_keeps_the_workt
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, repo_dir) = common::seeded_git_project();
         let story = common::new_story(&mut conn, &project.id, &actor_id, "Stop-path story");
-        set_story_state(&mut conn, &actor_id, &story.id, StoryState::Ready).expect("Shaping -> Ready");
-        set_story_state(&mut conn, &actor_id, &story.id, StoryState::Running).expect("Ready -> Running");
+        set_story_state(&mut conn, &actor_id, &story.id, StoryState::Ready)
+            .expect("Shaping -> Ready");
+        set_story_state(&mut conn, &actor_id, &story.id, StoryState::Running)
+            .expect("Ready -> Running");
 
         let commit_count_before = git_output(repo_dir.path(), &["rev-list", "--count", "HEAD"]);
 
@@ -64,7 +66,10 @@ fn interrupt_session_closes_interrupted_leaves_story_running_and_keeps_the_workt
                 |row| row.get(0),
             )
             .expect("sessions row should exist");
-        assert_eq!(status, "interrupted", "the run must close as interrupted, never as failed");
+        assert_eq!(
+            status, "interrupted",
+            "the run must close as interrupted, never as failed"
+        );
 
         let ended_at: Option<String> = conn
             .query_row(
@@ -73,7 +78,10 @@ fn interrupt_session_closes_interrupted_leaves_story_running_and_keeps_the_workt
                 |row| row.get(0),
             )
             .expect("sessions row should exist");
-        assert!(ended_at.is_some(), "ended_at must be set after an interrupt");
+        assert!(
+            ended_at.is_some(),
+            "ended_at must be set after an interrupt"
+        );
 
         // --- Behavior: the Story's state is unchanged (still running) ---
         let story_state: String = conn
@@ -83,11 +91,18 @@ fn interrupt_session_closes_interrupted_leaves_story_running_and_keeps_the_workt
                 |row| row.get(0),
             )
             .expect("story row should exist");
-        assert_eq!(story_state, "running", "a stop must never move the Story out of Running");
+        assert_eq!(
+            story_state, "running",
+            "a stop must never move the Story out of Running"
+        );
 
         // --- Behavior: the worktree still exists and the uncommitted file is byte-identical ---
-        assert!(Path::new(&worktree_path).exists(), "the worktree path must still exist after a stop");
-        let dirty_contents = std::fs::read(&dirty_file).expect("the uncommitted file should still exist");
+        assert!(
+            Path::new(&worktree_path).exists(),
+            "the worktree path must still exist after a stop"
+        );
+        let dirty_contents =
+            std::fs::read(&dirty_file).expect("the uncommitted file should still exist");
         assert_eq!(
             dirty_contents, b"uncommitted work\n",
             "the uncommitted file must be byte-identical after the stop"
@@ -140,7 +155,10 @@ fn interrupt_session_closes_interrupted_leaves_story_running_and_keeps_the_workt
                 |row| row.get(0),
             )
             .expect("sessions row should exist");
-        assert_eq!(status_after_second_call, "interrupted", "the status must remain interrupted, not overwritten");
+        assert_eq!(
+            status_after_second_call, "interrupted",
+            "the status must remain interrupted, not overwritten"
+        );
     });
 }
 

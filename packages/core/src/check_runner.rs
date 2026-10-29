@@ -70,13 +70,20 @@ fn kill_group(pgid: u32) {
 
 /// The developer's login shell: `$SHELL`, or `/bin/zsh` (the macOS default) when it is unset.
 pub fn login_shell() -> PathBuf {
-    std::env::var_os("SHELL").filter(|s| !s.is_empty()).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/bin/zsh"))
+    std::env::var_os("SHELL")
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/bin/zsh"))
 }
 
 /// Run `command` from `worktree_path` through the developer's shell, for at most `timeout`, with
 /// this process's PATH (the login PATH `main` adopted). An error means the shell could not be
 /// started at all, not that the Check failed.
-pub fn run_shell_check(worktree_path: &Path, command: &str, timeout: Duration) -> std::io::Result<ShellRun> {
+pub fn run_shell_check(
+    worktree_path: &Path,
+    command: &str,
+    timeout: Duration,
+) -> std::io::Result<ShellRun> {
     run_in_shell(&login_shell(), &[], &[], worktree_path, command, timeout)
 }
 
@@ -140,7 +147,10 @@ pub(crate) fn run_in_shell(
     let _ = reader.join();
 
     let output_tail = buf.lock().map(|b| tail_text(&b)).unwrap_or_default();
-    Ok(ShellRun { outcome, output_tail })
+    Ok(ShellRun {
+        outcome,
+        output_tail,
+    })
 }
 
 #[cfg(test)]
@@ -164,7 +174,8 @@ mod tests {
         let bin = tempfile::tempdir().unwrap();
         let tool = bin.path().join("flywheel-profile-tool");
         std::fs::write(&tool, "#!/bin/sh\necho from the login path\n").unwrap();
-        std::fs::set_permissions(&tool, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        std::fs::set_permissions(&tool, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+            .unwrap();
         let path = format!("{}:/usr/bin:/bin", bin.path().display());
         let worktree = tempfile::tempdir().unwrap();
 
@@ -177,26 +188,47 @@ mod tests {
             Duration::from_secs(30),
         )
         .unwrap();
-        assert_eq!(run.outcome, ShellOutcome::Exited(Some(0)), "{}", run.output_tail);
+        assert_eq!(
+            run.outcome,
+            ShellOutcome::Exited(Some(0)),
+            "{}",
+            run.output_tail
+        );
         assert!(run.output_tail.contains("from the login path"));
 
         let without = run_in_shell(
             Path::new("/bin/zsh"),
             &[],
-            &[("PATH", Path::new("/usr/bin:/bin")), ("ZDOTDIR", worktree.path())],
+            &[
+                ("PATH", Path::new("/usr/bin:/bin")),
+                ("ZDOTDIR", worktree.path()),
+            ],
             worktree.path(),
             "flywheel-profile-tool",
             Duration::from_secs(30),
         )
         .unwrap();
-        assert_ne!(without.outcome, ShellOutcome::Exited(Some(0)), "the entry comes from the PATH alone");
+        assert_ne!(
+            without.outcome,
+            ShellOutcome::Exited(Some(0)),
+            "the entry comes from the PATH alone"
+        );
     }
 
     #[test]
     fn standard_error_lands_in_the_tail_in_order() {
         let dir = tempfile::tempdir().unwrap();
-        let run = run_shell_check(dir.path(), "echo out; echo err >&2; exit 4", Duration::from_secs(30)).unwrap();
+        let run = run_shell_check(
+            dir.path(),
+            "echo out; echo err >&2; exit 4",
+            Duration::from_secs(30),
+        )
+        .unwrap();
         assert_eq!(run.outcome, ShellOutcome::Exited(Some(4)));
-        assert!(run.output_tail.contains("out") && run.output_tail.contains("err"), "{}", run.output_tail);
+        assert!(
+            run.output_tail.contains("out") && run.output_tail.contains("err"),
+            "{}",
+            run.output_tail
+        );
     }
 }

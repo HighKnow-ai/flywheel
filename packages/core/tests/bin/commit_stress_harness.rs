@@ -121,7 +121,9 @@ fn main() {
     if !hash_output.status.success() {
         fail_step(branch, &hash_output);
     }
-    let hash = String::from_utf8_lossy(&hash_output.stdout).trim().to_string();
+    let hash = String::from_utf8_lossy(&hash_output.stdout)
+        .trim()
+        .to_string();
 
     finish(branch, &hash, 0);
 }

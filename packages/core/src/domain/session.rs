@@ -99,11 +99,17 @@ pub fn session_kind(conn: &Connection, session_id: &str) -> anyhow::Result<Optio
 /// A Story session's Story, project and status. Refused, by name, for a shaping session, which has
 /// no Story: the Story board tools (the Task checklist, the Check run, the hand-off) and permission
 /// requests belong to Story sessions alone.
-pub fn story_session(conn: &Connection, session_id: &str) -> anyhow::Result<(String, String, String)> {
-    let subject = session_subject(conn, session_id)?.with_context(|| format!("session {session_id:?} not found"))?;
+pub fn story_session(
+    conn: &Connection,
+    session_id: &str,
+) -> anyhow::Result<(String, String, String)> {
+    let subject = session_subject(conn, session_id)?
+        .with_context(|| format!("session {session_id:?} not found"))?;
     match subject.story_id {
         Some(story_id) => Ok((story_id, subject.project_id, subject.status)),
-        None => anyhow::bail!("session {session_id:?} is a shaping session, which has no Story to write to"),
+        None => anyhow::bail!(
+            "session {session_id:?} is a shaping session, which has no Story to write to"
+        ),
     }
 }
 
@@ -111,7 +117,11 @@ pub fn story_session(conn: &Connection, session_id: &str) -> anyhow::Result<(Str
 /// caller's transaction. A shaping session gets none: it has no Story to leave a note on, and
 /// everything it decided is on the board already. The one place both rules live, for every path
 /// that ends a session.
-pub fn write_stub_if_missing(tx: &Transaction, session_id: &str, close_reason: &str) -> anyhow::Result<()> {
+pub fn write_stub_if_missing(
+    tx: &Transaction,
+    session_id: &str,
+    close_reason: &str,
+) -> anyhow::Result<()> {
     if session_kind(tx, session_id)? != Some(SessionKind::Story) {
         return Ok(());
     }
@@ -135,7 +145,11 @@ pub enum ShapingSubject {
 impl ShapingSubject {
     /// The subject of a shaping session's row: its Epic, its Milestone, or, with neither, its
     /// project's Roadmap.
-    pub fn of_row(project_id: &str, epic_id: Option<String>, milestone_id: Option<String>) -> ShapingSubject {
+    pub fn of_row(
+        project_id: &str,
+        epic_id: Option<String>,
+        milestone_id: Option<String>,
+    ) -> ShapingSubject {
         match (epic_id, milestone_id) {
             (Some(id), _) => ShapingSubject::Epic(id),
             (None, Some(id)) => ShapingSubject::Milestone(id),
@@ -156,7 +170,10 @@ pub struct ShapingSession {
 }
 
 /// The subject's live (`running` or `blocked`) shaping session, newest first, or `None`.
-pub fn live_shaping_session(conn: &Connection, subject: &ShapingSubject) -> anyhow::Result<Option<String>> {
+pub fn live_shaping_session(
+    conn: &Connection,
+    subject: &ShapingSubject,
+) -> anyhow::Result<Option<String>> {
     let (sql, id) = match subject {
         ShapingSubject::Epic(id) => (
             "SELECT id FROM sessions WHERE kind = 'shaping' AND epic_id = ?1 AND status IN ('running', 'blocked')
@@ -175,7 +192,9 @@ pub fn live_shaping_session(conn: &Connection, subject: &ShapingSubject) -> anyh
             project_id,
         ),
     };
-    conn.query_row(sql, params![id], |row| row.get(0)).optional().context("failed to read the live shaping session")
+    conn.query_row(sql, params![id], |row| row.get(0))
+        .optional()
+        .context("failed to read the live shaping session")
 }
 
 /// Start a new shaping session on `subject` (docs/mvp-spec.md §3, issue #122): no worktree, no
@@ -194,35 +213,71 @@ pub fn start_shaping_session(
     let log_path = session_log_path(&run_id)?.to_string_lossy().into_owned();
 
     let tx = conn.transaction()?;
-    tx.query_row("SELECT 1 FROM actors WHERE id = ?1", params![human_actor_id], |r| r.get::<_, i64>(0))
-        .with_context(|| format!("initiating actor {human_actor_id:?} not found"))?;
+    tx.query_row(
+        "SELECT 1 FROM actors WHERE id = ?1",
+        params![human_actor_id],
+        |r| r.get::<_, i64>(0),
+    )
+    .with_context(|| format!("initiating actor {human_actor_id:?} not found"))?;
 
-    let (project_id, state, label, epic_id, milestone_id): (String, String, String, Option<&str>, Option<&str>) =
-        match subject {
-            ShapingSubject::Epic(id) => {
-                let (project_id, state, key): (String, String, String) = tx
-                    .query_row("SELECT project_id, state, key FROM epics WHERE id = ?1", params![id], |r| {
-                        Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-                    })
-                    .with_context(|| format!("Epic {id:?} not found"))?;
-                (project_id, state, format!("Epic {key}"), Some(id.as_str()), None)
-            }
-            ShapingSubject::Milestone(id) => {
-                let (project_id, state, title): (String, String, String) = tx
-                    .query_row("SELECT project_id, state, title FROM milestones WHERE id = ?1", params![id], |r| {
-                        Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-                    })
-                    .with_context(|| format!("Milestone {id:?} not found"))?;
-                (project_id, state, format!("Milestone \"{title}\""), None, Some(id.as_str()))
-            }
-            // Issue #133: the Roadmap is never in a state; it is revisited in a roadmap Round.
-            ShapingSubject::Roadmap(id) => {
-                tx.query_row("SELECT 1 FROM projects WHERE id = ?1", params![id], |r| r.get::<_, i64>(0))
-                    .with_context(|| format!("project {id:?} not found"))?;
-                (id.clone(), "shaping".to_string(), "the Roadmap".to_string(), None, None)
-            }
-        };
-    anyhow::ensure!(state == "shaping", "{label} is {state}; only a record in Shaping is shaped");
+    let (project_id, state, label, epic_id, milestone_id): (
+        String,
+        String,
+        String,
+        Option<&str>,
+        Option<&str>,
+    ) = match subject {
+        ShapingSubject::Epic(id) => {
+            let (project_id, state, key): (String, String, String) = tx
+                .query_row(
+                    "SELECT project_id, state, key FROM epics WHERE id = ?1",
+                    params![id],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )
+                .with_context(|| format!("Epic {id:?} not found"))?;
+            (
+                project_id,
+                state,
+                format!("Epic {key}"),
+                Some(id.as_str()),
+                None,
+            )
+        }
+        ShapingSubject::Milestone(id) => {
+            let (project_id, state, title): (String, String, String) = tx
+                .query_row(
+                    "SELECT project_id, state, title FROM milestones WHERE id = ?1",
+                    params![id],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )
+                .with_context(|| format!("Milestone {id:?} not found"))?;
+            (
+                project_id,
+                state,
+                format!("Milestone \"{title}\""),
+                None,
+                Some(id.as_str()),
+            )
+        }
+        // Issue #133: the Roadmap is never in a state; it is revisited in a roadmap Round.
+        ShapingSubject::Roadmap(id) => {
+            tx.query_row("SELECT 1 FROM projects WHERE id = ?1", params![id], |r| {
+                r.get::<_, i64>(0)
+            })
+            .with_context(|| format!("project {id:?} not found"))?;
+            (
+                id.clone(),
+                "shaping".to_string(),
+                "the Roadmap".to_string(),
+                None,
+                None,
+            )
+        }
+    };
+    anyhow::ensure!(
+        state == "shaping",
+        "{label} is {state}; only a record in Shaping is shaped"
+    );
     anyhow::ensure!(
         live_shaping_session(&tx, subject)?.is_none(),
         "{label} already has a live shaping session; open it rather than starting a second one"
@@ -252,7 +307,12 @@ pub fn start_shaping_session(
             )?;
         }
         _ => {
-            crate::domain::stage::ensure_open_stage_in_tx(&tx, &project_id, subject, human_actor_id)?;
+            crate::domain::stage::ensure_open_stage_in_tx(
+                &tx,
+                &project_id,
+                subject,
+                human_actor_id,
+            )?;
         }
     }
 
@@ -278,7 +338,8 @@ pub fn start_shaping_session(
         &payload,
         &now,
     )?;
-    tx.commit().context("failed to commit start_shaping_session transaction")?;
+    tx.commit()
+        .context("failed to commit start_shaping_session transaction")?;
 
     Ok(ShapingSession {
         id: run_id,
@@ -356,13 +417,19 @@ pub fn start_session(
 
     let tx = conn.transaction()?;
 
-    tx.query_row("SELECT 1 FROM actors WHERE id = ?1", params![human_actor_id], |r| r.get::<_, i64>(0))
-        .with_context(|| format!("initiating actor {human_actor_id:?} not found"))?;
+    tx.query_row(
+        "SELECT 1 FROM actors WHERE id = ?1",
+        params![human_actor_id],
+        |r| r.get::<_, i64>(0),
+    )
+    .with_context(|| format!("initiating actor {human_actor_id:?} not found"))?;
 
     let (project_id, epic_id): (String, String) = tx
-        .query_row("SELECT project_id, epic_id FROM stories WHERE id = ?1", params![story_id], |row| {
-            Ok((row.get(0)?, row.get(1)?))
-        })
+        .query_row(
+            "SELECT project_id, epic_id FROM stories WHERE id = ?1",
+            params![story_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
         .with_context(|| format!("Story {story_id:?} not found"))?;
 
     tx.execute(
@@ -397,7 +464,8 @@ pub fn start_session(
         &now,
     )?;
 
-    tx.commit().context("failed to commit start_session transaction")?;
+    tx.commit()
+        .context("failed to commit start_session transaction")?;
 
     Ok(Session {
         id: run_id,
@@ -428,12 +496,23 @@ fn close_session_in_tx(
 ) -> anyhow::Result<()> {
     let now = Utc::now().to_rfc3339();
 
-    let Some(SessionSubject { project_id, story_id, epic_id, .. }) = session_subject(tx, run_id)? else {
+    let Some(SessionSubject {
+        project_id,
+        story_id,
+        epic_id,
+        ..
+    }) = session_subject(tx, run_id)?
+    else {
         return Ok(());
     };
 
     let agent_id = agent_actor_id(tx)?;
-    record_ending_in_tx(tx, run_id, ending, &crate::domain::actor::system_actor(tx)?.id)?;
+    record_ending_in_tx(
+        tx,
+        run_id,
+        ending,
+        &crate::domain::actor::system_actor(tx)?.id,
+    )?;
 
     tx.execute(
         "UPDATE sessions SET status = ?1, cost_usd = ?2, tokens_in = ?3, tokens_out = ?4, ended_at = ?5 WHERE id = ?6",
@@ -490,7 +569,8 @@ pub fn close_session(
     };
     let tx = conn.transaction()?;
     close_session_in_tx(&tx, run_id, status, ending, cost_usd, tokens_in, tokens_out)?;
-    tx.commit().context("failed to commit close_session transaction")?;
+    tx.commit()
+        .context("failed to commit close_session transaction")?;
     Ok(())
 }
 
@@ -512,8 +592,15 @@ pub fn record_lock_exhaustion(
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
 
-    let Some(SessionSubject { project_id, story_id, epic_id, .. }) = session_subject(&tx, run_id)? else {
-        tx.commit().context("failed to commit no-op record_lock_exhaustion transaction")?;
+    let Some(SessionSubject {
+        project_id,
+        story_id,
+        epic_id,
+        ..
+    }) = session_subject(&tx, run_id)?
+    else {
+        tx.commit()
+            .context("failed to commit no-op record_lock_exhaustion transaction")?;
         return Ok(());
     };
 
@@ -534,7 +621,8 @@ pub fn record_lock_exhaustion(
         &now,
     )?;
 
-    tx.commit().context("failed to commit record_lock_exhaustion transaction")?;
+    tx.commit()
+        .context("failed to commit record_lock_exhaustion transaction")?;
     Ok(())
 }
 
@@ -558,7 +646,10 @@ pub enum SessionClosedOutcome {
 
 /// Apply one sidecar `session_closed` event to the session's row (G-02-4). Never moves the
 /// Story's state.
-pub fn apply_session_closed(conn: &mut Connection, event: &serde_json::Value) -> anyhow::Result<SessionClosedOutcome> {
+pub fn apply_session_closed(
+    conn: &mut Connection,
+    event: &serde_json::Value,
+) -> anyhow::Result<SessionClosedOutcome> {
     if event.get("type").and_then(|v| v.as_str()) != Some("session_closed") {
         return Ok(SessionClosedOutcome::Ignored);
     }
@@ -580,9 +671,15 @@ pub fn apply_session_closed(conn: &mut Connection, event: &serde_json::Value) ->
 
     // A missing figure stays absent and is never coerced to zero (T-02G-18-04).
     let result = event.get("result");
-    let cost_usd = result.and_then(|r| r.get("totalCostUsd")).and_then(serde_json::Value::as_f64);
-    let tokens_in = result.and_then(|r| r.get("inputTokens")).and_then(serde_json::Value::as_i64);
-    let tokens_out = result.and_then(|r| r.get("outputTokens")).and_then(serde_json::Value::as_i64);
+    let cost_usd = result
+        .and_then(|r| r.get("totalCostUsd"))
+        .and_then(serde_json::Value::as_f64);
+    let tokens_in = result
+        .and_then(|r| r.get("inputTokens"))
+        .and_then(serde_json::Value::as_i64);
+    let tokens_out = result
+        .and_then(|r| r.get("outputTokens"))
+        .and_then(serde_json::Value::as_i64);
 
     /// `(status, cost_usd, tokens_in, tokens_out)` of the sessions row.
     type SessionTotals = (String, Option<f64>, Option<i64>, Option<i64>);
@@ -595,11 +692,15 @@ pub fn apply_session_closed(conn: &mut Connection, event: &serde_json::Value) ->
         .optional()
         .context("failed to read the sessions row before applying session_closed")?;
 
-    let Some((current_status, current_cost, current_tokens_in, current_tokens_out)) = existing else {
+    let Some((current_status, current_cost, current_tokens_in, current_tokens_out)) = existing
+    else {
         return Ok(SessionClosedOutcome::UnknownRun);
     };
 
-    if matches!(current_status.as_str(), "completed" | "failed" | "interrupted" | "abandoned") {
+    if matches!(
+        current_status.as_str(),
+        "completed" | "failed" | "interrupted" | "abandoned"
+    ) {
         // An explicit Stop already recorded the outcome (D-35): never overwrite it, never append a
         // second terminal event — but backfill an empty cost column the event can fill.
         let backfill_cost = current_cost.is_none() && cost_usd.is_some();
@@ -643,7 +744,8 @@ pub fn apply_session_closed(conn: &mut Connection, event: &serde_json::Value) ->
     close_session_in_tx(&tx, run_id, status, ending, cost_usd, tokens_in, tokens_out)?;
     write_stub_if_missing(&tx, run_id, ending.words())?;
 
-    tx.commit().context("failed to commit apply_session_closed transaction")?;
+    tx.commit()
+        .context("failed to commit apply_session_closed transaction")?;
     Ok(SessionClosedOutcome::Closed(status))
 }
 
@@ -670,8 +772,11 @@ pub fn acknowledge_run(conn: &Connection, session_id: &str) -> anyhow::Result<bo
 /// `domain::permission_request::create_pending_request`, so a blocked session and its pending
 /// request are written together or not at all.
 pub fn set_run_blocked(tx: &Transaction, session_id: &str) -> anyhow::Result<()> {
-    tx.execute("UPDATE sessions SET status = 'blocked' WHERE id = ?1", params![session_id])
-        .context("failed to move the session to blocked")?;
+    tx.execute(
+        "UPDATE sessions SET status = 'blocked' WHERE id = ?1",
+        params![session_id],
+    )
+    .context("failed to move the session to blocked")?;
     Ok(())
 }
 
@@ -698,16 +803,32 @@ pub fn clear_run_blocked(tx: &Transaction, session_id: &str) -> anyhow::Result<(
 /// (`commands::session::stop_session_in_tx`) can compose it with the presence-checked fallback
 /// summary inside ONE transaction it owns (D-64, CTX-01). Unknown and already-terminal sessions are
 /// a plain `Ok(())`; the caller owns the transaction's lifetime.
-pub fn interrupt_session_in_tx(tx: &Transaction, session_id: &str, actor_id: &str) -> anyhow::Result<()> {
+pub fn interrupt_session_in_tx(
+    tx: &Transaction,
+    session_id: &str,
+    actor_id: &str,
+) -> anyhow::Result<()> {
     let now = Utc::now().to_rfc3339();
 
-    let existing = session_subject(tx, session_id).context("failed to read the sessions row before interrupt")?;
+    let existing = session_subject(tx, session_id)
+        .context("failed to read the sessions row before interrupt")?;
 
-    let Some(SessionSubject { project_id, kind, story_id, epic_id, key, status: current_status }) = existing else {
+    let Some(SessionSubject {
+        project_id,
+        kind,
+        story_id,
+        epic_id,
+        key,
+        status: current_status,
+    }) = existing
+    else {
         return Ok(());
     };
 
-    if matches!(current_status.as_str(), "completed" | "failed" | "interrupted" | "abandoned") {
+    if matches!(
+        current_status.as_str(),
+        "completed" | "failed" | "interrupted" | "abandoned"
+    ) {
         // Already terminal — idempotent no-op, no second terminal event (D-35).
         return Ok(());
     }
@@ -752,10 +873,15 @@ pub fn interrupt_session_in_tx(tx: &Transaction, session_id: &str, actor_id: &st
 /// database half of "stop means interrupt, then force"). Idempotent on a terminal session and a
 /// no-op on an unknown one. Never touches the Story's state and performs no git operation: the
 /// worktree is left exactly as the agent left it.
-pub fn interrupt_session(conn: &mut Connection, session_id: &str, actor_id: &str) -> anyhow::Result<()> {
+pub fn interrupt_session(
+    conn: &mut Connection,
+    session_id: &str,
+    actor_id: &str,
+) -> anyhow::Result<()> {
     let tx = conn.transaction()?;
     interrupt_session_in_tx(&tx, session_id, actor_id)?;
-    tx.commit().context("failed to commit interrupt_session transaction")?;
+    tx.commit()
+        .context("failed to commit interrupt_session transaction")?;
     Ok(())
 }
 
@@ -765,25 +891,45 @@ pub fn interrupt_session(conn: &mut Connection, session_id: &str, actor_id: &str
 /// On a real transition it writes the status and `ended_at`, appends `session.abandoned`
 /// (carrying `reason` when the caller supplied one) and, inside the same transaction, the stub
 /// summary when the session left none (T-05-09-01): no terminal status exists without a summary.
-pub fn mark_abandoned(conn: &mut Connection, run_id: &str, actor_id: &str, reason: Option<&str>) -> anyhow::Result<bool> {
+pub fn mark_abandoned(
+    conn: &mut Connection,
+    run_id: &str,
+    actor_id: &str,
+    reason: Option<&str>,
+) -> anyhow::Result<bool> {
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
 
-    let existing =
-        session_subject(&tx, run_id).context("failed to read the sessions row before marking it abandoned")?;
+    let existing = session_subject(&tx, run_id)
+        .context("failed to read the sessions row before marking it abandoned")?;
 
-    let Some(SessionSubject { status: current_status, project_id, story_id, epic_id, .. }) = existing else {
-        tx.commit().context("failed to commit no-op mark_abandoned transaction (session not found)")?;
+    let Some(SessionSubject {
+        status: current_status,
+        project_id,
+        story_id,
+        epic_id,
+        ..
+    }) = existing
+    else {
+        tx.commit()
+            .context("failed to commit no-op mark_abandoned transaction (session not found)")?;
         return Ok(false);
     };
 
-    if matches!(current_status.as_str(), "completed" | "failed" | "interrupted" | "abandoned") {
-        tx.commit().context("failed to commit no-op mark_abandoned transaction (already terminal)")?;
+    if matches!(
+        current_status.as_str(),
+        "completed" | "failed" | "interrupted" | "abandoned"
+    ) {
+        tx.commit()
+            .context("failed to commit no-op mark_abandoned transaction (already terminal)")?;
         return Ok(false);
     }
 
-    tx.execute("UPDATE sessions SET status = 'abandoned', ended_at = ?1 WHERE id = ?2", params![now, run_id])
-        .context("failed to mark the session abandoned")?;
+    tx.execute(
+        "UPDATE sessions SET status = 'abandoned', ended_at = ?1 WHERE id = ?2",
+        params![now, run_id],
+    )
+    .context("failed to mark the session abandoned")?;
     // The reconciler finds a session the app left behind; a kill the developer chose at launch is
     // the one abandonment that is theirs.
     let ending = match reason {
@@ -817,7 +963,8 @@ pub fn mark_abandoned(conn: &mut Connection, run_id: &str, actor_id: &str, reaso
 
     write_stub_if_missing(&tx, run_id, ending.words())?;
 
-    tx.commit().context("failed to commit mark_abandoned transaction")?;
+    tx.commit()
+        .context("failed to commit mark_abandoned transaction")?;
     Ok(true)
 }
 
@@ -859,14 +1006,33 @@ pub struct LiveOrphan {
 /// it is and returned as a [`LiveOrphan`]). A malformed kill record reads as "no evidence of a
 /// kill", never as "killed". Never resumes, re-attaches to or re-spawns any process; idempotent
 /// through [`mark_abandoned`]'s own terminal guard.
-pub fn reconcile_sessions(conn: &mut Connection, actor_id: &str) -> anyhow::Result<Vec<LiveOrphan>> {
+pub fn reconcile_sessions(
+    conn: &mut Connection,
+    actor_id: &str,
+) -> anyhow::Result<Vec<LiveOrphan>> {
     #[allow(clippy::type_complexity)]
-    let in_flight: Vec<(String, Option<String>, String, Option<String>, String, String)> = {
+    let in_flight: Vec<(
+        String,
+        Option<String>,
+        String,
+        Option<String>,
+        String,
+        String,
+    )> = {
         let mut stmt = conn
             .prepare(IN_FLIGHT_SESSIONS_SELECT_SQL)
             .context("failed to prepare the in-flight sessions reconciliation query")?;
         let rows = stmt
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)))
+            .query_map([], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            })
             .context("failed to query in-flight sessions for reconciliation")?;
         rows.collect::<Result<Vec<_>, _>>()
             .context("failed to read an in-flight sessions row during reconciliation")?
@@ -891,7 +1057,9 @@ pub fn reconcile_sessions(conn: &mut Connection, actor_id: &str) -> anyhow::Resu
         }
 
         match descriptors.get(&run_id) {
-            Some(descriptor) if runtime_protocol::process_is_alive(descriptor.pid, descriptor.start_time) => {
+            Some(descriptor)
+                if runtime_protocol::process_is_alive(descriptor.pid, descriptor.start_time) =>
+            {
                 live_orphans.push(LiveOrphan {
                     run_id,
                     story_id,
@@ -992,9 +1160,15 @@ pub fn kill_orphan(
         Ok(OrphanKillOutcome {
             killed: false,
             pid,
-            detail: Some(format!("process {pid} is still alive after the kill signal")),
+            detail: Some(format!(
+                "process {pid} is still alive after the kill signal"
+            )),
         })
     } else {
-        Ok(OrphanKillOutcome { killed: true, pid, detail: None })
+        Ok(OrphanKillOutcome {
+            killed: true,
+            pid,
+            detail: None,
+        })
     }
 }

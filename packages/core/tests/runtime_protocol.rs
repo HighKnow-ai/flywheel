@@ -8,8 +8,8 @@ use std::time::Duration;
 
 use flywheel_core::runtime_protocol::{
     clear_run_runtime_files, list_run_descriptors, read_heartbeat_age, read_kill_record,
-    runtime_dir, touch_heartbeat, write_kill_record,
-    write_run_descriptor, KillRecordRead, RuntimeIo,
+    runtime_dir, touch_heartbeat, write_kill_record, write_run_descriptor, KillRecordRead,
+    RuntimeIo,
 };
 
 /// Serializes every call to [`with_scratch_runtime_dir`] in THIS binary — `FLYWHEEL_RUNTIME_DIR`
@@ -129,7 +129,10 @@ fn kill_record_round_trips_with_the_fields_a_watchdog_writes() {
 #[test]
 fn read_kill_record_is_absent_when_no_file_exists() {
     with_scratch_runtime_dir(|_dir| {
-        assert_eq!(read_kill_record("run-does-not-exist"), KillRecordRead::Absent);
+        assert_eq!(
+            read_kill_record("run-does-not-exist"),
+            KillRecordRead::Absent
+        );
     });
 }
 
@@ -150,8 +153,14 @@ fn read_kill_record_is_malformed_when_the_file_does_not_parse() {
 #[test]
 fn run_descriptor_round_trips_and_lists_every_descriptor_on_disk() {
     with_scratch_runtime_dir(|_dir| {
-        assert_eq!(write_run_descriptor("run-one", 100, 111), RuntimeIo::Written);
-        assert_eq!(write_run_descriptor("run-two", 200, 222), RuntimeIo::Written);
+        assert_eq!(
+            write_run_descriptor("run-one", 100, 111),
+            RuntimeIo::Written
+        );
+        assert_eq!(
+            write_run_descriptor("run-two", 200, 222),
+            RuntimeIo::Written
+        );
         let mut descriptors = list_run_descriptors();
         descriptors.sort_by(|a, b| a.run_id.cmp(&b.run_id));
         assert_eq!(descriptors.len(), 2);
@@ -171,7 +180,10 @@ fn run_descriptor_round_trips_and_lists_every_descriptor_on_disk() {
 #[test]
 fn clear_run_runtime_files_removes_the_lifecycle_timeline_alongside_the_other_three_files() {
     with_scratch_runtime_dir(|dir| {
-        assert_eq!(write_run_descriptor("run-lifecycle", 100, 111), RuntimeIo::Written);
+        assert_eq!(
+            write_run_descriptor("run-lifecycle", 100, 111),
+            RuntimeIo::Written
+        );
         assert_eq!(
             write_kill_record("run-lifecycle", 100, 111, "heartbeat-stale"),
             RuntimeIo::Written

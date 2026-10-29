@@ -64,7 +64,11 @@ impl From<flywheel_core::git_facts::GitFacts> for GitFactsDto {
             last_fetch_at: facts.last_fetch_at,
             commits: facts.commits.into_iter().map(CommitRowDto::from).collect(),
             commits_truncated: facts.commits_truncated,
-            uncommitted: facts.uncommitted.into_iter().map(PorcelainEntryDto::from).collect(),
+            uncommitted: facts
+                .uncommitted
+                .into_iter()
+                .map(PorcelainEntryDto::from)
+                .collect(),
         }
     }
 }
@@ -82,17 +86,22 @@ pub async fn git_facts(
         flywheel_core::git_facts::plan_git_facts(&conn, &story_id).map_err(|e| e.to_string())?
     };
     let Some(plan) = plan else { return Ok(None) };
-    let facts = tauri::async_runtime::spawn_blocking(move || flywheel_core::git_facts::read_git_facts(&plan))
-        .await
-        .map_err(|e| super::ipc_error("git_facts:join", e))?
-        .map_err(|e| e.to_string())?;
+    let facts = tauri::async_runtime::spawn_blocking(move || {
+        flywheel_core::git_facts::read_git_facts(&plan)
+    })
+    .await
+    .map_err(|e| super::ipc_error("git_facts:join", e))?
+    .map_err(|e| e.to_string())?;
     Ok(Some(GitFactsDto::from(facts)))
 }
 
 /// Declares which Story's item detail panel is currently open (D-114's hot-tier "open panel"
 /// half) — writes `AppState.focused_story` and nothing else. `None` means no panel is open.
 #[tauri::command]
-pub fn git_truth_focus_story(state: State<AppState>, story_id: Option<String>) -> Result<(), String> {
+pub fn git_truth_focus_story(
+    state: State<AppState>,
+    story_id: Option<String>,
+) -> Result<(), String> {
     let mut focused = state.focused_story.lock().map_err(|e| e.to_string())?;
     *focused = story_id;
     Ok(())

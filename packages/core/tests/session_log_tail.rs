@@ -8,7 +8,9 @@
 //! directory under a fresh ULID per test, and removes its own file.
 
 use flywheel_core::ids::new_id;
-use flywheel_core::session_log::{read_tail, session_log_path, LOG_TAIL_MAX_BYTES, LOG_TAIL_MAX_LINES};
+use flywheel_core::session_log::{
+    read_tail, session_log_path, LOG_TAIL_MAX_BYTES, LOG_TAIL_MAX_LINES,
+};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::time::Instant;
@@ -29,13 +31,16 @@ fn write_raw(path: &std::path::Path, content: &str) {
         .truncate(true)
         .open(path)
         .expect("failed to open scratch log file");
-    file.write_all(content.as_bytes()).expect("failed to write scratch log content");
+    file.write_all(content.as_bytes())
+        .expect("failed to write scratch log content");
 }
 
 fn numbered_lines(count: usize) -> String {
     let mut content = String::new();
     for i in 0..count {
-        content.push_str(&format!("{{\"type\":\"assistant_text\",\"text\":\"line {i}\"}}\n"));
+        content.push_str(&format!(
+            "{{\"type\":\"assistant_text\",\"text\":\"line {i}\"}}\n"
+        ));
     }
     content
 }
@@ -48,10 +53,16 @@ fn ten_thousand_line_log_returns_a_bounded_tail_ending_at_the_last_line() {
     let tail = read_tail(&run_id).expect("read_tail should succeed");
 
     assert_eq!(tail.lines.len(), LOG_TAIL_MAX_LINES);
-    assert_eq!(tail.lines.last().unwrap(), r#"{"type":"assistant_text","text":"line 9999"}"#);
+    assert_eq!(
+        tail.lines.last().unwrap(),
+        r#"{"type":"assistant_text","text":"line 9999"}"#
+    );
     assert_eq!(
         tail.lines.first().unwrap(),
-        &format!("{{\"type\":\"assistant_text\",\"text\":\"line {}\"}}", 10_000 - LOG_TAIL_MAX_LINES),
+        &format!(
+            "{{\"type\":\"assistant_text\",\"text\":\"line {}\"}}",
+            10_000 - LOG_TAIL_MAX_LINES
+        ),
         "lines come back in forward order"
     );
     assert!(!tail.truncated);
@@ -81,7 +92,10 @@ fn a_partial_final_line_is_dropped_and_the_complete_lines_before_it_are_kept() {
     let (run_id, path) = fresh_run();
     write_raw(&path, "{\"a\":1}\n{\"a\":2}\n{\"a\":3");
     let tail = read_tail(&run_id).unwrap();
-    assert_eq!(tail.lines, vec![r#"{"a":1}"#.to_string(), r#"{"a":2}"#.to_string()]);
+    assert_eq!(
+        tail.lines,
+        vec![r#"{"a":1}"#.to_string(), r#"{"a":2}"#.to_string()]
+    );
     let _ = fs::remove_file(&path);
 }
 
@@ -109,7 +123,10 @@ fn a_single_line_larger_than_the_window_yields_no_line_and_says_it_was_truncated
     let huge = "x".repeat(LOG_TAIL_MAX_BYTES + 1);
     write_raw(&path, &format!("{huge}\n"));
     let tail = read_tail(&run_id).unwrap();
-    assert!(tail.lines.is_empty(), "half a JSON object is worse than none");
+    assert!(
+        tail.lines.is_empty(),
+        "half a JSON object is worse than none"
+    );
     assert!(tail.truncated);
     let _ = fs::remove_file(&path);
 }

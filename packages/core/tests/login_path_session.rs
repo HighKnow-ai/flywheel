@@ -18,17 +18,26 @@ use flywheel_core::login_path::{adopt, adopted, claude_bin, find_on_path};
 const FINDER_PATH: &str = "/usr/bin:/bin:/usr/sbin:/sbin";
 
 fn workspace_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap().to_path_buf()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf()
 }
 
 #[test]
 fn a_session_spawns_claude_found_only_on_the_login_profile_path() {
     let root = workspace_root();
     let dist_entry = root.join("packages/sidecar/dist/index.js");
-    assert!(dist_entry.is_file(), "expected {dist_entry:?}: run `npm --prefix packages/sidecar run build` first");
+    assert!(
+        dist_entry.is_file(),
+        "expected {dist_entry:?}: run `npm --prefix packages/sidecar run build` first"
+    );
     let fake_claude = root.join("packages/sidecar/test/fake-claude.mjs");
     // Found on the test's own PATH, before it is cut down to Finder's.
-    let node = find_on_path("node", &std::env::var_os("PATH").unwrap()).expect("node on the test's PATH");
+    let node =
+        find_on_path("node", &std::env::var_os("PATH").unwrap()).expect("node on the test's PATH");
 
     // `claude` exists only in `profile_bin`, which only the login profile puts on PATH. It records
     // the PATH it was started with and where its shell finds `git`, then plays the backend.
@@ -48,8 +57,11 @@ fn a_session_spawns_claude_found_only_on_the_login_profile_path() {
     .unwrap();
     std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
     let profile = tempfile::tempdir().unwrap();
-    std::fs::write(profile.path().join(".zprofile"), format!("export PATH=\"{}:$PATH\"\n", profile_bin.path().display()))
-        .unwrap();
+    std::fs::write(
+        profile.path().join(".zprofile"),
+        format!("export PATH=\"{}:$PATH\"\n", profile_bin.path().display()),
+    )
+    .unwrap();
     let runtime = tempfile::tempdir().unwrap();
     let worktree = tempfile::tempdir().unwrap();
 
@@ -61,14 +73,26 @@ fn a_session_spawns_claude_found_only_on_the_login_profile_path() {
 
     let login = adopt(Duration::from_secs(30));
     assert_eq!(login.warning, None);
-    assert_eq!(std::env::var("PATH").unwrap(), login.path, "the login PATH is now the process's own");
+    assert_eq!(
+        std::env::var("PATH").unwrap(),
+        login.path,
+        "the login PATH is now the process's own"
+    );
     assert_eq!(adopted(), Some(&login));
-    assert_eq!(claude_bin(), Ok(stub.clone()), "Start's check finds the stub on the login PATH");
+    assert_eq!(
+        claude_bin(),
+        Ok(stub.clone()),
+        "Start's check finds the stub on the login PATH"
+    );
 
     // The session's env, built the way every launch builds it: the shim directory in front of PATH.
-    let session_env = flywheel_core::shim::shim_env_for_run("login-path-run").expect("the shim installs");
+    let session_env =
+        flywheel_core::shim::shim_env_for_run("login-path-run").expect("the shim installs");
     let session_path = session_env["PATH"].clone();
-    assert_eq!(session_path.split_once(':').map(|(_, rest)| rest), Some(login.path.as_str()));
+    assert_eq!(
+        session_path.split_once(':').map(|(_, rest)| rest),
+        Some(login.path.as_str())
+    );
     let shim_dir = PathBuf::from(session_path.split(':').next().unwrap());
 
     let mut child = Command::new(&node)
@@ -83,7 +107,10 @@ fn a_session_spawns_claude_found_only_on_the_login_profile_path() {
     let pid = child.id();
     let watchdog = std::thread::spawn(move || {
         if done_rx.recv_timeout(Duration::from_secs(30)).is_err() {
-            let _ = Command::new("/bin/kill").arg("-9").arg(pid.to_string()).status();
+            let _ = Command::new("/bin/kill")
+                .arg("-9")
+                .arg(pid.to_string())
+                .status();
         }
     });
 
@@ -101,7 +128,9 @@ fn a_session_spawns_claude_found_only_on_the_login_profile_path() {
     let mut closed = None;
     for line in BufReader::new(child.stdout.take().unwrap()).lines() {
         let Ok(line) = line else { break };
-        let Ok(envelope) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
+        let Ok(envelope) = serde_json::from_str::<serde_json::Value>(&line) else {
+            continue;
+        };
         if envelope["kind"] == "event" && envelope["event"]["type"] == "session_closed" {
             closed = Some(envelope["event"].clone());
             break;
@@ -116,6 +145,14 @@ fn a_session_spawns_claude_found_only_on_the_login_profile_path() {
     let saw = std::fs::read_to_string(&record_file)
         .unwrap_or_else(|e| panic!("the stub claude never ran ({e}); session_closed was {closed}"));
     let mut lines = saw.lines();
-    assert_eq!(lines.next(), Some(session_path.as_str()), "claude and its Bash see the shim in front of the login PATH");
-    assert_eq!(lines.next().map(PathBuf::from), Some(shim_dir.join("git")), "the session's git is the shim");
+    assert_eq!(
+        lines.next(),
+        Some(session_path.as_str()),
+        "claude and its Bash see the shim in front of the login PATH"
+    );
+    assert_eq!(
+        lines.next().map(PathBuf::from),
+        Some(shim_dir.join("git")),
+        "the session's git is the shim"
+    );
 }

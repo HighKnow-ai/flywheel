@@ -107,7 +107,11 @@ pub fn parse_pattern(tool: &str, pattern: &str) -> anyhow::Result<Pattern> {
         return Ok(Pattern::WholeTool);
     }
     let body = normalise_spaces(body);
-    Ok(if prefix { Pattern::Prefix(body) } else { Pattern::Exact(body) })
+    Ok(if prefix {
+        Pattern::Prefix(body)
+    } else {
+        Pattern::Exact(body)
+    })
 }
 
 /// Split `Tool(pattern)` into its tool and pattern. A bare `Tool` is the whole tool.
@@ -160,11 +164,15 @@ pub fn suggested_rule(tool: &str, input_payload: Option<&str>) -> String {
 
 /// Whether a call of `tool` with `input` matches `pattern`. An unparseable pattern matches nothing.
 pub fn matches(tool: &str, pattern: &str, input: &serde_json::Value) -> bool {
-    let Ok(parsed) = parse_pattern(tool, pattern) else { return false };
+    let Ok(parsed) = parse_pattern(tool, pattern) else {
+        return false;
+    };
     if parsed == Pattern::WholeTool {
         return true;
     }
-    let Some(command) = bash_command(tool, input) else { return false };
+    let Some(command) = bash_command(tool, input) else {
+        return false;
+    };
     if command.contains(SHELL_OPERATORS) {
         return false;
     }
@@ -173,7 +181,10 @@ pub fn matches(tool: &str, pattern: &str, input: &serde_json::Value) -> bool {
         Pattern::WholeTool => true,
         Pattern::Exact(exact) => command == exact,
         Pattern::Prefix(prefix) => {
-            command == prefix || command.strip_prefix(&prefix).is_some_and(|rest| rest.starts_with(' '))
+            command == prefix
+                || command
+                    .strip_prefix(&prefix)
+                    .is_some_and(|rest| rest.starts_with(' '))
         }
     }
 }
@@ -189,7 +200,9 @@ pub fn covers_gated_action(tool: &str, pattern: &str, default_branch: Option<&st
         Ok(Pattern::Exact(body)) => (body, false),
         Ok(Pattern::Prefix(body)) => (body, true),
     };
-    let Some(words) = shell_words(&body) else { return true };
+    let Some(words) = shell_words(&body) else {
+        return true;
+    };
     if words_are_gated(&words, default_branch) {
         return true;
     }
@@ -204,7 +217,9 @@ pub fn covers_gated_action(tool: &str, pattern: &str, default_branch: Option<&st
 /// Whether this call is itself a Gated action, judged from its own input. A call the classifier
 /// cannot read (unbalanced quotes, an empty segment) counts as Gated, so no rule answers it.
 pub fn call_is_gated(tool: &str, input: &serde_json::Value, default_branch: Option<&str>) -> bool {
-    let Some(command) = bash_command(tool, input) else { return false };
+    let Some(command) = bash_command(tool, input) else {
+        return false;
+    };
     command
         .split([';', '&', '|', '\n'])
         .filter(|segment| !segment.trim().is_empty())
@@ -224,7 +239,9 @@ fn words_are_gated(words: &[String], default_branch: Option<&str>) -> bool {
         while rest.first().is_some_and(|w| is_assignment(w)) {
             rest = &rest[1..];
         }
-        let Some(first) = rest.first() else { return true };
+        let Some(first) = rest.first() else {
+            return true;
+        };
         let program = program_name(first);
         if !PREFIX_WRAPPERS.contains(&program) {
             break;
@@ -236,7 +253,11 @@ fn words_are_gated(words: &[String], default_branch: Option<&str>) -> bool {
     if COMMAND_RUNNERS.contains(&program) {
         return true;
     }
-    if program == "env" && args.iter().any(|a| !a.starts_with('-') && !is_assignment(a)) {
+    if program == "env"
+        && args
+            .iter()
+            .any(|a| !a.starts_with('-') && !is_assignment(a))
+    {
         return true;
     }
     classify(program, args, default_branch) != Verdict::Safe
@@ -261,7 +282,11 @@ fn strip_wrapper<'a>(wrapper: &str, mut args: &'a [String]) -> &'a [String] {
         if !arg.starts_with('-') {
             break;
         }
-        let skip = if takes_value.contains(&arg.as_str()) { 2 } else { 1 };
+        let skip = if takes_value.contains(&arg.as_str()) {
+            2
+        } else {
+            1
+        };
         args = &args[skip.min(args.len())..];
     }
     if wrapper == "timeout" && !args.is_empty() {
@@ -282,7 +307,9 @@ fn normalise_spaces(text: &str) -> String {
 }
 
 fn is_assignment(word: &str) -> bool {
-    let Some((name, _)) = word.split_once('=') else { return false };
+    let Some((name, _)) = word.split_once('=') else {
+        return false;
+    };
     let mut chars = name.chars();
     matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_')
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')

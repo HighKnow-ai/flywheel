@@ -53,10 +53,16 @@ impl From<flywheel_core::domain::story::Story> for StoryDto {
 
 /// Create a Story at the end of `epic_id`'s execution order, in Shaping.
 #[tauri::command]
-pub fn story_create(state: State<AppState>, app: AppHandle, epic_id: String, title: String) -> Result<StoryDto, String> {
+pub fn story_create(
+    state: State<AppState>,
+    app: AppHandle,
+    epic_id: String,
+    title: String,
+) -> Result<StoryDto, String> {
     validate_text("title", &title, MAX_TITLE_LEN)?;
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     let story = flywheel_core::domain::story::create_story(&mut conn, &actor_id, &epic_id, &title)
         .map_err(|e| e.to_string())?;
     drop(conn);
@@ -68,7 +74,8 @@ pub fn story_create(state: State<AppState>, app: AppHandle, epic_id: String, tit
 #[tauri::command]
 pub fn story_list(state: State<AppState>, epic_id: String) -> Result<Vec<StoryDto>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let stories = flywheel_core::domain::story::stories_in_epic(&conn, &epic_id).map_err(|e| e.to_string())?;
+    let stories = flywheel_core::domain::story::stories_in_epic(&conn, &epic_id)
+        .map_err(|e| e.to_string())?;
     Ok(stories.into_iter().map(StoryDto::from).collect())
 }
 
@@ -76,7 +83,8 @@ pub fn story_list(state: State<AppState>, epic_id: String) -> Result<Vec<StoryDt
 #[tauri::command]
 pub fn story_get(state: State<AppState>, story_id: String) -> Result<Option<StoryDto>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let story = flywheel_core::domain::story::get_story(&conn, &story_id).map_err(|e| e.to_string())?;
+    let story =
+        flywheel_core::domain::story::get_story(&conn, &story_id).map_err(|e| e.to_string())?;
     Ok(story.map(StoryDto::from))
 }
 
@@ -92,7 +100,8 @@ pub async fn story_context_packet_size(
     let db_path = super::board_path(&state.db)?;
     tauri::async_runtime::spawn_blocking(move || {
         let conn = super::open_beside(&db_path)?;
-        flywheel_core::context_packet::context_packet_size(&conn, &story_id).map_err(|e| e.to_string())
+        flywheel_core::context_packet::context_packet_size(&conn, &story_id)
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| super::ipc_error("story_context_packet_size:join", e))?
@@ -112,9 +121,16 @@ pub fn story_update(
         validate_text("description", description, MAX_PROSE_LEN)?;
     }
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    flywheel_core::domain::story::update_story(&mut conn, &actor_id, &story_id, &title, description.as_deref())
-        .map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::story::update_story(
+        &mut conn,
+        &actor_id,
+        &story_id,
+        &title,
+        description.as_deref(),
+    )
+    .map_err(|e| e.to_string())?;
     let project_id = super::project_of(&conn, "stories", &story_id);
     drop(conn);
     emit_board_changed(&app, project_id.as_deref(), "story", Some(&story_id));
@@ -124,15 +140,22 @@ pub fn story_update(
 /// The developer moves a Story along the spec's transition table (starting it, requesting changes).
 /// The domain refuses any move outside the table; Drop and Merge have commands of their own.
 #[tauri::command]
-pub fn story_set_state(state: State<AppState>, app: AppHandle, story_id: String, to: String) -> Result<(), String> {
+pub fn story_set_state(
+    state: State<AppState>,
+    app: AppHandle,
+    story_id: String,
+    to: String,
+) -> Result<(), String> {
     let to = flywheel_core::domain::story::StoryState::parse(&to).map_err(|e| e.to_string())?;
     refuse_bare_drop(to)?;
     refuse_bare_merge(to)?;
     refuse_bare_running(to)?;
     refuse_bare_ready(to)?;
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    flywheel_core::domain::story::set_story_state(&mut conn, &actor_id, &story_id, to).map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::story::set_story_state(&mut conn, &actor_id, &story_id, to)
+        .map_err(|e| e.to_string())?;
     let project_id = super::project_of(&conn, "stories", &story_id);
     drop(conn);
     emit_board_changed(&app, project_id.as_deref(), "story", Some(&story_id));
@@ -143,7 +166,9 @@ pub fn story_set_state(state: State<AppState>, app: AppHandle, story_id: String,
 /// write would leave them behind.
 fn refuse_bare_drop(to: flywheel_core::domain::story::StoryState) -> Result<(), String> {
     if to == flywheel_core::domain::story::StoryState::Dropped {
-        return Err("drop a Story with story_drop, which also removes its worktree and branch".to_string());
+        return Err(
+            "drop a Story with story_drop, which also removes its worktree and branch".to_string(),
+        );
     }
     Ok(())
 }
@@ -153,7 +178,10 @@ fn refuse_bare_drop(to: flywheel_core::domain::story::StoryState) -> Result<(), 
 /// nothing on its base branch.
 fn refuse_bare_merge(to: flywheel_core::domain::story::StoryState) -> Result<(), String> {
     if to == flywheel_core::domain::story::StoryState::Merged {
-        return Err("merge a Story with story_merge, which writes the merge commit on its base branch".to_string());
+        return Err(
+            "merge a Story with story_merge, which writes the merge commit on its base branch"
+                .to_string(),
+        );
     }
     Ok(())
 }
@@ -170,10 +198,16 @@ fn refuse_bare_ready(to: flywheel_core::domain::story::StoryState) -> Result<(),
 /// The developer's Make Ready (docs/mvp-spec.md §2, issue #166): a Story in Shaping, with a criterion, in
 /// an Epic whose shaping is closed, moves to Ready. The core refuses anything else, an agent included.
 #[tauri::command]
-pub fn story_make_ready(state: State<AppState>, app: AppHandle, story_id: String) -> Result<(), String> {
+pub fn story_make_ready(
+    state: State<AppState>,
+    app: AppHandle,
+    story_id: String,
+) -> Result<(), String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    flywheel_core::domain::story::make_ready(&mut conn, &actor_id, &story_id).map_err(|e| format!("{e:#}"))?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::story::make_ready(&mut conn, &actor_id, &story_id)
+        .map_err(|e| format!("{e:#}"))?;
     let project_id = super::project_of(&conn, "stories", &story_id);
     drop(conn);
     emit_board_changed(&app, project_id.as_deref(), "story", Some(&story_id));
@@ -216,9 +250,11 @@ pub async fn story_request_changes(
         validate_text("comments", &comments, MAX_PROSE_LEN)?;
     }
     // The review's diff, the launch's git and the spawn floor: on the blocking pool (issue #220).
-    tauri::async_runtime::spawn_blocking(move || request_changes_blocking(&app, story_id, &comments))
-        .await
-        .map_err(|e| super::ipc_error("story_request_changes:join", e))?
+    tauri::async_runtime::spawn_blocking(move || {
+        request_changes_blocking(&app, story_id, &comments)
+    })
+    .await
+    .map_err(|e| super::ipc_error("story_request_changes:join", e))?
 }
 
 fn request_changes_blocking(
@@ -242,7 +278,10 @@ fn request_changes_blocking(
         id: outcome.run_id,
         story_id,
         status: "running".to_string(),
-        permission_mode: SessionKind::Story.launch_policy().permission_mode.to_string(),
+        permission_mode: SessionKind::Story
+            .launch_policy()
+            .permission_mode
+            .to_string(),
     })
 }
 
@@ -272,20 +311,37 @@ pub(crate) fn request_changes_and_launch(
             .ok_or_else(|| format!("Story {story_id:?} not found"))?
             .state;
         if current != flywheel_core::domain::story::StoryState::InReview.as_str() {
-            return Err(format!("Request changes needs a Story In review; this one is {}", current.replace('_', " ")));
+            return Err(format!(
+                "Request changes needs a Story In review; this one is {}",
+                current.replace('_', " ")
+            ));
         }
         find_claude()?;
-        let human = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-        flywheel_core::domain::request_changes::request_changes(&mut conn, &human, story_id, comments)
-            .map_err(|e| format!("{e:#}"))?;
+        let human =
+            flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+        flywheel_core::domain::request_changes::request_changes(
+            &mut conn, &human, story_id, comments,
+        )
+        .map_err(|e| format!("{e:#}"))?;
 
-        let stopped =
-            |why: String| format!("The Story is back in Running, but its session did not start ({why}). Resume it.");
-        let PreparedLaunch { outcome, repo_path, env } =
-            prepare_launch(&mut conn, story_id, SessionKind::Story, "").map_err(stopped)?;
-        spawn_prepared_run(&mut conn, &outcome, env, SessionKind::Story, merge_shim, |request| {
-            send(&repo_path, request)
-        })
+        let stopped = |why: String| {
+            format!(
+                "The Story is back in Running, but its session did not start ({why}). Resume it."
+            )
+        };
+        let PreparedLaunch {
+            outcome,
+            repo_path,
+            env,
+        } = prepare_launch(&mut conn, story_id, SessionKind::Story, "").map_err(stopped)?;
+        spawn_prepared_run(
+            &mut conn,
+            &outcome,
+            env,
+            SessionKind::Story,
+            merge_shim,
+            |request| send(&repo_path, request),
+        )
         .map_err(stopped)?;
         Ok(outcome)
     })
@@ -295,7 +351,11 @@ pub(crate) fn request_changes_and_launch(
 /// branch are removed, uncommitted work included; the record stays readable. Refused for a Merged
 /// Story and while a session is live. Not a Gated action: it raises no permission request.
 #[tauri::command]
-pub async fn story_drop(state: State<'_, AppState>, app: AppHandle, story_id: String) -> Result<(), String> {
+pub async fn story_drop(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    story_id: String,
+) -> Result<(), String> {
     // Removing the worktree and the branch is git: a side connection, under the Story's work lock
     // (issue #215), on the blocking pool (issue #220).
     let db_path = super::board_path(&state.db)?;
@@ -303,8 +363,10 @@ pub async fn story_drop(state: State<'_, AppState>, app: AppHandle, story_id: St
     let project_id = tauri::async_runtime::spawn_blocking(move || {
         super::with_story_work(&id, || -> Result<Option<String>, String> {
             let mut conn = super::open_beside(&db_path)?;
-            let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-            flywheel_core::domain::story_drop::drop_story(&mut conn, &actor_id, &id).map_err(|e| format!("{e:#}"))?;
+            let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn)
+                .map_err(|e| e.to_string())?;
+            flywheel_core::domain::story_drop::drop_story(&mut conn, &actor_id, &id)
+                .map_err(|e| format!("{e:#}"))?;
             Ok(super::project_of(&conn, "stories", &id))
         })
     })
@@ -327,13 +389,20 @@ pub struct CriterionInput {
 }
 
 /// Bound every field of a hand-written Story before anything touches the database.
-fn validate_hand_written(title: &str, description: Option<&str>, criteria: &[CriterionInput]) -> Result<(), String> {
+fn validate_hand_written(
+    title: &str,
+    description: Option<&str>,
+    criteria: &[CriterionInput],
+) -> Result<(), String> {
     validate_text("title", title, MAX_TITLE_LEN)?;
     if let Some(description) = description {
         validate_text("description", description, MAX_PROSE_LEN)?;
     }
     if criteria.len() > MAX_CRITERIA {
-        return Err(format!("a Story may carry at most {MAX_CRITERIA} criteria, got {}", criteria.len()));
+        return Err(format!(
+            "a Story may carry at most {MAX_CRITERIA} criteria, got {}",
+            criteria.len()
+        ));
     }
     for criterion in criteria {
         validate_text("statement", &criterion.statement, MAX_PROSE_LEN)?;
@@ -358,10 +427,14 @@ pub fn story_write_by_hand(
     validate_hand_written(&title, description.as_deref(), &criteria)?;
     let written: Vec<HandWrittenCriterion> = criteria
         .iter()
-        .map(|c| HandWrittenCriterion { statement: &c.statement, check_command: c.check_command.as_deref() })
+        .map(|c| HandWrittenCriterion {
+            statement: &c.statement,
+            check_command: c.check_command.as_deref(),
+        })
         .collect();
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     let story = flywheel_core::domain::story::write_story_by_hand(
         &mut conn,
         &actor_id,
@@ -380,10 +453,17 @@ pub fn story_write_by_hand(
 /// landing at the end of its order, with its key, criteria, Tasks, worktree and branch untouched. The
 /// core refuses an agent, a closed Story and a Done or Dropped Epic.
 #[tauri::command]
-pub fn story_move(state: State<AppState>, app: AppHandle, story_id: String, epic_id: String) -> Result<(), String> {
+pub fn story_move(
+    state: State<AppState>,
+    app: AppHandle,
+    story_id: String,
+    epic_id: String,
+) -> Result<(), String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    flywheel_core::domain::story::move_story_to_epic(&mut conn, &actor_id, &story_id, &epic_id).map_err(|e| format!("{e:#}"))?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::story::move_story_to_epic(&mut conn, &actor_id, &story_id, &epic_id)
+        .map_err(|e| format!("{e:#}"))?;
     let project_id = super::project_of(&conn, "stories", &story_id);
     drop(conn);
     emit_board_changed(&app, project_id.as_deref(), "story", Some(&story_id));
@@ -392,9 +472,13 @@ pub fn story_move(state: State<AppState>, app: AppHandle, story_id: String, epic
 
 /// Every Story of a project, in Roadmap order (Milestone, then Epic, then Story).
 #[tauri::command]
-pub fn story_list_for_project(state: State<AppState>, project_id: String) -> Result<Vec<StoryDto>, String> {
+pub fn story_list_for_project(
+    state: State<AppState>,
+    project_id: String,
+) -> Result<Vec<StoryDto>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let stories = flywheel_core::domain::story::stories_in_project(&conn, &project_id).map_err(|e| e.to_string())?;
+    let stories = flywheel_core::domain::story::stories_in_project(&conn, &project_id)
+        .map_err(|e| e.to_string())?;
     Ok(stories.into_iter().map(StoryDto::from).collect())
 }
 
@@ -403,27 +487,36 @@ mod tests {
     use super::*;
 
     fn input(statement: &str, check: Option<&str>) -> CriterionInput {
-        CriterionInput { statement: statement.to_string(), check_command: check.map(str::to_string) }
+        CriterionInput {
+            statement: statement.to_string(),
+            check_command: check.map(str::to_string),
+        }
     }
 
     #[test]
     fn a_bare_state_write_cannot_drop_a_story() {
         use flywheel_core::domain::story::StoryState;
-        assert!(refuse_bare_drop(StoryState::Dropped).unwrap_err().contains("story_drop"));
+        assert!(refuse_bare_drop(StoryState::Dropped)
+            .unwrap_err()
+            .contains("story_drop"));
         assert!(refuse_bare_drop(StoryState::Merged).is_ok());
     }
 
     #[test]
     fn a_bare_state_write_cannot_merge_a_story() {
         use flywheel_core::domain::story::StoryState;
-        assert!(refuse_bare_merge(StoryState::Merged).unwrap_err().contains("story_merge"));
+        assert!(refuse_bare_merge(StoryState::Merged)
+            .unwrap_err()
+            .contains("story_merge"));
         assert!(refuse_bare_merge(StoryState::Running).is_ok());
     }
 
     #[test]
     fn a_bare_state_write_cannot_make_a_story_ready() {
         use flywheel_core::domain::story::StoryState;
-        assert!(refuse_bare_ready(StoryState::Ready).unwrap_err().contains("story_make_ready"));
+        assert!(refuse_bare_ready(StoryState::Ready)
+            .unwrap_err()
+            .contains("story_make_ready"));
         assert!(refuse_bare_ready(StoryState::InReview).is_ok());
     }
 
@@ -431,29 +524,60 @@ mod tests {
     fn a_bare_state_write_cannot_move_a_story_to_running() {
         use flywheel_core::domain::story::StoryState;
         let err = refuse_bare_running(StoryState::Running).unwrap_err();
-        assert!(err.contains("story_start") && err.contains("story_request_changes"), "{err}");
+        assert!(
+            err.contains("story_start") && err.contains("story_request_changes"),
+            "{err}"
+        );
         assert!(refuse_bare_running(StoryState::InReview).is_ok());
     }
 
     // --- Request changes (issue #158): In review → Running with a fresh session -----------------
 
-    use crate::commands::session::tests::{found_claude, seeded_git_conn_with_story, story_state, with_scratch_dirs};
+    use crate::commands::session::tests::{
+        found_claude, seeded_git_conn_with_story, story_state, with_scratch_dirs,
+    };
     use rusqlite::Connection;
 
     /// An In review Story: started, one Task done, handed off, its session ended.
-    fn in_review_story() -> (std::sync::Mutex<Connection>, String, String, tempfile::TempDir) {
+    fn in_review_story() -> (
+        std::sync::Mutex<Connection>,
+        String,
+        String,
+        tempfile::TempDir,
+    ) {
         let (mut conn, human, _project, story, repo) = seeded_git_conn_with_story();
-        flywheel_core::domain::story::set_story_state(&mut conn, &human, &story, flywheel_core::domain::story::StoryState::Ready)
-            .unwrap();
+        flywheel_core::domain::story::set_story_state(
+            &mut conn,
+            &human,
+            &story,
+            flywheel_core::domain::story::StoryState::Ready,
+        )
+        .unwrap();
         let db = std::sync::Mutex::new(conn);
-        let first = crate::commands::session::start_ready_story(&db, &story, "", found_claude, |_, _| Ok(()), |_, _| Ok(()))
-            .unwrap();
+        let first = crate::commands::session::start_ready_story(
+            &db,
+            &story,
+            "",
+            found_claude,
+            |_, _| Ok(()),
+            |_, _| Ok(()),
+        )
+        .unwrap();
         let mut conn = db.lock().unwrap();
         let agent = flywheel_core::domain::session::agent_actor_id(&conn).unwrap();
-        let task = flywheel_core::domain::task::add_task(&mut conn, &agent, &story, "Write the parser").unwrap();
-        flywheel_core::domain::task::set_task_state(&mut conn, &agent, &task.id, flywheel_core::domain::task::TaskState::Done, None)
+        let task =
+            flywheel_core::domain::task::add_task(&mut conn, &agent, &story, "Write the parser")
+                .unwrap();
+        flywheel_core::domain::task::set_task_state(
+            &mut conn,
+            &agent,
+            &task.id,
+            flywheel_core::domain::task::TaskState::Done,
+            None,
+        )
+        .unwrap();
+        flywheel_core::domain::handoff::hand_off(&mut conn, &first.run_id, "Parser done.", "")
             .unwrap();
-        flywheel_core::domain::handoff::hand_off(&mut conn, &first.run_id, "Parser done.", "").unwrap();
         flywheel_core::domain::session::close_session(
             &mut conn,
             &first.run_id,
@@ -481,10 +605,17 @@ mod tests {
         with_scratch_dirs(|| {
             let (db, story, worktree_path, _repo) = in_review_story();
             let mut sent = None;
-            let outcome = request_changes_and_launch(&db, &story, "Name the line in each error.", found_claude, |_, _| Ok(()), |_, request| {
-                sent = Some(request.clone());
-                Ok(())
-            })
+            let outcome = request_changes_and_launch(
+                &db,
+                &story,
+                "Name the line in each error.",
+                found_claude,
+                |_, _| Ok(()),
+                |_, request| {
+                    sent = Some(request.clone());
+                    Ok(())
+                },
+            )
             .expect("an In review Story goes back to Running");
 
             let conn = db.lock().unwrap();
@@ -492,11 +623,26 @@ mod tests {
             assert_eq!(live_sessions(&conn, &story), 1, "one session");
             assert_eq!(outcome.worktree_path, worktree_path, "in the same worktree");
             let sent = sent.expect("one spawn request");
-            assert_eq!(sent["worktreePath"], serde_json::Value::String(worktree_path));
+            assert_eq!(
+                sent["worktreePath"],
+                serde_json::Value::String(worktree_path)
+            );
             let prompt = sent["prompt"].as_str().unwrap();
-            assert!(prompt.contains("The developer requested changes at review:\n\nName the line in each error."), "{prompt}");
-            assert!(prompt.contains("- [done] Write the parser"), "the checklist is kept: {prompt}");
-            assert!(flywheel_core::query::sessions::stopped_session_for_story(&conn, &story).unwrap().is_none());
+            assert!(
+                prompt.contains(
+                    "The developer requested changes at review:\n\nName the line in each error."
+                ),
+                "{prompt}"
+            );
+            assert!(
+                prompt.contains("- [done] Write the parser"),
+                "the checklist is kept: {prompt}"
+            );
+            assert!(
+                flywheel_core::query::sessions::stopped_session_for_story(&conn, &story)
+                    .unwrap()
+                    .is_none()
+            );
         });
     }
 
@@ -504,25 +650,51 @@ mod tests {
     fn a_failed_launch_leaves_the_story_stopped_with_resume() {
         with_scratch_dirs(|| {
             let (db, story, _worktree, _repo) = in_review_story();
-            let err = request_changes_and_launch(&db, &story, "Cover an empty file.", found_claude, |_, _| Ok(()), |_, _| {
-                Err("spawn boom".to_string())
-            })
+            let err = request_changes_and_launch(
+                &db,
+                &story,
+                "Cover an empty file.",
+                found_claude,
+                |_, _| Ok(()),
+                |_, _| Err("spawn boom".to_string()),
+            )
             .expect_err("the spawn fails");
-            assert!(err.contains("spawn boom") && err.contains("Resume"), "{err}");
+            assert!(
+                err.contains("spawn boom") && err.contains("Resume"),
+                "{err}"
+            );
 
             {
                 let conn = db.lock().unwrap();
                 assert_eq!(story_state(&conn, &story), "running");
                 assert_eq!(live_sessions(&conn, &story), 0);
-                assert!(flywheel_core::query::sessions::stopped_session_for_story(&conn, &story).unwrap().is_some(), "Stopped");
+                assert!(
+                    flywheel_core::query::sessions::stopped_session_for_story(&conn, &story)
+                        .unwrap()
+                        .is_some(),
+                    "Stopped"
+                );
             }
             let mut sent = None;
-            crate::commands::session::resume_stopped_story(&db, &story, "", found_claude, |_, _| Ok(()), |_, request| {
-                sent = Some(request.clone());
-                Ok(())
-            })
+            crate::commands::session::resume_stopped_story(
+                &db,
+                &story,
+                "",
+                found_claude,
+                |_, _| Ok(()),
+                |_, request| {
+                    sent = Some(request.clone());
+                    Ok(())
+                },
+            )
             .expect("Resume starts the session");
-            assert!(sent.unwrap()["prompt"].as_str().unwrap().contains("Cover an empty file."), "Resume's packet still carries the comments");
+            assert!(
+                sent.unwrap()["prompt"]
+                    .as_str()
+                    .unwrap()
+                    .contains("Cover an empty file."),
+                "Resume's packet still carries the comments"
+            );
         });
     }
 
@@ -530,17 +702,39 @@ mod tests {
     fn request_changes_without_claude_or_on_a_story_not_in_review_writes_nothing() {
         with_scratch_dirs(|| {
             let (db, story, _worktree, _repo) = in_review_story();
-            let err = request_changes_and_launch(&db, &story, "Cover it.", || Err("no claude on PATH".to_string()), |_, _| {
-                panic!("no shim")
-            }, |_, _| panic!("nothing may be spawned"))
+            let err = request_changes_and_launch(
+                &db,
+                &story,
+                "Cover it.",
+                || Err("no claude on PATH".to_string()),
+                |_, _| panic!("no shim"),
+                |_, _| panic!("nothing may be spawned"),
+            )
             .expect_err("refused without claude");
             assert!(err.contains("no claude"), "{err}");
-            assert_eq!(story_state(&db.lock().unwrap(), &story), "in_review", "the Story stays In review");
+            assert_eq!(
+                story_state(&db.lock().unwrap(), &story),
+                "in_review",
+                "the Story stays In review"
+            );
 
-            request_changes_and_launch(&db, &story, "Cover it.", found_claude, |_, _| Ok(()), |_, _| Ok(())).unwrap();
-            let err = request_changes_and_launch(&db, &story, "Again.", found_claude, |_, _| panic!("no shim"), |_, _| {
-                panic!("nothing may be spawned")
-            })
+            request_changes_and_launch(
+                &db,
+                &story,
+                "Cover it.",
+                found_claude,
+                |_, _| Ok(()),
+                |_, _| Ok(()),
+            )
+            .unwrap();
+            let err = request_changes_and_launch(
+                &db,
+                &story,
+                "Again.",
+                found_claude,
+                |_, _| panic!("no shim"),
+                |_, _| panic!("nothing may be spawned"),
+            )
             .expect_err("a Running Story is not In review");
             assert!(err.contains("In review"), "{err}");
         });
@@ -548,7 +742,9 @@ mod tests {
 
     #[test]
     fn a_bounded_hand_written_story_passes_validation() {
-        assert!(validate_hand_written("Title", Some("why"), &[input("ok", Some("cargo test"))]).is_ok());
+        assert!(
+            validate_hand_written("Title", Some("why"), &[input("ok", Some("cargo test"))]).is_ok()
+        );
     }
 
     #[test]
@@ -557,8 +753,15 @@ mod tests {
         assert!(validate_hand_written(&"t".repeat(MAX_TITLE_LEN + 1), None, &[]).is_err());
         assert!(validate_hand_written("t", Some(&long), &[]).is_err());
         assert!(validate_hand_written("t", None, &[input(&long, None)]).is_err());
-        assert!(validate_hand_written("t", None, &[input("ok", Some(&"c".repeat(MAX_CHECK_COMMAND_LEN + 1)))]).is_err());
+        assert!(validate_hand_written(
+            "t",
+            None,
+            &[input("ok", Some(&"c".repeat(MAX_CHECK_COMMAND_LEN + 1)))]
+        )
+        .is_err());
         let many: Vec<CriterionInput> = (0..=MAX_CRITERIA).map(|_| input("ok", None)).collect();
-        assert!(validate_hand_written("t", None, &many).unwrap_err().contains("at most"));
+        assert!(validate_hand_written("t", None, &many)
+            .unwrap_err()
+            .contains("at most"));
     }
 }

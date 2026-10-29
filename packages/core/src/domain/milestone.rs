@@ -66,7 +66,10 @@ pub struct Milestone {
 /// `SELECT <every column> FROM milestones <tail>`, as one compile-time literal.
 macro_rules! select_milestones {
     ($tail:literal) => {
-        concat!("SELECT id, project_id, title, exit_test, state, rank FROM milestones ", $tail)
+        concat!(
+            "SELECT id, project_id, title, exit_test, state, rank FROM milestones ",
+            $tail
+        )
     };
 }
 
@@ -90,7 +93,14 @@ pub fn create_milestone(
     exit_test: Option<&str>,
 ) -> anyhow::Result<Milestone> {
     let tx = conn.transaction()?;
-    let milestone = create_milestone_in_tx(&tx, project_id, actor_id, title, exit_test, serde_json::json!({}))?;
+    let milestone = create_milestone_in_tx(
+        &tx,
+        project_id,
+        actor_id,
+        title,
+        exit_test,
+        serde_json::json!({}),
+    )?;
     tx.commit().context("failed to commit create_milestone")?;
     Ok(milestone)
 }
@@ -131,7 +141,17 @@ pub(crate) fn create_milestone_in_tx(
     if detail.get("label").is_none() {
         detail["label"] = serde_json::json!(format!("Added Milestone \"{title}\""));
     }
-    record_event(tx, project_id, "milestone", &id, EventScope::default(), actor_id, "milestone.created", &detail, &now)?;
+    record_event(
+        tx,
+        project_id,
+        "milestone",
+        &id,
+        EventScope::default(),
+        actor_id,
+        "milestone.created",
+        &detail,
+        &now,
+    )?;
 
     Ok(Milestone {
         id,
@@ -157,7 +177,14 @@ pub fn update_milestone(
 ) -> anyhow::Result<()> {
     let exit_test = exit_test.map(str::trim).filter(|t| !t.is_empty());
     let tx = conn.transaction()?;
-    update_milestone_in_tx(&tx, actor_id, milestone_id, title, exit_test, serde_json::json!({}))?;
+    update_milestone_in_tx(
+        &tx,
+        actor_id,
+        milestone_id,
+        title,
+        exit_test,
+        serde_json::json!({}),
+    )?;
     tx.commit().context("failed to commit update_milestone")?;
     Ok(())
 }
@@ -178,16 +205,22 @@ pub(crate) fn update_milestone_in_tx(
     let title = title.trim();
     anyhow::ensure!(!title.is_empty(), "a Milestone needs a title");
     let now = now();
-    let (project_id, state, before_title, before_exit): (String, String, String, Option<String>) = tx
-        .query_row(
+    let (project_id, state, before_title, before_exit): (String, String, String, Option<String>) =
+        tx.query_row(
             "SELECT project_id, state, title, exit_test FROM milestones WHERE id = ?1",
             params![milestone_id],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
         .optional()?
         .with_context(|| format!("Milestone {milestone_id:?} not found"))?;
-    anyhow::ensure!(state != "done", "a Done Milestone is frozen; put later changes in a new Milestone");
-    anyhow::ensure!(state != "dropped", "a Dropped Milestone stays as it was dropped");
+    anyhow::ensure!(
+        state != "done",
+        "a Done Milestone is frozen; put later changes in a new Milestone"
+    );
+    anyhow::ensure!(
+        state != "dropped",
+        "a Dropped Milestone stays as it was dropped"
+    );
     tx.execute(
         "UPDATE milestones SET title = ?1, exit_test = ?2, updated_at = ?3 WHERE id = ?4",
         params![title, exit_test, now, milestone_id],
@@ -198,7 +231,17 @@ pub(crate) fn update_milestone_in_tx(
     if detail.get("label").is_none() {
         detail["label"] = serde_json::json!(format!("Edited Milestone \"{title}\""));
     }
-    record_event(tx, &project_id, "milestone", milestone_id, EventScope::default(), actor_id, "milestone.updated", &detail, &now)?;
+    record_event(
+        tx,
+        &project_id,
+        "milestone",
+        milestone_id,
+        EventScope::default(),
+        actor_id,
+        "milestone.updated",
+        &detail,
+        &now,
+    )?;
     Ok(())
 }
 
@@ -215,16 +258,21 @@ pub fn get_milestone(conn: &Connection, milestone_id: &str) -> anyhow::Result<Op
 
 /// The project's Roadmap: every Milestone in rank order.
 pub fn roadmap(conn: &Connection, project_id: &str) -> anyhow::Result<Vec<Milestone>> {
-    let mut stmt =
-        conn.prepare(select_milestones!("WHERE project_id = ?1 ORDER BY rank, id"))?;
-    let rows = stmt.query_map(params![project_id], row_to_milestone)?.collect::<Result<Vec<_>, _>>();
+    let mut stmt = conn.prepare(select_milestones!(
+        "WHERE project_id = ?1 ORDER BY rank, id"
+    ))?;
+    let rows = stmt
+        .query_map(params![project_id], row_to_milestone)?
+        .collect::<Result<Vec<_>, _>>();
     rows.context("failed to read the Roadmap")
 }
 
 /// The Current Milestone: the first in Roadmap order that is neither done nor dropped.
 pub fn current_milestone(conn: &Connection, project_id: &str) -> anyhow::Result<Option<Milestone>> {
     conn.query_row(
-        select_milestones!("WHERE project_id = ?1 AND state NOT IN ('done', 'dropped') ORDER BY rank, id LIMIT 1"),
+        select_milestones!(
+            "WHERE project_id = ?1 AND state NOT IN ('done', 'dropped') ORDER BY rank, id LIMIT 1"
+        ),
         params![project_id],
         row_to_milestone,
     )
@@ -236,7 +284,11 @@ pub fn current_milestone(conn: &Connection, project_id: &str) -> anyhow::Result<
 /// Ready (in progress or done) reads as In progress.
 pub fn milestone_state(conn: &Connection, milestone_id: &str) -> anyhow::Result<MilestoneState> {
     let stored: String = conn
-        .query_row("SELECT state FROM milestones WHERE id = ?1", params![milestone_id], |r| r.get(0))
+        .query_row(
+            "SELECT state FROM milestones WHERE id = ?1",
+            params![milestone_id],
+            |r| r.get(0),
+        )
         .with_context(|| format!("Milestone {milestone_id:?} not found"))?;
     let state = MilestoneState::parse(&stored)?;
     if state != MilestoneState::Ready {
@@ -253,7 +305,11 @@ pub fn milestone_state(conn: &Connection, milestone_id: &str) -> anyhow::Result<
             |r| r.get(0),
         )
         .context("failed to derive the Milestone's progress")?;
-    Ok(if started { MilestoneState::InProgress } else { MilestoneState::Ready })
+    Ok(if started {
+        MilestoneState::InProgress
+    } else {
+        MilestoneState::Ready
+    })
 }
 
 /// The developer moves a Milestone: `Ready` closes its shaping, `Done` confirms its exit test,
@@ -270,7 +326,8 @@ pub fn set_milestone_state(
 ) -> anyhow::Result<()> {
     let tx = conn.transaction()?;
     set_milestone_state_in_tx(&tx, actor_id, milestone_id, to, serde_json::json!({}))?;
-    tx.commit().context("failed to commit set_milestone_state")?;
+    tx.commit()
+        .context("failed to commit set_milestone_state")?;
     Ok(())
 }
 
@@ -294,8 +351,14 @@ pub(crate) fn set_milestone_state_in_tx(
         )
         .with_context(|| format!("Milestone {milestone_id:?} not found"))?;
 
-    anyhow::ensure!(to != MilestoneState::InProgress, "In progress is derived from the Milestone's Epics");
-    anyhow::ensure!(current != "done", "a Done Milestone is frozen; put later changes in a new Milestone");
+    anyhow::ensure!(
+        to != MilestoneState::InProgress,
+        "In progress is derived from the Milestone's Epics"
+    );
+    anyhow::ensure!(
+        current != "done",
+        "a Done Milestone is frozen; put later changes in a new Milestone"
+    );
     anyhow::ensure!(current != "dropped", "a Dropped Milestone stays dropped");
     if to == MilestoneState::Dropped {
         let open_epics: i64 = tx.query_row(
@@ -318,9 +381,20 @@ pub(crate) fn set_milestone_state_in_tx(
     detail["before"] = serde_json::json!(current);
     detail["after"] = serde_json::json!(to.as_str());
     if detail.get("label").is_none() {
-        detail["label"] = serde_json::json!(format!("Moved Milestone from {current} to {}", to.as_str()));
+        detail["label"] =
+            serde_json::json!(format!("Moved Milestone from {current} to {}", to.as_str()));
     }
-    record_event(tx, &project_id, "milestone", milestone_id, EventScope::default(), actor_id, "milestone.state_changed", &detail, &now)?;
+    record_event(
+        tx,
+        &project_id,
+        "milestone",
+        milestone_id,
+        EventScope::default(),
+        actor_id,
+        "milestone.state_changed",
+        &detail,
+        &now,
+    )?;
     Ok(())
 }
 
@@ -337,7 +411,13 @@ pub fn move_milestone(
     before_id: Option<&str>,
 ) -> anyhow::Result<()> {
     let tx = conn.transaction()?;
-    move_milestone_in_tx(&tx, actor_id, milestone_id, before_id, serde_json::json!({}))?;
+    move_milestone_in_tx(
+        &tx,
+        actor_id,
+        milestone_id,
+        before_id,
+        serde_json::json!({}),
+    )?;
     tx.commit().context("failed to commit move_milestone")?;
     Ok(())
 }
@@ -351,7 +431,10 @@ pub(crate) fn move_milestone_in_tx(
     before_id: Option<&str>,
     mut detail: serde_json::Value,
 ) -> anyhow::Result<()> {
-    anyhow::ensure!(before_id != Some(milestone_id), "a Milestone cannot move before itself");
+    anyhow::ensure!(
+        before_id != Some(milestone_id),
+        "a Milestone cannot move before itself"
+    );
     let now = now();
     assert_human_actor_in_tx(tx, actor_id)?;
 
@@ -364,14 +447,23 @@ pub(crate) fn move_milestone_in_tx(
         .optional()
         .context("failed to read the Milestone")?
         .ok_or_else(|| anyhow::anyhow!("Milestone {milestone_id:?} not found"))?;
-    anyhow::ensure!(state != "done", "a Done Milestone is frozen and keeps its place on the Roadmap");
-    anyhow::ensure!(state != "dropped", "a Dropped Milestone keeps its place on the Roadmap");
+    anyhow::ensure!(
+        state != "done",
+        "a Done Milestone is frozen and keeps its place on the Roadmap"
+    );
+    anyhow::ensure!(
+        state != "dropped",
+        "a Dropped Milestone keeps its place on the Roadmap"
+    );
 
     // The Roadmap's other Milestones, in order: the moved one is placed among them.
     let others: Vec<(String, String)> = {
-        let mut stmt =
-            tx.prepare("SELECT id, rank FROM milestones WHERE project_id = ?1 AND id != ?2 ORDER BY rank, id")?;
-        let rows = stmt.query_map(params![project_id, milestone_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        let mut stmt = tx.prepare(
+            "SELECT id, rank FROM milestones WHERE project_id = ?1 AND id != ?2 ORDER BY rank, id",
+        )?;
+        let rows = stmt.query_map(params![project_id, milestone_id], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })?;
         rows.collect::<Result<_, _>>()?
     };
     let rank = match before_id {
@@ -388,14 +480,27 @@ pub(crate) fn move_milestone_in_tx(
         }
     };
 
-    tx.execute("UPDATE milestones SET rank = ?1, updated_at = ?2 WHERE id = ?3", params![rank, now, milestone_id])
-        .context("failed to write the Milestone rank")?;
+    tx.execute(
+        "UPDATE milestones SET rank = ?1, updated_at = ?2 WHERE id = ?3",
+        params![rank, now, milestone_id],
+    )
+    .context("failed to write the Milestone rank")?;
     detail["field"] = serde_json::json!("rank");
     detail["before"] = serde_json::json!(before_rank);
     detail["after"] = serde_json::json!(rank);
     if detail.get("label").is_none() {
         detail["label"] = serde_json::json!(format!("Moved Milestone \"{title}\" on the Roadmap"));
     }
-    record_event(tx, &project_id, "milestone", milestone_id, EventScope::default(), actor_id, "milestone.moved", &detail, &now)?;
+    record_event(
+        tx,
+        &project_id,
+        "milestone",
+        milestone_id,
+        EventScope::default(),
+        actor_id,
+        "milestone.moved",
+        &detail,
+        &now,
+    )?;
     Ok(())
 }

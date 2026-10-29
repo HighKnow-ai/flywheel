@@ -146,8 +146,10 @@ pub fn has_api_key() -> anyhow::Result<bool> {
     match entry.get_password() {
         Ok(_) => Ok(true),
         Err(keyring::Error::NoEntry) => Ok(false),
-        Err(err) => Err(anyhow::Error::new(err)
-            .context("failed to query the macOS Keychain for the API key")),
+        Err(err) => {
+            Err(anyhow::Error::new(err)
+                .context("failed to query the macOS Keychain for the API key"))
+        }
     }
 }
 
@@ -167,7 +169,10 @@ pub fn api_key_configured_at(conn: &Connection) -> anyhow::Result<Option<String>
 /// missing environment variable rather than silently falling back to [`CredentialMode::Local`] —
 /// T-02-42: silently billing the wrong account is exactly the failure D-39's per-project override
 /// exists to prevent.
-pub fn resolve_credential(conn: &Connection, project_id: &str) -> anyhow::Result<ResolvedCredential> {
+pub fn resolve_credential(
+    conn: &Connection,
+    project_id: &str,
+) -> anyhow::Result<ResolvedCredential> {
     let override_mode = crate::domain::settings::project_credential_mode(conn, project_id)?;
     let mode_str = match override_mode {
         Some(m) => m,

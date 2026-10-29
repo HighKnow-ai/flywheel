@@ -41,8 +41,8 @@ fn second_open_reapplies_connection_scoped_pragmas() {
 
     // First open (creates + migrates the file).
     {
-        let _conn =
-            open_and_migrate(&db_path, &backups_dir).expect("first open_and_migrate should succeed");
+        let _conn = open_and_migrate(&db_path, &backups_dir)
+            .expect("first open_and_migrate should succeed");
     }
 
     // Second open against the same, already-migrated file: a plain `Connection::open` +
@@ -145,7 +145,10 @@ fn backing_up_a_missing_path_is_a_no_op() {
 
     let result = backup_database_file(&db_path, &backups_dir)
         .expect("backing up a missing file should return Ok");
-    assert!(result.is_none(), "expected no backup path for a missing file");
+    assert!(
+        result.is_none(),
+        "expected no backup path for a missing file"
+    );
     assert!(
         !backups_dir.exists(),
         "backups dir must not be created for a no-op backup"
@@ -193,7 +196,8 @@ fn app_data_dir_override_redirects_the_database_and_backups() {
     unsafe { std::env::set_var("FLYWHEEL_APP_DATA_DIR", dir.path()) };
 
     let db_path = flywheel_core::db::default_db_path().expect("default_db_path should succeed");
-    let backups_dir = flywheel_core::db::default_backups_dir().expect("default_backups_dir should succeed");
+    let backups_dir =
+        flywheel_core::db::default_backups_dir().expect("default_backups_dir should succeed");
 
     // SAFETY: see the set_var call above.
     unsafe { std::env::remove_var("FLYWHEEL_APP_DATA_DIR") };

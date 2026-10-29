@@ -48,32 +48,38 @@ use serde_json::Value;
 
 use rusqlite::OptionalExtension;
 
-use crate::domain::proposal::{file_proposal, proposals_on_epic, NewProposal, ProposalTarget, ProposalVerb};
-use crate::domain::proposal_apply::{
-    NewCriterion, NewStory, RoadmapChange, RunsAfter, SpecChange, MAX_CHECK_COMMAND_LEN, MAX_CRITERION_STATEMENT_LEN,
-    MAX_ROADMAP_TEXT_LEN, MAX_RUNS_AFTER_REASON_LEN, MAX_STORY_DESCRIPTION_LEN, MAX_STORY_TITLE_LEN,
+use crate::domain::proposal::{
+    file_proposal, proposals_on_epic, NewProposal, ProposalTarget, ProposalVerb,
 };
+use crate::domain::proposal_apply::{
+    NewCriterion, NewStory, RoadmapChange, RunsAfter, SpecChange, MAX_CHECK_COMMAND_LEN,
+    MAX_CRITERION_STATEMENT_LEN, MAX_ROADMAP_TEXT_LEN, MAX_RUNS_AFTER_REASON_LEN,
+    MAX_STORY_DESCRIPTION_LEN, MAX_STORY_TITLE_LEN,
+};
+use crate::domain::roadmap_round::{
+    propose_roadmap_change, roadmap_holds, wait_roadmap_round, RoadmapWait,
+};
+use crate::domain::round::{
+    post_round, round_result, wait_round, AdrDraft, NewQuestion, NewRound, RoundWait,
+};
+use crate::domain::session::agent_actor_id;
 use crate::domain::stage::{open_stage, StageKind};
-use crate::domain::roadmap_round::{propose_roadmap_change, roadmap_holds, wait_roadmap_round, RoadmapWait};
 use crate::domain::story::{stories_in_epic, StoryState};
 use crate::ranking::{rank_after, rank_before, rank_between};
-use crate::domain::session::agent_actor_id;
-use crate::domain::round::{post_round, round_result, wait_round, AdrDraft, NewQuestion, NewRound, RoundWait};
 
 /// The tool names the sidecar's MCP server registers for a shaping session, in the order it lists
 /// them. Mirrored by `SHAPING_TOOL_NAMES` in `packages/sidecar/src/mcp-permission-server.ts`.
-pub const SHAPING_TOOL_NAMES: [&str; 9] =
-    [
-        "round_post",
-        "round_wait",
-        "propose_spec_change",
-        "propose_roadmap_change",
-        "roadmap_holds",
-        "propose_story",
-        "propose_story_order",
-        "propose_exit_test",
-        "propose_criterion",
-    ];
+pub const SHAPING_TOOL_NAMES: [&str; 9] = [
+    "round_post",
+    "round_wait",
+    "propose_spec_change",
+    "propose_roadmap_change",
+    "roadmap_holds",
+    "propose_story",
+    "propose_story_order",
+    "propose_exit_test",
+    "propose_criterion",
+];
 
 /// One parsed call of a shaping tool.
 #[derive(Debug, Clone, PartialEq)]
@@ -82,20 +88,39 @@ pub enum ShapingToolCall {
     /// Issue #124: wait on the open Round. Takes no argument.
     RoundWait,
     /// A spec change and the agent's one-line reason for it.
-    ProposeSpecChange { change: SpecChange, why: String },
+    ProposeSpecChange {
+        change: SpecChange,
+        why: String,
+    },
     /// Issue #133: one Roadmap change and the agent's one-line reason for it.
-    ProposeRoadmapChange { change: RoadmapChange, why: String },
+    ProposeRoadmapChange {
+        change: RoadmapChange,
+        why: String,
+    },
     /// Issue #133: the Roadmap still holds, and why.
-    RoadmapHolds { why: String },
+    RoadmapHolds {
+        why: String,
+    },
     /// Issue #132: the Milestone's whole new exit test, trimmed, and the agent's one-line reason for it.
-    ProposeExitTest { text: String, why: String },
+    ProposeExitTest {
+        text: String,
+        why: String,
+    },
     /// Issue #127: a New Story for the Epic being sliced.
     ProposeStory(StoryDraft),
     /// Issue #127: move a Story of the Epic in its execution order, or retire it, and why.
-    ProposeStoryOrder { story: String, change: OrderChange, why: String },
+    ProposeStoryOrder {
+        story: String,
+        change: OrderChange,
+        why: String,
+    },
     /// Issue #128: an Acceptance criterion for a Story of the Epic (its key), with the Check command
     /// that proves it, or none when it is judged at review.
-    ProposeCriterion { story: String, statement: String, check: Option<String> },
+    ProposeCriterion {
+        story: String,
+        statement: String,
+        check: Option<String>,
+    },
 }
 
 /// Where a Story lands in its Epic's execution order (issue #127). A reference is a Story's key
@@ -127,24 +152,35 @@ pub enum OrderChange {
 
 /// An optional, trimmed, non-blank string argument.
 fn optional_text(value: &Value, name: &str) -> Option<String> {
-    value.get(name).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string)
+    value
+        .get(name)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
 }
 
 /// `after` or `before`, at most one; neither is the end of the order.
 pub(crate) fn place_of(args: &Value, tool: &str) -> anyhow::Result<Place> {
-    Ok(match (optional_text(args, "after"), optional_text(args, "before")) {
-        (Some(_), Some(_)) => anyhow::bail!("{tool}: give `after` or `before`, not both"),
-        (Some(r), None) => Place::After(r),
-        (None, Some(r)) => Place::Before(r),
-        (None, None) => Place::End,
-    })
+    Ok(
+        match (optional_text(args, "after"), optional_text(args, "before")) {
+            (Some(_), Some(_)) => anyhow::bail!("{tool}: give `after` or `before`, not both"),
+            (Some(r), None) => Place::After(r),
+            (None, Some(r)) => Place::Before(r),
+            (None, None) => Place::End,
+        },
+    )
 }
 
 /// A required one-line argument of at most `max` characters.
 pub(crate) fn one_line(args: &Value, name: &str, tool: &str, max: usize) -> anyhow::Result<String> {
-    let text = optional_text(args, name).with_context(|| format!("{tool}: `{name}` is missing or empty"))?;
+    let text = optional_text(args, name)
+        .with_context(|| format!("{tool}: `{name}` is missing or empty"))?;
     anyhow::ensure!(!text.contains('\n'), "{tool}: `{name}` is one line");
-    anyhow::ensure!(text.chars().count() <= max, "{tool}: `{name}` is at most {max} characters");
+    anyhow::ensure!(
+        text.chars().count() <= max,
+        "{tool}: `{name}` is at most {max} characters"
+    );
     Ok(text)
 }
 
@@ -212,27 +248,46 @@ impl ShapingToolCall {
             "propose_spec_change" => {
                 let change = SpecChange::from_payload(args).context("propose_spec_change")?;
                 let why = string_field(args, "why", "propose_spec_change: ")?;
-                anyhow::ensure!(!why.trim().is_empty(), "propose_spec_change: `why` is empty");
+                anyhow::ensure!(
+                    !why.trim().is_empty(),
+                    "propose_spec_change: `why` is empty"
+                );
                 anyhow::ensure!(
                     why.chars().count() <= crate::domain::round::MAX_ROUND_TEXT_LEN,
                     "propose_spec_change: `why` is at most {} characters",
                     crate::domain::round::MAX_ROUND_TEXT_LEN
                 );
-                Ok(ShapingToolCall::ProposeSpecChange { change, why: why.trim().to_string() })
+                Ok(ShapingToolCall::ProposeSpecChange {
+                    change,
+                    why: why.trim().to_string(),
+                })
             }
             "propose_roadmap_change" => {
                 let change = RoadmapChange::from_args(args).context("propose_roadmap_change")?;
-                Ok(ShapingToolCall::ProposeRoadmapChange { change, why: why_field(args, tool)? })
+                Ok(ShapingToolCall::ProposeRoadmapChange {
+                    change,
+                    why: why_field(args, tool)?,
+                })
             }
-            "roadmap_holds" => Ok(ShapingToolCall::RoadmapHolds { why: why_field(args, tool)? }),
+            "roadmap_holds" => Ok(ShapingToolCall::RoadmapHolds {
+                why: why_field(args, tool)?,
+            }),
             "propose_exit_test" => {
-                let text = string_field(args, "text", "propose_exit_test: ")?.trim().to_string();
-                anyhow::ensure!(!text.is_empty(), "propose_exit_test: the proposed exit test is empty");
+                let text = string_field(args, "text", "propose_exit_test: ")?
+                    .trim()
+                    .to_string();
+                anyhow::ensure!(
+                    !text.is_empty(),
+                    "propose_exit_test: the proposed exit test is empty"
+                );
                 anyhow::ensure!(
                     text.chars().count() <= MAX_ROADMAP_TEXT_LEN,
                     "propose_exit_test: the proposed exit test is at most {MAX_ROADMAP_TEXT_LEN} characters"
                 );
-                Ok(ShapingToolCall::ProposeExitTest { text, why: why_field(args, tool)? })
+                Ok(ShapingToolCall::ProposeExitTest {
+                    text,
+                    why: why_field(args, tool)?,
+                })
             }
             "propose_story" => {
                 let tool = "propose_story";
@@ -251,28 +306,38 @@ impl ShapingToolCall {
                     (None, Some(_)) => anyhow::bail!("{tool}: `runs_after_reason` needs `runs_after`, the Story it runs after"),
                     (None, None) => None,
                 };
-                Ok(ShapingToolCall::ProposeStory(StoryDraft { title, description, place: place_of(args, tool)?, runs_after }))
+                Ok(ShapingToolCall::ProposeStory(StoryDraft {
+                    title,
+                    description,
+                    place: place_of(args, tool)?,
+                    runs_after,
+                }))
             }
             "propose_story_order" => {
                 let tool = "propose_story_order";
-                let story = optional_text(args, "story").with_context(|| format!("{tool}: `story` is missing: the Story's key"))?;
+                let story = optional_text(args, "story")
+                    .with_context(|| format!("{tool}: `story` is missing: the Story's key"))?;
                 let change = match args.get("action").and_then(Value::as_str) {
                     Some("move") => OrderChange::Move(place_of(args, tool)?),
                     Some("retire") => {
                         anyhow::ensure!(
-                            optional_text(args, "after").is_none() && optional_text(args, "before").is_none(),
+                            optional_text(args, "after").is_none()
+                                && optional_text(args, "before").is_none(),
                             "{tool}: a retirement takes no `after` or `before`"
                         );
                         OrderChange::Retire
                     }
-                    other => anyhow::bail!("{tool}: `action` is {other:?}; use \"move\" or \"retire\""),
+                    other => {
+                        anyhow::bail!("{tool}: `action` is {other:?}; use \"move\" or \"retire\"")
+                    }
                 };
                 let why = one_line(args, "why", tool, crate::domain::round::MAX_ROUND_TEXT_LEN)?;
                 Ok(ShapingToolCall::ProposeStoryOrder { story, change, why })
             }
             "propose_criterion" => {
                 let tool = "propose_criterion";
-                let story = optional_text(args, "story").with_context(|| format!("{tool}: `story` is missing: the Story's key"))?;
+                let story = optional_text(args, "story")
+                    .with_context(|| format!("{tool}: `story` is missing: the Story's key"))?;
                 let statement = optional_text(args, "statement")
                     .with_context(|| format!("{tool}: `statement` is missing or empty: say what is observably true once the Story ships"))?;
                 anyhow::ensure!(
@@ -293,7 +358,11 @@ impl ShapingToolCall {
                     }
                     Some(_) => anyhow::bail!("{tool}: `check` is a shell command, as a string"),
                 };
-                Ok(ShapingToolCall::ProposeCriterion { story, statement, check })
+                Ok(ShapingToolCall::ProposeCriterion {
+                    story,
+                    statement,
+                    check,
+                })
             }
             other => anyhow::bail!("{other:?} is not a shaping tool"),
         }
@@ -304,7 +373,10 @@ impl ShapingToolCall {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ShapingToolOutcome {
     /// The Round is on the board and its call is held until the developer answers it all.
-    Held { round_id: String, project_id: String },
+    Held {
+        round_id: String,
+        project_id: String,
+    },
     /// The call is answered at once with `result`: a filed Proposal (`propose_spec_change`, issue #125), or
     /// a `round_wait` on a Round already answered, with every answer (issue #124).
     Answered { result: Value, project_id: String },
@@ -313,7 +385,12 @@ pub enum ShapingToolOutcome {
 /// `(project_id, epic_id)` of the Epic live shaping session `session_id` shapes, for `tool`, which
 /// `does` something to an Epic. Refused for an unknown, ended or Story session and for a session
 /// shaping anything but an Epic.
-fn shaping_epic(conn: &Connection, session_id: &str, tool: &str, does: &str) -> anyhow::Result<(String, String)> {
+fn shaping_epic(
+    conn: &Connection,
+    session_id: &str,
+    tool: &str,
+    does: &str,
+) -> anyhow::Result<(String, String)> {
     let row: Option<(String, String, String, Option<String>)> = conn
         .query_row(
             "SELECT kind, status, project_id, epic_id FROM sessions WHERE id = ?1",
@@ -321,13 +398,19 @@ fn shaping_epic(conn: &Connection, session_id: &str, tool: &str, does: &str) -> 
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
         .optional()?;
-    let Some((kind, status, project_id, epic_id)) = row else { anyhow::bail!("session {session_id:?} not found") };
-    anyhow::ensure!(kind == "shaping", "{tool} belongs to a shaping session; session {session_id:?} is a Story session");
+    let Some((kind, status, project_id, epic_id)) = row else {
+        anyhow::bail!("session {session_id:?} not found")
+    };
+    anyhow::ensure!(
+        kind == "shaping",
+        "{tool} belongs to a shaping session; session {session_id:?} is a Story session"
+    );
     anyhow::ensure!(
         status == "running" || status == "blocked",
         "this session has ended ({status}); it can no longer propose a change"
     );
-    let epic_id = epic_id.with_context(|| format!("this shaping session shapes no Epic; {tool} {does}"))?;
+    let epic_id =
+        epic_id.with_context(|| format!("this shaping session shapes no Epic; {tool} {does}"))?;
     Ok((project_id, epic_id))
 }
 
@@ -345,7 +428,10 @@ pub(crate) struct OrderItem {
 pub(crate) fn epic_order(conn: &Connection, epic_id: &str) -> anyhow::Result<Vec<OrderItem>> {
     let mut items: Vec<OrderItem> = stories_in_epic(conn, epic_id)?
         .into_iter()
-        .map(|s| OrderItem { rank: s.rank, id: s.id })
+        .map(|s| OrderItem {
+            rank: s.rank,
+            id: s.id,
+        })
         .collect();
     for p in proposals_on_epic(conn, epic_id)? {
         if p.state != "pending" || p.verb != "create" || p.target_type != "story" {
@@ -362,13 +448,31 @@ pub(crate) fn epic_order(conn: &Connection, epic_id: &str) -> anyhow::Result<Vec
 /// What a reference names in the Epic: a Story (by key, or by id) or a New Story Proposal (by id).
 /// An accepted New Story Proposal names the Story it created.
 pub(crate) enum Named {
-    Story { id: String, key: String, state: String },
-    Proposal { id: String },
+    Story {
+        id: String,
+        key: String,
+        state: String,
+    },
+    Proposal {
+        id: String,
+    },
 }
 
-pub(crate) fn resolve(conn: &Connection, epic_id: &str, reference: &str, tool: &str) -> anyhow::Result<Named> {
-    if let Some(s) = stories_in_epic(conn, epic_id)?.into_iter().find(|s| s.key.eq_ignore_ascii_case(reference) || s.id == reference) {
-        return Ok(Named::Story { id: s.id, key: s.key, state: s.state });
+pub(crate) fn resolve(
+    conn: &Connection,
+    epic_id: &str,
+    reference: &str,
+    tool: &str,
+) -> anyhow::Result<Named> {
+    if let Some(s) = stories_in_epic(conn, epic_id)?
+        .into_iter()
+        .find(|s| s.key.eq_ignore_ascii_case(reference) || s.id == reference)
+    {
+        return Ok(Named::Story {
+            id: s.id,
+            key: s.key,
+            state: s.state,
+        });
     }
     let p = proposals_on_epic(conn, epic_id)?
         .into_iter()
@@ -387,7 +491,13 @@ pub(crate) fn resolve(conn: &Connection, epic_id: &str, reference: &str, tool: &
 }
 
 /// The rank `place` gives in `order`, which leaves out whatever is being placed.
-pub(crate) fn rank_for(conn: &Connection, epic_id: &str, order: &[OrderItem], place: &Place, tool: &str) -> anyhow::Result<String> {
+pub(crate) fn rank_for(
+    conn: &Connection,
+    epic_id: &str,
+    order: &[OrderItem],
+    place: &Place,
+    tool: &str,
+) -> anyhow::Result<String> {
     let anchor = |reference: &str| -> anyhow::Result<usize> {
         let id = match resolve(conn, epic_id, reference, tool)? {
             Named::Story { id, .. } | Named::Proposal { id } => id,
@@ -400,11 +510,17 @@ pub(crate) fn rank_for(conn: &Connection, epic_id: &str, order: &[OrderItem], pl
         Place::End => (order.last(), None),
         Place::After(r) => {
             let at = anchor(r)?;
-            (Some(&order[at]), order[at + 1..].iter().find(|i| i.rank > order[at].rank))
+            (
+                Some(&order[at]),
+                order[at + 1..].iter().find(|i| i.rank > order[at].rank),
+            )
         }
         Place::Before(r) => {
             let at = anchor(r)?;
-            (order[..at].iter().rev().find(|i| i.rank < order[at].rank), Some(&order[at]))
+            (
+                order[..at].iter().rev().find(|i| i.rank < order[at].rank),
+                Some(&order[at]),
+            )
         }
     };
     match (prev, next) {
@@ -417,9 +533,14 @@ pub(crate) fn rank_for(conn: &Connection, epic_id: &str, order: &[OrderItem], pl
 
 /// File a New Story on the Epic shaping session `session_id` slices, as the agent (issue #127): its
 /// rank is worked out now from where it lands, so its ghost column stands where the Story would.
-fn propose_story(conn: &mut Connection, session_id: &str, draft: &StoryDraft) -> anyhow::Result<ShapingToolOutcome> {
+fn propose_story(
+    conn: &mut Connection,
+    session_id: &str,
+    draft: &StoryDraft,
+) -> anyhow::Result<ShapingToolOutcome> {
     let tool = "propose_story";
-    let (project_id, epic_id) = shaping_epic(conn, session_id, tool, "slices an Epic into Stories")?;
+    let (project_id, epic_id) =
+        shaping_epic(conn, session_id, tool, "slices an Epic into Stories")?;
     let order = epic_order(conn, &epic_id)?;
     let rank = rank_for(conn, &epic_id, &order, &draft.place, tool)?;
     let runs_after = match &draft.runs_after {
@@ -490,12 +611,24 @@ fn propose_story_order(
     };
     let (verb, payload) = match change {
         OrderChange::Move(place) => {
-            anyhow::ensure!(!StoryState::parse(&state)?.is_closed(), "{tool}: {key} is {state}; a closed Story keeps its place");
-            let order: Vec<OrderItem> = epic_order(conn, &epic_id)?.into_iter().filter(|i| i.id != story_id).collect();
-            (ProposalVerb::Reorder, serde_json::json!({ "rank": rank_for(conn, &epic_id, &order, place, tool)? }))
+            anyhow::ensure!(
+                !StoryState::parse(&state)?.is_closed(),
+                "{tool}: {key} is {state}; a closed Story keeps its place"
+            );
+            let order: Vec<OrderItem> = epic_order(conn, &epic_id)?
+                .into_iter()
+                .filter(|i| i.id != story_id)
+                .collect();
+            (
+                ProposalVerb::Reorder,
+                serde_json::json!({ "rank": rank_for(conn, &epic_id, &order, place, tool)? }),
+            )
         }
         OrderChange::Retire => {
-            anyhow::ensure!(state == "shaping", "{tool}: {key} is {state}; only a Story still in Shaping can be retired");
+            anyhow::ensure!(
+                state == "shaping",
+                "{tool}: {key} is {state}; only a Story still in Shaping can be retired"
+            );
             (ProposalVerb::Retire, serde_json::json!({}))
         }
     };
@@ -540,8 +673,16 @@ fn propose_criterion(
     check: Option<&str>,
 ) -> anyhow::Result<ShapingToolOutcome> {
     let tool = "propose_criterion";
-    let (project_id, epic_id) = shaping_epic(conn, session_id, tool, "writes the criteria of an Epic's Stories")?;
-    let stage = open_stage(conn, &crate::domain::session::ShapingSubject::Epic(epic_id.clone()))?;
+    let (project_id, epic_id) = shaping_epic(
+        conn,
+        session_id,
+        tool,
+        "writes the criteria of an Epic's Stories",
+    )?;
+    let stage = open_stage(
+        conn,
+        &crate::domain::session::ShapingSubject::Epic(epic_id.clone()),
+    )?;
     if let Some(stage) = stage.filter(|s| s.kind != StageKind::Criteria) {
         anyhow::bail!(
             "{tool}: this Epic is in the {} Stage; criteria are written in the {} Stage, once the Stories are sliced",
@@ -593,8 +734,18 @@ fn propose_criterion(
 
 /// File a spec change on the Epic shaping session `session_id` shapes, as the agent. Refused for an
 /// unknown, ended or Story session and for a session shaping anything but an Epic.
-fn propose_spec_change(conn: &mut Connection, session_id: &str, change: &SpecChange, why: &str) -> anyhow::Result<ShapingToolOutcome> {
-    let (project_id, epic_id) = shaping_epic(conn, session_id, "propose_spec_change", "rewrites an Epic's spec")?;
+fn propose_spec_change(
+    conn: &mut Connection,
+    session_id: &str,
+    change: &SpecChange,
+    why: &str,
+) -> anyhow::Result<ShapingToolOutcome> {
+    let (project_id, epic_id) = shaping_epic(
+        conn,
+        session_id,
+        "propose_spec_change",
+        "rewrites an Epic's spec",
+    )?;
     let agent = agent_actor_id(conn)?;
     let filed = file_proposal(
         conn,
@@ -627,7 +778,12 @@ fn propose_spec_change(conn: &mut Connection, session_id: &str, change: &SpecCha
 /// File a new exit test on the Milestone shaping session `session_id` shapes, as the agent (issue #132):
 /// an Amend Milestone Proposal with only `exit_test` set. Refused for an unknown, ended or Story session
 /// and for a session shaping anything but a Milestone.
-fn propose_exit_test(conn: &mut Connection, session_id: &str, text: &str, why: &str) -> anyhow::Result<ShapingToolOutcome> {
+fn propose_exit_test(
+    conn: &mut Connection,
+    session_id: &str,
+    text: &str,
+    why: &str,
+) -> anyhow::Result<ShapingToolOutcome> {
     let row: Option<(String, String, String, Option<String>)> = conn
         .query_row(
             "SELECT kind, status, project_id, milestone_id FROM sessions WHERE id = ?1",
@@ -635,8 +791,13 @@ fn propose_exit_test(conn: &mut Connection, session_id: &str, text: &str, why: &
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
         .optional()?;
-    let Some((kind, status, project_id, milestone_id)) = row else { anyhow::bail!("session {session_id:?} not found") };
-    anyhow::ensure!(kind == "shaping", "propose_exit_test belongs to a shaping session; session {session_id:?} is a Story session");
+    let Some((kind, status, project_id, milestone_id)) = row else {
+        anyhow::bail!("session {session_id:?} not found")
+    };
+    anyhow::ensure!(
+        kind == "shaping",
+        "propose_exit_test belongs to a shaping session; session {session_id:?} is a Story session"
+    );
     anyhow::ensure!(
         status == "running" || status == "blocked",
         "this session has ended ({status}); it can no longer propose a change"
@@ -645,7 +806,11 @@ fn propose_exit_test(conn: &mut Connection, session_id: &str, text: &str, why: &
         "this shaping session shapes an Epic, not a Milestone; propose_exit_test rewrites a Milestone's exit test. \
          Propose an Epic's exit test with propose_spec_change",
     )?;
-    let change = RoadmapChange::AmendMilestone { milestone_id, title: None, exit_test: Some(text.to_string()) };
+    let change = RoadmapChange::AmendMilestone {
+        milestone_id,
+        title: None,
+        exit_test: Some(text.to_string()),
+    };
     let (verb, target, target_id, payload) = change.to_proposal();
     let agent = agent_actor_id(conn)?;
     let filed = file_proposal(
@@ -737,7 +902,12 @@ fn is_roadmap_session(conn: &Connection, session_id: &str) -> anyhow::Result<boo
 }
 
 /// One call in a roadmap session (issue #133).
-fn apply_roadmap_call(conn: &mut Connection, session_id: &str, request_id: &str, call: &ShapingToolCall) -> anyhow::Result<ShapingToolOutcome> {
+fn apply_roadmap_call(
+    conn: &mut Connection,
+    session_id: &str,
+    request_id: &str,
+    call: &ShapingToolCall,
+) -> anyhow::Result<ShapingToolOutcome> {
     match call {
         ShapingToolCall::ProposeRoadmapChange { change, why } => {
             let filed = propose_roadmap_change(conn, session_id, change, why)?;

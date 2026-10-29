@@ -21,7 +21,9 @@ use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::Duration;
 
-use flywheel_core::domain::session::{apply_session_closed, interrupt_session, start_session, SessionClosedOutcome};
+use flywheel_core::domain::session::{
+    apply_session_closed, interrupt_session, start_session, SessionClosedOutcome,
+};
 use flywheel_core::domain::story::{set_story_state, StoryState};
 use flywheel_core::ids::is_ulid;
 
@@ -54,7 +56,10 @@ fn sidecar_dist_entry() -> PathBuf {
 /// carry a fixed, measured-shape usage block (G-02-4's own fixture change), asserted below.
 fn fake_claude_path() -> PathBuf {
     let path = workspace_root().join("packages/sidecar/test/fake-claude.mjs");
-    assert!(path.is_file(), "expected the fake backend fixture at {path:?}");
+    assert!(
+        path.is_file(),
+        "expected the fake backend fixture at {path:?}"
+    );
     path
 }
 
@@ -77,9 +82,16 @@ fn a_session_driven_to_natural_completion_reaches_a_terminal_status() {
         let fake_claude = fake_claude_path();
 
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-        let story = common::new_story(&mut conn, &project.id, &actor_id, "Session-close lifecycle story");
-        set_story_state(&mut conn, &actor_id, &story.id, StoryState::Ready).expect("Shaping -> Ready");
-        set_story_state(&mut conn, &actor_id, &story.id, StoryState::Running).expect("Ready -> Running");
+        let story = common::new_story(
+            &mut conn,
+            &project.id,
+            &actor_id,
+            "Session-close lifecycle story",
+        );
+        set_story_state(&mut conn, &actor_id, &story.id, StoryState::Ready)
+            .expect("Shaping -> Ready");
+        set_story_state(&mut conn, &actor_id, &story.id, StoryState::Running)
+            .expect("Ready -> Running");
         let run = start_session(&mut conn, &story.id, "acceptEdits", &actor_id)
             .expect("start_session should succeed");
         let worktree_path: String = conn
@@ -117,7 +129,10 @@ fn a_session_driven_to_natural_completion_reaches_a_terminal_status() {
             if done_rx.recv_timeout(Duration::from_secs(30)).is_err() {
                 #[cfg(unix)]
                 {
-                    let _ = Command::new("kill").arg("-9").arg(watchdog_pid.to_string()).status();
+                    let _ = Command::new("kill")
+                        .arg("-9")
+                        .arg(watchdog_pid.to_string())
+                        .status();
                 }
             }
         });
@@ -132,7 +147,8 @@ fn a_session_driven_to_natural_completion_reaches_a_terminal_status() {
         });
         {
             let stdin = child.stdin.as_mut().expect("child stdin should be piped");
-            writeln!(stdin, "{spawn_request}").expect("failed to write the spawn request to the child's stdin");
+            writeln!(stdin, "{spawn_request}")
+                .expect("failed to write the spawn request to the child's stdin");
         }
 
         let stdout = child.stdout.take().expect("child stdout should be piped");
@@ -148,7 +164,9 @@ fn a_session_driven_to_natural_completion_reaches_a_terminal_status() {
             if envelope.get("kind").and_then(|v| v.as_str()) != Some("event") {
                 continue;
             }
-            let Some(event) = envelope.get("event") else { continue };
+            let Some(event) = envelope.get("event") else {
+                continue;
+            };
 
             // Fed through apply_session_closed exactly as the reader loop does — ignoring the
             // returned outcome exactly as a loop that sees every event would.
@@ -180,9 +198,19 @@ fn a_session_driven_to_natural_completion_reaches_a_terminal_status() {
             )
             .expect("sessions row should exist");
 
-        assert_eq!(status, "completed", "a session that exits 0 with no interrupt requested must close completed");
-        assert!(ended_at.is_some(), "ended_at must be set after the terminal event is applied");
-        assert_eq!(cost_usd, Some(0.0021), "cost_usd must equal the fixture's total_cost_usd");
+        assert_eq!(
+            status, "completed",
+            "a session that exits 0 with no interrupt requested must close completed"
+        );
+        assert!(
+            ended_at.is_some(),
+            "ended_at must be set after the terminal event is applied"
+        );
+        assert_eq!(
+            cost_usd,
+            Some(0.0021),
+            "cost_usd must equal the fixture's total_cost_usd"
+        );
         // 2 + 30 + 400 = 432 — a SUM over three fixture usage fields, so a regression that
         // recorded only the plain input_tokens field (2) fails this exact assertion.
         assert_eq!(
@@ -190,7 +218,11 @@ fn a_session_driven_to_natural_completion_reaches_a_terminal_status() {
             Some(432),
             "tokens_in must be the SUM of the fixture's three input-side usage fields, not the plain field alone"
         );
-        assert_eq!(tokens_out, Some(7), "tokens_out must equal the fixture's output_tokens field");
+        assert_eq!(
+            tokens_out,
+            Some(7),
+            "tokens_out must equal the fixture's output_tokens field"
+        );
 
         assert_eq!(
             terminal_event_count(&conn, &run.id),
@@ -199,7 +231,11 @@ fn a_session_driven_to_natural_completion_reaches_a_terminal_status() {
         );
 
         let story_state: String = conn
-            .query_row("SELECT state FROM stories WHERE id = ?1", rusqlite::params![story.id], |row| row.get(0))
+            .query_row(
+                "SELECT state FROM stories WHERE id = ?1",
+                rusqlite::params![story.id],
+                |row| row.get(0),
+            )
             .expect("story row should exist");
         assert_eq!(
             story_state, "running",
@@ -212,7 +248,12 @@ fn a_session_driven_to_natural_completion_reaches_a_terminal_status() {
 fn a_terminal_event_never_overwrites_an_explicit_stop() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-        let story = common::new_story(&mut conn, &project.id, &actor_id, "Stop-then-terminal-event story");
+        let story = common::new_story(
+            &mut conn,
+            &project.id,
+            &actor_id,
+            "Stop-then-terminal-event story",
+        );
         let run = start_session(&mut conn, &story.id, "acceptEdits", &actor_id)
             .expect("start_session should succeed");
 
@@ -225,7 +266,10 @@ fn a_terminal_event_never_overwrites_an_explicit_stop() {
                 |row| row.get(0),
             )
             .expect("sessions row should exist");
-        assert!(ended_at_after_stop.is_some(), "ended_at must be set after the explicit Stop");
+        assert!(
+            ended_at_after_stop.is_some(),
+            "ended_at must be set after the explicit Stop"
+        );
 
         // A terminal event carrying a completion reason and a cost arrives afterwards — exactly
         // the race G-02-4 names: `interrupt_session` already recorded the explicit Stop, and the
@@ -236,7 +280,8 @@ fn a_terminal_event_never_overwrites_an_explicit_stop() {
             "reason": "completed",
             "result": { "totalCostUsd": 0.0099, "inputTokens": 10, "outputTokens": 3 },
         });
-        let outcome = apply_session_closed(&mut conn, &event).expect("apply_session_closed should succeed");
+        let outcome =
+            apply_session_closed(&mut conn, &event).expect("apply_session_closed should succeed");
         assert_eq!(
             outcome,
             SessionClosedOutcome::BackfilledTerminal,
@@ -250,9 +295,19 @@ fn a_terminal_event_never_overwrites_an_explicit_stop() {
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .expect("sessions row should exist");
-        assert_eq!(status, "interrupted", "the explicit-Stop status must never be overwritten by a later terminal event");
-        assert_eq!(ended_at, ended_at_after_stop, "the end time recorded by the explicit Stop must be unchanged");
-        assert_eq!(cost_usd, Some(0.0099), "the cost column, previously empty, must be backfilled from the event");
+        assert_eq!(
+            status, "interrupted",
+            "the explicit-Stop status must never be overwritten by a later terminal event"
+        );
+        assert_eq!(
+            ended_at, ended_at_after_stop,
+            "the end time recorded by the explicit Stop must be unchanged"
+        );
+        assert_eq!(
+            cost_usd,
+            Some(0.0099),
+            "the cost column, previously empty, must be backfilled from the event"
+        );
 
         assert_eq!(
             terminal_event_count(&conn, &run.id),
@@ -267,14 +322,22 @@ fn a_terminal_event_never_overwrites_an_explicit_stop() {
             "reason": "completed",
             "result": { "totalCostUsd": 5.0, "inputTokens": 999, "outputTokens": 999 },
         });
-        let outcome_again =
-            apply_session_closed(&mut conn, &event_again).expect("apply_session_closed should succeed");
+        let outcome_again = apply_session_closed(&mut conn, &event_again)
+            .expect("apply_session_closed should succeed");
         assert_eq!(outcome_again, SessionClosedOutcome::AlreadyTerminal);
 
         let cost_after_second_event: Option<f64> = conn
-            .query_row("SELECT cost_usd FROM sessions WHERE id = ?1", rusqlite::params![run.id], |row| row.get(0))
+            .query_row(
+                "SELECT cost_usd FROM sessions WHERE id = ?1",
+                rusqlite::params![run.id],
+                |row| row.get(0),
+            )
             .expect("sessions row should exist");
-        assert_eq!(cost_after_second_event, Some(0.0099), "a fully-backfilled row must never be overwritten again");
+        assert_eq!(
+            cost_after_second_event,
+            Some(0.0099),
+            "a fully-backfilled row must never be overwritten again"
+        );
         assert_eq!(terminal_event_count(&conn, &run.id), 1);
     });
 }
@@ -286,15 +349,18 @@ fn an_unknown_or_malformed_run_id_writes_nothing() {
 
         // A well-formed ULID that matches no sessions row.
         let unknown_run_id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
-        assert!(is_ulid(unknown_run_id), "the fixture id itself must be a well-formed ULID");
+        assert!(
+            is_ulid(unknown_run_id),
+            "the fixture id itself must be a well-formed ULID"
+        );
         let unknown_event = serde_json::json!({
             "type": "session_closed",
             "runId": unknown_run_id,
             "reason": "completed",
             "result": { "totalCostUsd": 1.0 },
         });
-        let outcome =
-            apply_session_closed(&mut conn, &unknown_event).expect("an unknown run id must not error");
+        let outcome = apply_session_closed(&mut conn, &unknown_event)
+            .expect("an unknown run id must not error");
         assert_eq!(outcome, SessionClosedOutcome::UnknownRun);
 
         // A run id that is not a well-formed identifier at all.
@@ -304,13 +370,16 @@ fn an_unknown_or_malformed_run_id_writes_nothing() {
             "reason": "completed",
             "result": { "totalCostUsd": 1.0 },
         });
-        let malformed_outcome =
-            apply_session_closed(&mut conn, &malformed_event).expect("a malformed run id must not error");
+        let malformed_outcome = apply_session_closed(&mut conn, &malformed_event)
+            .expect("a malformed run id must not error");
         assert_eq!(malformed_outcome, SessionClosedOutcome::Ignored);
 
         let sessions_count: i64 = conn
             .query_row("SELECT COUNT(*) FROM sessions", [], |row| row.get(0))
             .expect("count query should succeed");
-        assert_eq!(sessions_count, 0, "neither case should have written any sessions row");
+        assert_eq!(
+            sessions_count, 0,
+            "neither case should have written any sessions row"
+        );
     });
 }

@@ -9,10 +9,12 @@ use common::with_scratch_worktree_root;
 use std::path::PathBuf;
 
 use flywheel_core::domain::worktree::{
-    ensure_worktree, porcelain_entries, reclaim_eligibility, ReclaimDisposition as D, ReclaimReason as R,
+    ensure_worktree, porcelain_entries, reclaim_eligibility, ReclaimDisposition as D,
+    ReclaimReason as R,
 };
 use flywheel_core::query::fleet::{
-    finish_worktree_inventory, finish_worktree_inventory_with, worktree_inventory_inputs, WorktreeInventoryRow,
+    finish_worktree_inventory, finish_worktree_inventory_with, worktree_inventory_inputs,
+    WorktreeInventoryRow,
 };
 use rusqlite::{params, Connection};
 
@@ -24,47 +26,79 @@ fn elig(story: &str, live: Option<&str>, dirty: bool, project: &str, present: bo
 
 #[test]
 fn a_merged_story_with_no_run_and_a_clean_tree_is_reclaimable_as_merged() {
-    assert_eq!(elig("merged", None, false, "active", true), D::Reclaimable(R::Merged));
+    assert_eq!(
+        elig("merged", None, false, "active", true),
+        D::Reclaimable(R::Merged)
+    );
 }
 
 #[test]
 fn a_dropped_story_with_no_run_and_a_clean_tree_is_reclaimable_as_dropped() {
-    assert_eq!(elig("dropped", None, false, "active", true), D::Reclaimable(R::Dropped));
+    assert_eq!(
+        elig("dropped", None, false, "active", true),
+        D::Reclaimable(R::Dropped)
+    );
 }
 
 #[test]
 fn a_live_run_is_in_use_even_when_the_story_is_merged() {
-    assert_eq!(elig("merged", Some("running"), false, "active", true), D::InUse(R::Sessionning));
-    assert_eq!(elig("merged", Some("blocked"), false, "active", true), D::InUse(R::Blocked));
+    assert_eq!(
+        elig("merged", Some("running"), false, "active", true),
+        D::InUse(R::Sessionning)
+    );
+    assert_eq!(
+        elig("merged", Some("blocked"), false, "active", true),
+        D::InUse(R::Blocked)
+    );
 }
 
 #[test]
 fn a_dirty_tree_is_kept_even_when_the_story_is_merged() {
-    assert_eq!(elig("merged", None, true, "active", true), D::Keep(R::UncommittedChanges));
+    assert_eq!(
+        elig("merged", None, true, "active", true),
+        D::Keep(R::UncommittedChanges)
+    );
 }
 
 #[test]
 fn an_unreachable_project_is_kept_and_outranks_every_other_fact() {
-    assert_eq!(elig("merged", None, false, "unreachable", true), D::Keep(R::ProjectUnreachable));
-    assert_eq!(elig("merged", Some("running"), true, "unreachable", false), D::Keep(R::ProjectUnreachable));
+    assert_eq!(
+        elig("merged", None, false, "unreachable", true),
+        D::Keep(R::ProjectUnreachable)
+    );
+    assert_eq!(
+        elig("merged", Some("running"), true, "unreachable", false),
+        D::Keep(R::ProjectUnreachable)
+    );
 }
 
 #[test]
 fn a_missing_directory_has_its_own_disposition() {
-    assert_eq!(elig("merged", None, false, "active", false), D::Keep(R::DirectoryMissing));
+    assert_eq!(
+        elig("merged", None, false, "active", false),
+        D::Keep(R::DirectoryMissing)
+    );
 }
 
 #[test]
 fn a_story_can_only_be_reclaimable_by_being_closed() {
     for open in ["shaping", "ready", "running", "in_review"] {
-        assert_eq!(elig(open, None, false, "active", true), D::Keep(R::StoryOpen), "{open}");
+        assert_eq!(
+            elig(open, None, false, "active", true),
+            D::Keep(R::StoryOpen),
+            "{open}"
+        );
     }
 }
 
 // --- the read, against real git ---------------------------------------------------------------
 
 fn set_story_state(conn: &Connection, story_id: &str, state: &str) {
-    conn.execute("UPDATE stories SET state = ?1 WHERE id = ?2", params![state, story_id]).unwrap();
+    conn.execute(
+        "UPDATE stories SET state = ?1 WHERE id = ?2",
+        params![state, story_id],
+    )
+    .unwrap();
 }
 
 fn rows(conn: &Connection) -> Vec<WorktreeInventoryRow> {
@@ -72,7 +106,9 @@ fn rows(conn: &Connection) -> Vec<WorktreeInventoryRow> {
 }
 
 fn row_for<'a>(rows: &'a [WorktreeInventoryRow], story_id: &str) -> &'a WorktreeInventoryRow {
-    rows.iter().find(|r| r.story_id == story_id).unwrap_or_else(|| panic!("no row for {story_id}"))
+    rows.iter()
+        .find(|r| r.story_id == story_id)
+        .unwrap_or_else(|| panic!("no row for {story_id}"))
 }
 
 /// The inventory with its porcelain reads recorded: every path the git half asked `git status
@@ -117,21 +153,45 @@ fn dispositions_across_merged_dropped_dirty_live_and_unreachable() {
         set_story_state(&conn, &live, "merged");
 
         let (blocked, _) = mk(&mut conn, "blocked");
-        let blocked_run = flywheel_core::domain::session::start_session(&mut conn, &blocked, "default", &actor).unwrap();
-        conn.execute("UPDATE sessions SET status = 'blocked' WHERE id = ?1", params![blocked_run.id]).unwrap();
+        let blocked_run =
+            flywheel_core::domain::session::start_session(&mut conn, &blocked, "default", &actor)
+                .unwrap();
+        conn.execute(
+            "UPDATE sessions SET status = 'blocked' WHERE id = ?1",
+            params![blocked_run.id],
+        )
+        .unwrap();
 
         let all = rows(&conn);
-        assert_eq!(row_for(&all, &merged).disposition, D::Reclaimable(R::Merged));
-        assert_eq!(row_for(&all, &dropped).disposition, D::Reclaimable(R::Dropped));
-        assert_eq!(row_for(&all, &dirty).disposition, D::Keep(R::UncommittedChanges));
+        assert_eq!(
+            row_for(&all, &merged).disposition,
+            D::Reclaimable(R::Merged)
+        );
+        assert_eq!(
+            row_for(&all, &dropped).disposition,
+            D::Reclaimable(R::Dropped)
+        );
+        assert_eq!(
+            row_for(&all, &dirty).disposition,
+            D::Keep(R::UncommittedChanges)
+        );
         assert_eq!(row_for(&all, &open).disposition, D::Keep(R::StoryOpen));
         assert_eq!(row_for(&all, &live).disposition, D::InUse(R::Sessionning));
         assert_eq!(row_for(&all, &blocked).disposition, D::InUse(R::Blocked));
 
         // The project becomes unreachable: every one of its rows is kept with that reason.
-        conn.execute("UPDATE projects SET status = 'unreachable' WHERE id = ?1", params![project.id]).unwrap();
+        conn.execute(
+            "UPDATE projects SET status = 'unreachable' WHERE id = ?1",
+            params![project.id],
+        )
+        .unwrap();
         for r in rows(&conn) {
-            assert_eq!(r.disposition, D::Keep(R::ProjectUnreachable), "{}", r.story_key);
+            assert_eq!(
+                r.disposition,
+                D::Keep(R::ProjectUnreachable),
+                "{}",
+                r.story_key
+            );
         }
     });
 }
@@ -149,18 +209,27 @@ fn a_row_whose_directory_is_gone_is_reported_not_fatal() {
 
         let all = rows(&conn);
         assert_eq!(all.len(), 2);
-        assert_eq!(row_for(&all, &story.id).disposition, D::Keep(R::DirectoryMissing));
+        assert_eq!(
+            row_for(&all, &story.id).disposition,
+            D::Keep(R::DirectoryMissing)
+        );
         assert_eq!(row_for(&all, &ok.id).disposition, D::Keep(R::StoryOpen));
     });
 }
 
 #[test]
-fn the_porcelain_read_runs_only_for_rows_that_passed_the_board_test_and_never_for_unreachable_projects() {
+fn the_porcelain_read_runs_only_for_rows_that_passed_the_board_test_and_never_for_unreachable_projects(
+) {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor, project, _repo) = common::seeded_git_project();
 
         let mut closed = Vec::new();
-        for (name, state) in [("a", "merged"), ("b", "dropped"), ("c", "running"), ("d", "ready")] {
+        for (name, state) in [
+            ("a", "merged"),
+            ("b", "dropped"),
+            ("c", "running"),
+            ("d", "ready"),
+        ] {
             let story = common::new_story(&mut conn, &project.id, &actor, name);
             let wt = ensure_worktree(&mut conn, &story.id, &actor).unwrap();
             set_story_state(&conn, &story.id, state);
@@ -172,12 +241,23 @@ fn the_porcelain_read_runs_only_for_rows_that_passed_the_board_test_and_never_fo
         assert_eq!(all.len(), 4);
         reads.sort();
         closed.sort();
-        assert_eq!(reads, closed, "only the two closed rows may cost a porcelain read");
+        assert_eq!(
+            reads, closed,
+            "only the two closed rows may cost a porcelain read"
+        );
 
-        conn.execute("UPDATE projects SET status = 'unreachable' WHERE id = ?1", params![project.id]).unwrap();
+        conn.execute(
+            "UPDATE projects SET status = 'unreachable' WHERE id = ?1",
+            params![project.id],
+        )
+        .unwrap();
         let (all, reads) = rows_recording_reads(&conn);
         assert_eq!(all.len(), 4);
-        assert_eq!(reads, Vec::<PathBuf>::new(), "an unreachable project must reach no git call");
+        assert_eq!(
+            reads,
+            Vec::<PathBuf>::new(),
+            "an unreachable project must reach no git call"
+        );
     });
 }
 
@@ -193,13 +273,20 @@ fn equal_sizes_order_by_story_key_and_unmeasured_sorts_last() {
         }
         // ids[0] and ids[1] tie at 100 bytes; ids[2] was never measured.
         for id in &ids[..2] {
-            conn.execute("UPDATE worktrees SET size_bytes = 100, size_measured_at = 'x' WHERE story_id = ?1", params![id])
-                .unwrap();
+            conn.execute(
+                "UPDATE worktrees SET size_bytes = 100, size_measured_at = 'x' WHERE story_id = ?1",
+                params![id],
+            )
+            .unwrap();
         }
         let keys: Vec<String> = rows(&conn).into_iter().map(|r| r.story_key).collect();
         let mut tied = keys[..2].to_vec();
         tied.sort();
-        assert_eq!(keys[..2].to_vec(), tied, "ties must order by Story key ascending");
+        assert_eq!(
+            keys[..2].to_vec(),
+            tied,
+            "ties must order by Story key ascending"
+        );
         let last = rows(&conn).pop().unwrap();
         assert_eq!(last.story_id, ids[2]);
         assert_eq!(last.size_bytes, None, "an unmeasured size stays absent");

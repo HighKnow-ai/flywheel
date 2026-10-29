@@ -98,4 +98,3 @@ pub fn story_branch_name(story_key: &str, title: &str) -> String {
         format!("{base}-{truncated}")
     }
 }
-

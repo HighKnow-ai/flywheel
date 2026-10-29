@@ -23,7 +23,9 @@ use flywheel_core::runtime_protocol::{process_is_alive, write_kill_record, write
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn with_scratch_runtime_and_worktree_root<T>(f: impl FnOnce() -> T) -> T {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let runtime_dir = tempfile::tempdir().expect("failed to create scratch runtime dir");
     let worktree_dir = tempfile::tempdir().expect("failed to create scratch worktree root");
     // SAFETY: the mutex above serializes every caller in this binary, so no other thread reads or
@@ -96,8 +98,12 @@ fn abandoned_event_reason(conn: &rusqlite::Connection, run_id: &str) -> Option<O
         )
         .ok();
     payload.map(|p| {
-        let value: serde_json::Value = serde_json::from_str(&p).expect("payload should be valid JSON");
-        value.get("reason").and_then(|v| v.as_str()).map(|s| s.to_string())
+        let value: serde_json::Value =
+            serde_json::from_str(&p).expect("payload should be valid JSON");
+        value
+            .get("reason")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
     })
 }
 
@@ -173,7 +179,12 @@ fn process_is_alive_returns_false_for_a_non_positive_pid() {
 fn a_running_row_with_a_kill_record_is_abandoned_with_the_recorded_reason_and_not_a_live_orphan() {
     with_scratch_runtime_and_worktree_root(|| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-        let story = common::new_story(&mut conn, &project.id, &actor_id, "Killed-by-watchdog story");
+        let story = common::new_story(
+            &mut conn,
+            &project.id,
+            &actor_id,
+            "Killed-by-watchdog story",
+        );
         let run = start_session(&mut conn, &story.id, "acceptEdits", &actor_id)
             .expect("start_session should succeed");
 
@@ -239,7 +250,12 @@ fn a_running_row_with_no_kill_record_and_a_live_process_stays_running_and_is_a_l
 fn a_running_row_with_no_kill_record_and_a_dead_process_is_abandoned_with_no_reason() {
     with_scratch_runtime_and_worktree_root(|| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-        let story = common::new_story(&mut conn, &project.id, &actor_id, "Dead without record story");
+        let story = common::new_story(
+            &mut conn,
+            &project.id,
+            &actor_id,
+            "Dead without record story",
+        );
         let run = start_session(&mut conn, &story.id, "acceptEdits", &actor_id)
             .expect("start_session should succeed");
 
@@ -330,7 +346,8 @@ fn a_malformed_kill_record_classifies_as_dead_without_a_record_not_as_killed() {
 
         // No live descriptor at all, and a kill record file that does not parse — this must fall
         // back to the honest "dead, no reason known" path, never invent a reason from garbage.
-        let runtime_dir = flywheel_core::runtime_protocol::runtime_dir().expect("runtime_dir should resolve");
+        let runtime_dir =
+            flywheel_core::runtime_protocol::runtime_dir().expect("runtime_dir should resolve");
         let kills_dir = runtime_dir.join("kills");
         std::fs::create_dir_all(&kills_dir).expect("failed to create kills dir");
         std::fs::write(kills_dir.join(format!("{}.json", run.id)), b"{ not json")
@@ -358,8 +375,8 @@ fn an_already_terminal_row_is_never_rewritten_and_a_second_call_appends_no_event
             .expect("start_session should succeed");
 
         // No descriptor, no kill record — the first call abandons it with no reason.
-        let first_pass =
-            reconcile_sessions(&mut conn, &actor_id).expect("first reconcile_sessions call should succeed");
+        let first_pass = reconcile_sessions(&mut conn, &actor_id)
+            .expect("first reconcile_sessions call should succeed");
         assert!(!first_pass.iter().any(|o| o.run_id == run.id));
         assert_eq!(session_status(&conn, &run.id), "abandoned");
 
@@ -387,11 +404,17 @@ fn calling_mark_abandoned_directly_on_an_already_abandoned_run_is_a_no_op() {
     // proof).
     with_scratch_runtime_and_worktree_root(|| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-        let story = common::new_story(&mut conn, &project.id, &actor_id, "Direct mark_abandoned story");
+        let story = common::new_story(
+            &mut conn,
+            &project.id,
+            &actor_id,
+            "Direct mark_abandoned story",
+        );
         let run = start_session(&mut conn, &story.id, "acceptEdits", &actor_id)
             .expect("start_session should succeed");
 
-        assert!(mark_abandoned(&mut conn, &run.id, &actor_id, None).expect("mark_abandoned should succeed"));
+        assert!(mark_abandoned(&mut conn, &run.id, &actor_id, None)
+            .expect("mark_abandoned should succeed"));
         assert!(
             !mark_abandoned(&mut conn, &run.id, &actor_id, Some("should-be-ignored"))
                 .expect("a second mark_abandoned call must not error"),
@@ -434,12 +457,16 @@ fn no_resume_call_survives_in_reconcile_sessions() {
         if trimmed.starts_with("//") {
             continue;
         }
-        if line.contains("Command::new") || line.contains("start_session") || line.contains("spawn") {
+        if line.contains("Command::new") || line.contains("start_session") || line.contains("spawn")
+        {
             violations.push(line.to_string());
         }
     }
 
-    assert!(in_function, "reconcile_sessions was not found in session.rs");
+    assert!(
+        in_function,
+        "reconcile_sessions was not found in session.rs"
+    );
     assert!(
         violations.is_empty(),
         "reconcile_sessions must never resume a process; found: {violations:?}"
@@ -461,13 +488,20 @@ fn kill_orphan_kills_a_genuinely_alive_process_and_records_abandoned() {
         let start_time = real_start_time_ms(pid);
         write_run_descriptor(&run.id, pid as i32, start_time);
 
-        let outcome = kill_orphan(&mut conn, &run.id, &actor_id).expect("kill_orphan should succeed");
+        let outcome =
+            kill_orphan(&mut conn, &run.id, &actor_id).expect("kill_orphan should succeed");
 
-        assert!(outcome.killed, "a real signal to a real process must report killed: true");
+        assert!(
+            outcome.killed,
+            "a real signal to a real process must report killed: true"
+        );
         assert_eq!(outcome.pid, pid as i32);
         assert_eq!(outcome.detail, None);
         assert_eq!(session_status(&conn, &run.id), "abandoned");
-        assert_eq!(abandoned_event_reason(&conn, &run.id), Some(Some("killed-by-user-at-launch".to_string())));
+        assert_eq!(
+            abandoned_event_reason(&conn, &run.id),
+            Some(Some("killed-by-user-at-launch".to_string()))
+        );
 
         // Best-effort: the process really is gone (avoids leaking a zombie from this test run).
         let _ = child.wait();
@@ -489,7 +523,8 @@ fn kill_orphan_still_records_abandoned_when_the_process_is_already_gone() {
         let _ = child.kill();
         let _ = child.wait();
 
-        let outcome = kill_orphan(&mut conn, &run.id, &actor_id).expect("kill_orphan should succeed");
+        let outcome =
+            kill_orphan(&mut conn, &run.id, &actor_id).expect("kill_orphan should succeed");
 
         assert!(
             outcome.killed,
@@ -497,7 +532,10 @@ fn kill_orphan_still_records_abandoned_when_the_process_is_already_gone() {
              there is nothing left alive to report a failure about"
         );
         assert_eq!(session_status(&conn, &run.id), "abandoned");
-        assert_eq!(abandoned_event_reason(&conn, &run.id), Some(Some("killed-by-user-at-launch".to_string())));
+        assert_eq!(
+            abandoned_event_reason(&conn, &run.id),
+            Some(Some("killed-by-user-at-launch".to_string()))
+        );
     });
 }
 

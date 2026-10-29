@@ -9,20 +9,32 @@ use std::path::Path;
 use std::process::Command;
 
 use common::with_scratch_worktree_root;
-use flywheel_core::context_packet::{build_context_packet, context_packet_size, measure, SOFT_LIMIT_TOKENS};
+use flywheel_core::context_packet::{
+    build_context_packet, context_packet_size, measure, SOFT_LIMIT_TOKENS,
+};
 use flywheel_core::domain::acceptance_criterion::criteria_for_story;
-use flywheel_core::domain::check::{check_for_criterion, record_check_run, CheckResult, CheckRunRecord};
+use flywheel_core::domain::check::{
+    check_for_criterion, record_check_run, CheckResult, CheckRunRecord,
+};
 use flywheel_core::domain::epic::{create_epic, update_epic, EpicSpec};
 use flywheel_core::domain::milestone::create_milestone;
-use flywheel_core::domain::proposal::{accept_proposal, file_proposal, reject_proposal, NewProposal, ProposalTarget, ProposalVerb};
-use flywheel_core::domain::round::{answer_round_question, post_round, AdrDraft, NewQuestion, NewRound, RoundAnswer};
-use flywheel_core::domain::session::{close_session, start_session, start_shaping_session, SessionStatus, ShapingSubject};
-use flywheel_core::domain::story::stories_in_epic;
-use flywheel_core::domain::story_proposal_tool::{apply_story_proposal_call, StoryProposalCall};
-use flywheel_core::domain::session_summary::create_summary;
+use flywheel_core::domain::proposal::{
+    accept_proposal, file_proposal, reject_proposal, NewProposal, ProposalTarget, ProposalVerb,
+};
 use flywheel_core::domain::request_changes::request_changes;
 use flywheel_core::domain::review_decisions::{set_adr_decision, AdrDecision};
-use flywheel_core::domain::story::{create_story, set_story_state, write_story_by_hand, HandWrittenCriterion, Story, StoryState};
+use flywheel_core::domain::round::{
+    answer_round_question, post_round, AdrDraft, NewQuestion, NewRound, RoundAnswer,
+};
+use flywheel_core::domain::session::{
+    close_session, start_session, start_shaping_session, SessionStatus, ShapingSubject,
+};
+use flywheel_core::domain::session_summary::create_summary;
+use flywheel_core::domain::story::stories_in_epic;
+use flywheel_core::domain::story::{
+    create_story, set_story_state, write_story_by_hand, HandWrittenCriterion, Story, StoryState,
+};
+use flywheel_core::domain::story_proposal_tool::{apply_story_proposal_call, StoryProposalCall};
 use flywheel_core::domain::task::{add_task, set_task_note, set_task_state, TaskState};
 use flywheel_core::domain::worktree::ensure_worktree;
 use rusqlite::Connection;
@@ -41,8 +53,17 @@ const SECTION_HEADINGS: [&str; 10] = [
 ];
 
 fn git(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git").arg("-C").arg(dir).args(args).output().expect("git should spawn");
-    assert!(out.status.success(), "git {args:?} failed: {}", String::from_utf8_lossy(&out.stderr));
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .expect("git should spawn");
+    assert!(
+        out.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     String::from_utf8_lossy(&out.stdout).into_owned()
 }
 
@@ -65,7 +86,14 @@ struct Fixture {
 /// holding a supersession chain of ADRs, committed on the Story's branch.
 fn fixture() -> Fixture {
     let (mut conn, actor_id, project, repo) = common::seeded_git_project();
-    let m = create_milestone(&mut conn, &project.id, &actor_id, "Supervised execution", Some("A week of real work")).unwrap();
+    let m = create_milestone(
+        &mut conn,
+        &project.id,
+        &actor_id,
+        "Supervised execution",
+        Some("A week of real work"),
+    )
+    .unwrap();
     let e = create_epic(&mut conn, &actor_id, &m.id, "Context packet").unwrap();
     update_epic(
         &mut conn,
@@ -87,8 +115,14 @@ fn fixture() -> Fixture {
         "Build the packet",
         Some("The packet builder."),
         &[
-            HandWrittenCriterion { statement: "Packets are byte-identical", check_command: Some("cargo test packet") },
-            HandWrittenCriterion { statement: "Looks right", check_command: None },
+            HandWrittenCriterion {
+                statement: "Packets are byte-identical",
+                check_command: Some("cargo test packet"),
+            },
+            HandWrittenCriterion {
+                statement: "Looks right",
+                check_command: None,
+            },
         ],
     )
     .unwrap();
@@ -96,25 +130,62 @@ fn fixture() -> Fixture {
 
     let wt = ensure_worktree(&mut conn, &story.id, &actor_id).unwrap();
     let worktree = std::path::PathBuf::from(&wt.path);
-    git(&worktree, &["config", "user.email", "fixture@flywheel.test"]);
+    git(
+        &worktree,
+        &["config", "user.email", "fixture@flywheel.test"],
+    );
     git(&worktree, &["config", "user.name", "Fixture"]);
-    write(&worktree, "docs/adr/0001-first.md", "# Use SQLite\n\nStatus: superseded by ADR-0002\n\nBody.\n");
-    write(&worktree, "docs/adr/0002-second.md", "# Use Postgres\n\nSupersedes ADR-0001\n\nStatus: superseded by ADR-0003\n");
-    write(&worktree, "docs/adr/0003-third.md", "# Use SQLite again\n\nSupersedes ADR-0002\n\nBody.\n");
-    write(&worktree, "docs/adr/0004-old-name.md", "# Old naming\n\nBody.\n");
-    write(&worktree, "docs/adr/0005-new-name.md", "# New naming\n\nSupersedes ADR-0004\n");
-    write(&worktree, "docs/adr/0006-other.md", "# Unrelated decision\n");
+    write(
+        &worktree,
+        "docs/adr/0001-first.md",
+        "# Use SQLite\n\nStatus: superseded by ADR-0002\n\nBody.\n",
+    );
+    write(
+        &worktree,
+        "docs/adr/0002-second.md",
+        "# Use Postgres\n\nSupersedes ADR-0001\n\nStatus: superseded by ADR-0003\n",
+    );
+    write(
+        &worktree,
+        "docs/adr/0003-third.md",
+        "# Use SQLite again\n\nSupersedes ADR-0002\n\nBody.\n",
+    );
+    write(
+        &worktree,
+        "docs/adr/0004-old-name.md",
+        "# Old naming\n\nBody.\n",
+    );
+    write(
+        &worktree,
+        "docs/adr/0005-new-name.md",
+        "# New naming\n\nSupersedes ADR-0004\n",
+    );
+    write(
+        &worktree,
+        "docs/adr/0006-other.md",
+        "# Unrelated decision\n",
+    );
     write(&worktree, "GLOSSARY.md", "# Glossary\n");
     git(&worktree, &["add", "."]);
     git(&worktree, &["commit", "-m", "adrs"]);
 
-    Fixture { conn, actor_id, story, worktree, _repo: repo }
+    Fixture {
+        conn,
+        actor_id,
+        story,
+        worktree,
+        _repo: repo,
+    }
 }
 
 fn positions(packet: &str) -> Vec<usize> {
     SECTION_HEADINGS
         .iter()
-        .map(|h| packet.find(&format!("\n{h}\n")).unwrap_or_else(|| panic!("missing {h:?} in:\n{packet}")))
+        .map(|h| {
+            packet
+                .find(&format!("\n{h}\n"))
+                .unwrap_or_else(|| panic!("missing {h:?} in:\n{packet}"))
+        })
         .collect()
 }
 
@@ -137,9 +208,16 @@ fn sections_appear_in_the_spec_order_and_each_once() {
         let f = fixture();
         let packet = build_context_packet(&f.conn, &f.story.id, "Mind the tests").unwrap();
         let at = positions(&packet);
-        assert!(at.windows(2).all(|w| w[0] < w[1]), "sections out of order: {at:?}\n{packet}");
+        assert!(
+            at.windows(2).all(|w| w[0] < w[1]),
+            "sections out of order: {at:?}\n{packet}"
+        );
         for h in SECTION_HEADINGS {
-            assert_eq!(packet.matches(&format!("\n{h}\n")).count(), 1, "{h} appears once");
+            assert_eq!(
+                packet.matches(&format!("\n{h}\n")).count(),
+                1,
+                "{h} appears once"
+            );
         }
     });
 }
@@ -165,14 +243,31 @@ fn milestone_and_epic_carry_the_exit_tests_spec_and_rejected_reasons() {
             },
         )
         .unwrap();
-        reject_proposal(&mut f.conn, &f.actor_id, &p.id, Some("No caching in the MVP")).unwrap();
+        reject_proposal(
+            &mut f.conn,
+            &f.actor_id,
+            &p.id,
+            Some("No caching in the MVP"),
+        )
+        .unwrap();
 
         let packet = build_context_packet(&f.conn, &f.story.id, "").unwrap();
-        assert!(packet.contains("Milestone: Supervised execution. Exit test: A week of real work\n"), "{packet}");
-        for needle in ["Sessions lose the thread.", "Rebuild every session from the board.", "Compaction.", "A resumed session picks up"] {
+        assert!(
+            packet.contains("Milestone: Supervised execution. Exit test: A week of real work\n"),
+            "{packet}"
+        );
+        for needle in [
+            "Sessions lose the thread.",
+            "Rebuild every session from the board.",
+            "Compaction.",
+            "A resumed session picks up",
+        ] {
             assert!(packet.contains(needle), "{needle} missing:\n{packet}");
         }
-        assert!(packet.contains("No caching in the MVP"), "a rejection's reason is in the Epic's packet:\n{packet}");
+        assert!(
+            packet.contains("No caching in the MVP"),
+            "a rejection's reason is in the Epic's packet:\n{packet}"
+        );
     });
 }
 
@@ -181,15 +276,28 @@ fn only_the_live_adr_of_a_supersession_chain_is_listed() {
     with_scratch_worktree_root(|_| {
         let f = fixture();
         let packet = build_context_packet(&f.conn, &f.story.id, "").unwrap();
-        let adrs = &packet[packet.find("\n## ADRs\n").unwrap()..packet.find("\n## Sibling Stories\n").unwrap()];
-        assert!(adrs.contains("- docs/adr/0003-third.md: Use SQLite again\n"), "{adrs}");
-        assert!(adrs.contains("- docs/adr/0005-new-name.md: New naming\n"), "{adrs}");
-        assert!(adrs.contains("- docs/adr/0006-other.md: Unrelated decision\n"), "{adrs}");
+        let adrs = &packet
+            [packet.find("\n## ADRs\n").unwrap()..packet.find("\n## Sibling Stories\n").unwrap()];
+        assert!(
+            adrs.contains("- docs/adr/0003-third.md: Use SQLite again\n"),
+            "{adrs}"
+        );
+        assert!(
+            adrs.contains("- docs/adr/0005-new-name.md: New naming\n"),
+            "{adrs}"
+        );
+        assert!(
+            adrs.contains("- docs/adr/0006-other.md: Unrelated decision\n"),
+            "{adrs}"
+        );
         for dead in ["0001-first", "0002-second", "0004-old-name"] {
             assert!(!adrs.contains(dead), "superseded {dead} is listed:\n{adrs}");
         }
         assert!(adrs.contains("GLOSSARY.md"), "{adrs}");
-        assert!(!adrs.contains("# Glossary"), "the glossary goes by path only:\n{adrs}");
+        assert!(
+            !adrs.contains("# Glossary"),
+            "the glossary goes by path only:\n{adrs}"
+        );
     });
 }
 
@@ -224,12 +332,22 @@ fn an_accepted_unmerged_adr_on_the_epic_is_sent_as_full_text() {
 
         let packet = build_context_packet(&f.conn, &f.story.id, "").unwrap();
         assert!(packet.contains("docs/adr/0007-packet.md"), "{packet}");
-        assert!(packet.contains("# Build the packet in Rust\n\nThe core owns it.\n"), "{packet}");
+        assert!(
+            packet.contains("# Build the packet in Rust\n\nThe core owns it.\n"),
+            "{packet}"
+        );
 
         // Once the worktree holds the file, it is in the index and no longer sent as text.
-        write(&f.worktree, "docs/adr/0007-packet.md", "# Build the packet in Rust\n\nThe core owns it.\n");
+        write(
+            &f.worktree,
+            "docs/adr/0007-packet.md",
+            "# Build the packet in Rust\n\nThe core owns it.\n",
+        );
         let packet = build_context_packet(&f.conn, &f.story.id, "").unwrap();
-        assert!(packet.contains("- docs/adr/0007-packet.md: Build the packet in Rust\n"), "{packet}");
+        assert!(
+            packet.contains("- docs/adr/0007-packet.md: Build the packet in Rust\n"),
+            "{packet}"
+        );
         assert!(!packet.contains("The core owns it."), "{packet}");
     });
 }
@@ -241,8 +359,13 @@ fn an_accepted_unmerged_adr_on_the_epic_is_sent_as_full_text() {
 fn an_adr_accepted_in_a_shaping_round_reaches_the_epics_story_packet_as_full_text() {
     with_scratch_worktree_root(|_| {
         let mut f = fixture();
-        let session = start_shaping_session(&mut f.conn, &ShapingSubject::Epic(f.story.epic_id.clone()), "dontAsk", &f.actor_id)
-            .unwrap();
+        let session = start_shaping_session(
+            &mut f.conn,
+            &ShapingSubject::Epic(f.story.epic_id.clone()),
+            "dontAsk",
+            &f.actor_id,
+        )
+        .unwrap();
         let offer = |n: u32, title: &str| NewQuestion {
             title: format!("Record ADR {n:04}"),
             question: format!("Record \"{title}\" as ADR {n:04}?"),
@@ -262,17 +385,47 @@ fn an_adr_accepted_in_a_shaping_round_reaches_the_epics_story_packet_as_full_tex
             &mut f.conn,
             &session.id,
             Some("req-1"),
-            &NewRound { note: "Two decisions.".into(), questions: vec![offer(8, "Keep Rounds on the board"), offer(9, "Dropped idea")] },
+            &NewRound {
+                note: "Two decisions.".into(),
+                questions: vec![
+                    offer(8, "Keep Rounds on the board"),
+                    offer(9, "Dropped idea"),
+                ],
+            },
         )
         .unwrap();
-        answer_round_question(&mut f.conn, &f.actor_id, &round.questions[0].id, &RoundAnswer::Own("Yes".into())).unwrap();
-        answer_round_question(&mut f.conn, &f.actor_id, &round.questions[1].id, &RoundAnswer::Own("No".into())).unwrap();
+        answer_round_question(
+            &mut f.conn,
+            &f.actor_id,
+            &round.questions[0].id,
+            &RoundAnswer::Own("Yes".into()),
+        )
+        .unwrap();
+        answer_round_question(
+            &mut f.conn,
+            &f.actor_id,
+            &round.questions[1].id,
+            &RoundAnswer::Own("No".into()),
+        )
+        .unwrap();
 
         let packet = build_context_packet(&f.conn, &f.story.id, "").unwrap();
-        assert!(packet.contains("write it verbatim at `docs/adr/0008-round.md`"), "{packet}");
-        assert!(packet.contains("# Keep Rounds on the board\n\nDecided in the shaping Round.\n"), "{packet}");
-        assert!(!packet.contains("Dropped idea"), "an ADR answered No reaches no packet:\n{packet}");
-        assert!(!packet.contains("Every Story builds on it"), "the bar lines are never written into the file:\n{packet}");
+        assert!(
+            packet.contains("write it verbatim at `docs/adr/0008-round.md`"),
+            "{packet}"
+        );
+        assert!(
+            packet.contains("# Keep Rounds on the board\n\nDecided in the shaping Round.\n"),
+            "{packet}"
+        );
+        assert!(
+            !packet.contains("Dropped idea"),
+            "an ADR answered No reaches no packet:\n{packet}"
+        );
+        assert!(
+            !packet.contains("Every Story builds on it"),
+            "the bar lines are never written into the file:\n{packet}"
+        );
     });
 }
 
@@ -307,12 +460,20 @@ fn only_the_epics_first_story_is_told_to_write_an_accepted_adr() {
         )
         .unwrap();
         accept_proposal(&mut f.conn, &f.actor_id, &p.id).unwrap();
-        let sibling = flywheel_core::domain::story::stories_in_epic(&f.conn, &epic_id).unwrap().remove(1);
+        let sibling = flywheel_core::domain::story::stories_in_epic(&f.conn, &epic_id)
+            .unwrap()
+            .remove(1);
 
         let first = build_context_packet(&f.conn, &f.story.id, "").unwrap();
-        assert!(first.contains("write it verbatim at `docs/adr/0007-packet.md`"), "{first}");
+        assert!(
+            first.contains("write it verbatim at `docs/adr/0007-packet.md`"),
+            "{first}"
+        );
         let later = build_context_packet(&f.conn, &sibling.id, "").unwrap();
-        assert!(!later.contains("The core owns it."), "a later Story is not sent the text:\n{later}");
+        assert!(
+            !later.contains("The core owns it."),
+            "a later Story is not sent the text:\n{later}"
+        );
         assert!(!later.contains("write it verbatim"), "{later}");
         assert!(
             later.contains(&format!(
@@ -322,10 +483,18 @@ fn only_the_epics_first_story_is_told_to_write_an_accepted_adr() {
             "{later}"
         );
 
-        flywheel_core::domain::story::set_story_state(&mut f.conn, &f.actor_id, &f.story.id, flywheel_core::domain::story::StoryState::Dropped)
-            .unwrap();
+        flywheel_core::domain::story::set_story_state(
+            &mut f.conn,
+            &f.actor_id,
+            &f.story.id,
+            flywheel_core::domain::story::StoryState::Dropped,
+        )
+        .unwrap();
         let next = build_context_packet(&f.conn, &sibling.id, "").unwrap();
-        assert!(next.contains("write it verbatim at `docs/adr/0007-packet.md`"), "the next Story takes the write over:\n{next}");
+        assert!(
+            next.contains("write it verbatim at `docs/adr/0007-packet.md`"),
+            "the next Story takes the write over:\n{next}"
+        );
     });
 }
 
@@ -334,7 +503,9 @@ fn the_story_lists_siblings_criteria_checks_and_latest_results() {
     with_scratch_worktree_root(|_| {
         let mut f = fixture();
         let criteria = criteria_for_story(&f.conn, &f.story.id).unwrap();
-        let check = check_for_criterion(&f.conn, &criteria[0].id).unwrap().unwrap();
+        let check = check_for_criterion(&f.conn, &criteria[0].id)
+            .unwrap()
+            .unwrap();
         let head = git(&f.worktree, &["rev-parse", "HEAD"]).trim().to_string();
         record_check_run(
             &mut f.conn,
@@ -351,13 +522,23 @@ fn the_story_lists_siblings_criteria_checks_and_latest_results() {
         .unwrap();
 
         let packet = build_context_packet(&f.conn, &f.story.id, "").unwrap();
-        let siblings = &packet[packet.find("\n## Sibling Stories\n").unwrap()..packet.find("\n## The Story\n").unwrap()];
+        let siblings = &packet[packet.find("\n## Sibling Stories\n").unwrap()
+            ..packet.find("\n## The Story\n").unwrap()];
         assert!(siblings.contains("Sibling work (Shaping)"), "{siblings}");
-        assert!(!siblings.contains("Build the packet"), "the Story is not its own sibling:\n{siblings}");
+        assert!(
+            !siblings.contains("Build the packet"),
+            "the Story is not its own sibling:\n{siblings}"
+        );
         assert!(packet.contains("Packets are byte-identical"), "{packet}");
         assert!(packet.contains("Check: `cargo test packet`"), "{packet}");
-        assert!(packet.contains(&format!("latest result: failed at {}", &head[..12])), "{packet}");
-        assert!(packet.contains("Check: none (judged at review)"), "{packet}");
+        assert!(
+            packet.contains(&format!("latest result: failed at {}", &head[..12])),
+            "{packet}"
+        );
+        assert!(
+            packet.contains("Check: none (judged at review)"),
+            "{packet}"
+        );
     });
 }
 
@@ -370,13 +551,23 @@ fn tasks_show_their_states_and_a_doing_task_is_to_be_reverified() {
         let c = add_task(&mut f.conn, &f.actor_id, &f.story.id, "Cache").unwrap();
         set_task_state(&mut f.conn, &f.actor_id, &a.id, TaskState::Done, None).unwrap();
         set_task_state(&mut f.conn, &f.actor_id, &b.id, TaskState::Doing, None).unwrap();
-        set_task_state(&mut f.conn, &f.actor_id, &c.id, TaskState::Dropped, Some("out of scope")).unwrap();
+        set_task_state(
+            &mut f.conn,
+            &f.actor_id,
+            &c.id,
+            TaskState::Dropped,
+            Some("out of scope"),
+        )
+        .unwrap();
 
         let packet = build_context_packet(&f.conn, &f.story.id, "").unwrap();
-        let tasks = &packet[packet.find("\n## Tasks\n").unwrap()..packet.find("\n## Review feedback").unwrap()];
+        let tasks = &packet
+            [packet.find("\n## Tasks\n").unwrap()..packet.find("\n## Review feedback").unwrap()];
         let plan = tasks.find("[done] Plan").expect("done task");
         let build = tasks.find("[doing] Build").expect("doing task");
-        let cache = tasks.find("[dropped] Cache (out of scope)").expect("dropped task with reason");
+        let cache = tasks
+            .find("[dropped] Cache (out of scope)")
+            .expect("dropped task with reason");
         assert!(plan < build && build < cache, "{tasks}");
         assert!(tasks.contains("re-verify"), "{tasks}");
     });
@@ -391,17 +582,37 @@ fn each_tasks_note_sits_under_it_and_the_agent_is_told_to_keep_it_current() {
         let a = add_task(&mut f.conn, &f.actor_id, &f.story.id, "Survey the repo").unwrap();
         add_task(&mut f.conn, &f.actor_id, &f.story.id, "Build").unwrap();
         set_task_state(&mut f.conn, &f.actor_id, &a.id, TaskState::Doing, None).unwrap();
-        set_task_note(&mut f.conn, &f.actor_id, &a.id, "Read src/lib.rs.\nLeft: tests/.").unwrap();
+        set_task_note(
+            &mut f.conn,
+            &f.actor_id,
+            &a.id,
+            "Read src/lib.rs.\nLeft: tests/.",
+        )
+        .unwrap();
 
         let packet = build_context_packet(&f.conn, &f.story.id, "").unwrap();
-        let tasks = &packet[packet.find("\n## Tasks\n").unwrap()..packet.find("\n## Review feedback").unwrap()];
+        let tasks = &packet
+            [packet.find("\n## Tasks\n").unwrap()..packet.find("\n## Review feedback").unwrap()];
         assert!(tasks.contains("- [doing] Survey the repo\n  Note: Read src/lib.rs.\n  Left: tests/.\n- [open] Build\n"), "{tasks}");
-        assert!(!tasks.contains("Note: \n"), "a Task without a note shows none: {tasks}");
+        assert!(
+            !tasks.contains("Note: \n"),
+            "a Task without a note shows none: {tasks}"
+        );
 
         let standing = &packet[..packet.find("\n## Milestone and Epic").unwrap()];
-        assert!(standing.contains("Keep the doing Task's note current through `task_update`"), "{standing}");
-        assert!(standing.contains("always when you finish or leave a Task"), "{standing}");
-        assert_eq!(packet, build_context_packet(&f.conn, &f.story.id, "").unwrap(), "still deterministic");
+        assert!(
+            standing.contains("Keep the doing Task's note current through `task_update`"),
+            "{standing}"
+        );
+        assert!(
+            standing.contains("always when you finish or leave a Task"),
+            "{standing}"
+        );
+        assert_eq!(
+            packet,
+            build_context_packet(&f.conn, &f.story.id, "").unwrap(),
+            "still deterministic"
+        );
     });
 }
 
@@ -411,15 +622,27 @@ fn summaries_beyond_the_last_three_collapse_to_one_line() {
         let mut f = fixture();
         let run = start_session(&mut f.conn, &f.story.id, "acceptEdits", &f.actor_id).unwrap();
         for i in 1..=5 {
-            create_summary(&mut f.conn, &run.id, &format!("must-know {i}"), &format!("decision {i}")).unwrap();
+            create_summary(
+                &mut f.conn,
+                &run.id,
+                &format!("must-know {i}"),
+                &format!("decision {i}"),
+            )
+            .unwrap();
         }
         let packet = build_context_packet(&f.conn, &f.story.id, "").unwrap();
         assert!(packet.contains("2 earlier sessions omitted"), "{packet}");
         for i in 1..=2 {
-            assert!(!packet.contains(&format!("must-know {i}\n")), "summary {i} should be collapsed:\n{packet}");
+            assert!(
+                !packet.contains(&format!("must-know {i}\n")),
+                "summary {i} should be collapsed:\n{packet}"
+            );
         }
         for i in 3..=5 {
-            assert!(packet.contains(&format!("must-know {i}")), "summary {i} in full:\n{packet}");
+            assert!(
+                packet.contains(&format!("must-know {i}")),
+                "summary {i} in full:\n{packet}"
+            );
             assert!(packet.contains(&format!("decision {i}")), "{packet}");
         }
         let three = packet.find("must-know 3").unwrap();
@@ -432,8 +655,12 @@ fn summaries_beyond_the_last_three_collapse_to_one_line() {
 fn the_resume_note_appears_only_when_given() {
     with_scratch_worktree_root(|_| {
         let f = fixture();
-        let with = build_context_packet(&f.conn, &f.story.id, "  Re-run the migration first.  ").unwrap();
-        assert!(with.contains("Resume note: Re-run the migration first.\n"), "{with}");
+        let with =
+            build_context_packet(&f.conn, &f.story.id, "  Re-run the migration first.  ").unwrap();
+        assert!(
+            with.contains("Resume note: Re-run the migration first.\n"),
+            "{with}"
+        );
         let without = build_context_packet(&f.conn, &f.story.id, "").unwrap();
         assert!(!without.contains("Resume note:"), "{without}");
     });
@@ -441,7 +668,9 @@ fn the_resume_note_appears_only_when_given() {
 
 /// The section between `## Review feedback and resume note` and the next heading.
 fn review_section(packet: &str) -> &str {
-    let start = packet.find("\n## Review feedback and resume note\n").expect("section 7");
+    let start = packet
+        .find("\n## Review feedback and resume note\n")
+        .expect("section 7");
     let end = packet.find("\n## Session summaries\n").expect("section 8");
     &packet[start..end]
 }
@@ -455,15 +684,32 @@ fn a_request_for_changes_puts_its_comments_in_section_seven() {
         let mut f = fixture();
         set_story_state(&mut f.conn, &f.actor_id, &f.story.id, StoryState::Running).unwrap();
         set_story_state(&mut f.conn, &f.actor_id, &f.story.id, StoryState::InReview).unwrap();
-        request_changes(&mut f.conn, &f.actor_id, &f.story.id, "Name the line in each error.\nCover an empty file.").unwrap();
+        request_changes(
+            &mut f.conn,
+            &f.actor_id,
+            &f.story.id,
+            "Name the line in each error.\nCover an empty file.",
+        )
+        .unwrap();
 
-        let packet = build_context_packet(&f.conn, &f.story.id, "Start with the empty file.").unwrap();
+        let packet =
+            build_context_packet(&f.conn, &f.story.id, "Start with the empty file.").unwrap();
         let section = review_section(&packet);
         assert!(section.contains("The developer requested changes at review:\n\nName the line in each error.\nCover an empty file.\n"), "{section}");
-        assert!(section.contains("add one Task per review point"), "{section}");
-        assert!(section.contains("Resume note: Start with the empty file."), "{section}");
+        assert!(
+            section.contains("add one Task per review point"),
+            "{section}"
+        );
+        assert!(
+            section.contains("Resume note: Start with the empty file."),
+            "{section}"
+        );
         assert!(packet.contains("the developer requested changes: before anything else, add one Task per review point"), "{packet}");
-        assert_eq!(packet, build_context_packet(&f.conn, &f.story.id, "Start with the empty file.").unwrap(), "still deterministic");
+        assert_eq!(
+            packet,
+            build_context_packet(&f.conn, &f.story.id, "Start with the empty file.").unwrap(),
+            "still deterministic"
+        );
     });
 }
 
@@ -477,7 +723,9 @@ fn propose(conn: &mut Connection, session_id: &str, args: serde_json::Value) -> 
     args["why"] = serde_json::json!("found while working");
     args["evidence"] = serde_json::json!("src/packet.rs:1");
     let call = StoryProposalCall::parse("propose", &args).unwrap();
-    let answer = apply_story_proposal_call(conn, session_id, &call).unwrap().result;
+    let answer = apply_story_proposal_call(conn, session_id, &call)
+        .unwrap()
+        .result;
     answer["proposal_id"].as_str().unwrap().to_string()
 }
 
@@ -490,39 +738,111 @@ fn the_next_packet_names_the_proposals_decided_since_the_last_session() {
     with_scratch_worktree_root(|_| {
         let mut f = fixture();
         let first = start_session(&mut f.conn, &f.story.id, "acceptEdits", &f.actor_id).unwrap();
-        let sibling = stories_in_epic(&f.conn, &f.story.epic_id).unwrap().into_iter().find(|s| s.id != f.story.id).unwrap();
-        let recovery = propose(&mut f.conn, &first.id, serde_json::json!({ "kind": "new_story", "title": "Recovery" }));
-        let comments = propose(&mut f.conn, &first.id, serde_json::json!({ "kind": "new_story", "title": "Comments" }));
-        let duplicate = propose(&mut f.conn, &first.id, serde_json::json!({ "kind": "new_story", "title": "RECOVERY" }));
-        let withdrawn = propose(&mut f.conn, &first.id, serde_json::json!({ "kind": "retire_story", "story": sibling.key }));
-        let call = StoryProposalCall::parse("proposal_withdraw", &serde_json::json!({ "proposal_id": withdrawn })).unwrap();
+        let sibling = stories_in_epic(&f.conn, &f.story.epic_id)
+            .unwrap()
+            .into_iter()
+            .find(|s| s.id != f.story.id)
+            .unwrap();
+        let recovery = propose(
+            &mut f.conn,
+            &first.id,
+            serde_json::json!({ "kind": "new_story", "title": "Recovery" }),
+        );
+        let comments = propose(
+            &mut f.conn,
+            &first.id,
+            serde_json::json!({ "kind": "new_story", "title": "Comments" }),
+        );
+        let duplicate = propose(
+            &mut f.conn,
+            &first.id,
+            serde_json::json!({ "kind": "new_story", "title": "RECOVERY" }),
+        );
+        let withdrawn = propose(
+            &mut f.conn,
+            &first.id,
+            serde_json::json!({ "kind": "retire_story", "story": sibling.key }),
+        );
+        let call = StoryProposalCall::parse(
+            "proposal_withdraw",
+            &serde_json::json!({ "proposal_id": withdrawn }),
+        )
+        .unwrap();
         apply_story_proposal_call(&mut f.conn, &first.id, &call).unwrap();
-        let pending = propose(&mut f.conn, &first.id, serde_json::json!({ "kind": "new_story", "title": "Still waiting" }));
+        let pending = propose(
+            &mut f.conn,
+            &first.id,
+            serde_json::json!({ "kind": "new_story", "title": "Still waiting" }),
+        );
         assert_ne!(pending, duplicate);
 
         // One decided while the session ran, one after it ended: neither reached the agent live.
         reject_proposal(&mut f.conn, &f.actor_id, &comments, Some("Out of scope")).unwrap();
-        close_session(&mut f.conn, &first.id, SessionStatus::Completed, None, None, None).unwrap();
+        close_session(
+            &mut f.conn,
+            &first.id,
+            SessionStatus::Completed,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         accept_proposal(&mut f.conn, &f.actor_id, &recovery).unwrap();
 
         let packet = build_context_packet(&f.conn, &f.story.id, "").unwrap();
         let section = review_section(&packet);
-        assert!(section.contains("Your Proposals decided since your last session:\n"), "{section}");
-        assert!(section.contains("- New Story \"Recovery\": accepted\n"), "{section}");
-        assert!(section.contains("- New Story \"Comments\": rejected: Out of scope\n"), "{section}");
-        assert!(section.contains("- New Story \"RECOVERY\": closed as a duplicate of Recovery\n"), "{section}");
-        assert!(!section.contains("Still waiting") && !section.contains(&sibling.title), "pending and withdrawn are not decisions: {section}");
+        assert!(
+            section.contains("Your Proposals decided since your last session:\n"),
+            "{section}"
+        );
+        assert!(
+            section.contains("- New Story \"Recovery\": accepted\n"),
+            "{section}"
+        );
+        assert!(
+            section.contains("- New Story \"Comments\": rejected: Out of scope\n"),
+            "{section}"
+        );
+        assert!(
+            section.contains("- New Story \"RECOVERY\": closed as a duplicate of Recovery\n"),
+            "{section}"
+        );
+        assert!(
+            !section.contains("Still waiting") && !section.contains(&sibling.title),
+            "pending and withdrawn are not decisions: {section}"
+        );
         assert!(!section.contains("None."), "{section}");
-        assert_eq!(packet, build_context_packet(&f.conn, &f.story.id, "").unwrap(), "still deterministic");
+        assert_eq!(
+            packet,
+            build_context_packet(&f.conn, &f.story.id, "").unwrap(),
+            "still deterministic"
+        );
 
         // The next session heard them: the one after it does not hear them again.
         let second = start_session(&mut f.conn, &f.story.id, "acceptEdits", &f.actor_id).unwrap();
         let during = build_context_packet(&f.conn, &f.story.id, "").unwrap();
-        assert!(review_section(&during).contains("- New Story \"Recovery\": accepted"), "the session just started still hears them");
-        close_session(&mut f.conn, &second.id, SessionStatus::Completed, None, None, None).unwrap();
+        assert!(
+            review_section(&during).contains("- New Story \"Recovery\": accepted"),
+            "the session just started still hears them"
+        );
+        close_session(
+            &mut f.conn,
+            &second.id,
+            SessionStatus::Completed,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         let later = build_context_packet(&f.conn, &f.story.id, "").unwrap();
-        assert!(!review_section(&later).contains("Your Proposals decided"), "{later}");
-        assert!(later.contains("Section 7 names your Proposals decided since your last session"), "the agent is told where to look");
+        assert!(
+            !review_section(&later).contains("Your Proposals decided"),
+            "{later}"
+        );
+        assert!(
+            later.contains("Section 7 names your Proposals decided since your last session"),
+            "the agent is told where to look"
+        );
         assert!(review_section(&later).contains("None."), "{later}");
     });
 }
@@ -535,10 +855,33 @@ fn adr_decisions_at_review_reach_section_seven_as_review_points() {
         let mut f = fixture();
         set_story_state(&mut f.conn, &f.actor_id, &f.story.id, StoryState::Running).unwrap();
         set_story_state(&mut f.conn, &f.actor_id, &f.story.id, StoryState::InReview).unwrap();
-        set_adr_decision(&mut f.conn, &f.actor_id, &f.story.id, "docs/adr/0006-other.md", &AdrDecision::NotAnAdr).unwrap();
-        let wrong = AdrDecision::WrongDecision { what_is_wrong: "SQLite cannot hold the fleet".into(), should_be: "Keep SQLite, with WAL".into() };
-        set_adr_decision(&mut f.conn, &f.actor_id, &f.story.id, "docs/adr/0003-third.md", &wrong).unwrap();
-        request_changes(&mut f.conn, &f.actor_id, &f.story.id, "Cover an empty file.").unwrap();
+        set_adr_decision(
+            &mut f.conn,
+            &f.actor_id,
+            &f.story.id,
+            "docs/adr/0006-other.md",
+            &AdrDecision::NotAnAdr,
+        )
+        .unwrap();
+        let wrong = AdrDecision::WrongDecision {
+            what_is_wrong: "SQLite cannot hold the fleet".into(),
+            should_be: "Keep SQLite, with WAL".into(),
+        };
+        set_adr_decision(
+            &mut f.conn,
+            &f.actor_id,
+            &f.story.id,
+            "docs/adr/0003-third.md",
+            &wrong,
+        )
+        .unwrap();
+        request_changes(
+            &mut f.conn,
+            &f.actor_id,
+            &f.story.id,
+            "Cover an empty file.",
+        )
+        .unwrap();
 
         let packet = build_context_packet(&f.conn, &f.story.id, "").unwrap();
         let section = review_section(&packet);
@@ -551,7 +894,10 @@ fn adr_decisions_at_review_reach_section_seven_as_review_points() {
             ),
             "{section}"
         );
-        assert!(section.contains("add one Task per review point"), "{section}");
+        assert!(
+            section.contains("add one Task per review point"),
+            "{section}"
+        );
     });
 }
 
@@ -572,12 +918,19 @@ fn the_diff_lists_committed_files_and_marks_uncommitted_changes_from_a_stopped_s
         write(&f.worktree, "docs/half_done.md", "// half\n");
         write(&f.worktree, "GLOSSARY.md", "# Glossary\n\nEdited.\n");
         let packet = build_context_packet(&f.conn, &f.story.id, "").unwrap();
-        let diff = &packet[packet.find("\n## Diff so far\n").unwrap()..packet.find("\n## Closing instruction\n").unwrap()];
-        assert!(diff.contains("docs/adr/0003-third.md"), "committed files are listed:\n{diff}");
+        let diff = &packet[packet.find("\n## Diff so far\n").unwrap()
+            ..packet.find("\n## Closing instruction\n").unwrap()];
+        assert!(
+            diff.contains("docs/adr/0003-third.md"),
+            "committed files are listed:\n{diff}"
+        );
         assert!(diff.contains("left by a stopped session"), "{diff}");
         assert!(diff.contains("docs/half_done.md"), "{diff}");
         let marked = diff.find("left by a stopped session").unwrap();
-        assert!(diff.find("docs/half_done.md").unwrap() > marked, "the untracked file sits under the mark:\n{diff}");
+        assert!(
+            diff.find("docs/half_done.md").unwrap() > marked,
+            "the untracked file sits under the mark:\n{diff}"
+        );
         assert!(!diff.contains("// half"), "no hunks:\n{diff}");
     });
 }
@@ -615,7 +968,10 @@ fn the_size_warns_above_about_twenty_thousand_tokens() {
     assert_eq!(small.approx_tokens, 100);
     assert!(!small.over_soft_limit);
     let at_limit = measure("abcd".repeat(20_000).as_str());
-    assert!(!at_limit.over_soft_limit, "exactly at the limit is not over it");
+    assert!(
+        !at_limit.over_soft_limit,
+        "exactly at the limit is not over it"
+    );
     let big = measure("abcd".repeat(20_001).as_str());
     assert!(big.over_soft_limit);
 }

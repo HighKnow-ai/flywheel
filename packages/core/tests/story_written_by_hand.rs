@@ -8,23 +8,44 @@ use common::seeded_project;
 use flywheel_core::domain::acceptance_criterion::criteria_for_story;
 use flywheel_core::domain::actor::system_actor;
 use flywheel_core::domain::check::check_for_criterion;
-use flywheel_core::domain::story::{stories_in_epic, stories_in_project, write_story_by_hand, HandWrittenCriterion};
+use flywheel_core::domain::story::{
+    stories_in_epic, stories_in_project, write_story_by_hand, HandWrittenCriterion,
+};
 use flywheel_core::domain::{epic, milestone};
 use rusqlite::Connection;
 
-fn epic_in(conn: &mut Connection, project_id: &str, actor: &str, milestone_title: &str, epic_title: &str) -> String {
+fn epic_in(
+    conn: &mut Connection,
+    project_id: &str,
+    actor: &str,
+    milestone_title: &str,
+    epic_title: &str,
+) -> String {
     let m = milestone::create_milestone(conn, project_id, actor, milestone_title, None).unwrap();
-    epic::create_epic(conn, actor, &m.id, epic_title).unwrap().id
+    epic::create_epic(conn, actor, &m.id, epic_title)
+        .unwrap()
+        .id
 }
 
 /// `(stories, criteria, checks, events)` row counts — a refusal must change none of them.
 fn footprint(conn: &Connection) -> (i64, i64, i64, i64) {
-    let count = |table: &str| conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0)).unwrap();
-    (count("stories"), count("acceptance_criteria"), count("checks"), count("events"))
+    let count = |table: &str| {
+        conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+            .unwrap()
+    };
+    (
+        count("stories"),
+        count("acceptance_criteria"),
+        count("checks"),
+        count("events"),
+    )
 }
 
 fn criterion<'a>(statement: &'a str, check: Option<&'a str>) -> HandWrittenCriterion<'a> {
-    HandWrittenCriterion { statement, check_command: check }
+    HandWrittenCriterion {
+        statement,
+        check_command: check,
+    }
 }
 
 #[test]
@@ -38,7 +59,11 @@ fn a_hand_written_story_lands_in_ready_with_its_criteria_and_checks() {
         &epic_id,
         "  Start a Story  ",
         Some("from the form"),
-        &[criterion("It starts", Some("  cargo test  ")), criterion("It shows its state", None), criterion("Blank check", Some("   "))],
+        &[
+            criterion("It starts", Some("  cargo test  ")),
+            criterion("It shows its state", None),
+            criterion("Blank check", Some("   ")),
+        ],
     )
     .expect("a Story with criteria is written");
 
@@ -49,12 +74,29 @@ fn a_hand_written_story_lands_in_ready_with_its_criteria_and_checks() {
 
     let criteria = criteria_for_story(&conn, &story.id).unwrap();
     let statements: Vec<&str> = criteria.iter().map(|c| c.statement.as_str()).collect();
-    assert_eq!(statements, ["It starts", "It shows its state", "Blank check"], "criteria keep their order");
-    assert!(criteria.iter().all(|c| c.story_id == story.id), "every criterion is anchored to the Story");
+    assert_eq!(
+        statements,
+        ["It starts", "It shows its state", "Blank check"],
+        "criteria keep their order"
+    );
+    assert!(
+        criteria.iter().all(|c| c.story_id == story.id),
+        "every criterion is anchored to the Story"
+    );
 
-    let checks: Vec<Option<String>> =
-        criteria.iter().map(|c| check_for_criterion(&conn, &c.id).unwrap().map(|k| k.command)).collect();
-    assert_eq!(checks, [Some("cargo test".to_string()), None, None], "a blank Check command means judged at review");
+    let checks: Vec<Option<String>> = criteria
+        .iter()
+        .map(|c| {
+            check_for_criterion(&conn, &c.id)
+                .unwrap()
+                .map(|k| k.command)
+        })
+        .collect();
+    assert_eq!(
+        checks,
+        [Some("cargo test".to_string()), None, None],
+        "a blank Check command means judged at review"
+    );
 
     let stored = stories_in_epic(&conn, &epic_id).unwrap();
     assert_eq!(stored.len(), 1);
@@ -68,8 +110,15 @@ fn a_hand_written_story_lands_in_ready_with_its_criteria_and_checks() {
         .collect::<Result<_, _>>()
         .unwrap();
     assert_eq!(types.first().map(String::as_str), Some("story.created"));
-    assert_eq!(types.last().map(String::as_str), Some("story.state_changed"), "Shaping → Ready is in the log");
-    assert_eq!(types.iter().filter(|t| *t == "criterion.created").count(), 3);
+    assert_eq!(
+        types.last().map(String::as_str),
+        Some("story.state_changed"),
+        "Shaping → Ready is in the log"
+    );
+    assert_eq!(
+        types.iter().filter(|t| *t == "criterion.created").count(),
+        3
+    );
     assert_eq!(types.iter().filter(|t| *t == "check.set").count(), 1);
 }
 
@@ -77,8 +126,15 @@ fn a_hand_written_story_lands_in_ready_with_its_criteria_and_checks() {
 fn a_story_cannot_be_written_outside_an_epic() {
     let (mut conn, actor, _project) = seeded_project();
     let before = footprint(&conn);
-    let err = write_story_by_hand(&mut conn, &actor, "no-such-epic", "Orphan", None, &[criterion("x", None)])
-        .expect_err("no Epic, no Story");
+    let err = write_story_by_hand(
+        &mut conn,
+        &actor,
+        "no-such-epic",
+        "Orphan",
+        None,
+        &[criterion("x", None)],
+    )
+    .expect_err("no Epic, no Story");
     assert!(err.to_string().contains("Epic"), "{err}");
     assert_eq!(footprint(&conn), before, "a refusal writes nothing");
 }
@@ -89,16 +145,36 @@ fn a_story_needs_at_least_one_criterion_and_every_criterion_a_statement() {
     let epic_id = epic_in(&mut conn, &project.id, &actor, "M1", "Epic");
     let before = footprint(&conn);
 
-    let none = write_story_by_hand(&mut conn, &actor, &epic_id, "No criteria", None, &[]).expect_err("needs criteria");
+    let none = write_story_by_hand(&mut conn, &actor, &epic_id, "No criteria", None, &[])
+        .expect_err("needs criteria");
     assert!(none.to_string().contains("criterion"), "{none}");
     assert_eq!(footprint(&conn), before);
 
-    let blank = write_story_by_hand(&mut conn, &actor, &epic_id, "Blank", None, &[criterion("ok", None), criterion("  ", Some("true"))])
-        .expect_err("a blank statement is refused");
+    let blank = write_story_by_hand(
+        &mut conn,
+        &actor,
+        &epic_id,
+        "Blank",
+        None,
+        &[criterion("ok", None), criterion("  ", Some("true"))],
+    )
+    .expect_err("a blank statement is refused");
     assert!(blank.to_string().contains("statement"), "{blank}");
-    assert_eq!(footprint(&conn), before, "the whole write rolls back, including the first criterion");
+    assert_eq!(
+        footprint(&conn),
+        before,
+        "the whole write rolls back, including the first criterion"
+    );
 
-    let untitled = write_story_by_hand(&mut conn, &actor, &epic_id, " ", None, &[criterion("ok", None)]).expect_err("title");
+    let untitled = write_story_by_hand(
+        &mut conn,
+        &actor,
+        &epic_id,
+        " ",
+        None,
+        &[criterion("ok", None)],
+    )
+    .expect_err("title");
     assert!(untitled.to_string().contains("title"), "{untitled}");
     assert_eq!(footprint(&conn), before);
 }
@@ -109,8 +185,15 @@ fn only_the_developer_writes_a_story_by_hand() {
     let epic_id = epic_in(&mut conn, &project.id, &actor, "M1", "Epic");
     let system = system_actor(&conn).unwrap();
     let before = footprint(&conn);
-    write_story_by_hand(&mut conn, &system.id, &epic_id, "Agent's", None, &[criterion("x", None)])
-        .expect_err("a non-human actor is refused");
+    write_story_by_hand(
+        &mut conn,
+        &system.id,
+        &epic_id,
+        "Agent's",
+        None,
+        &[criterion("x", None)],
+    )
+    .expect_err("a non-human actor is refused");
     assert_eq!(footprint(&conn), before);
 }
 
@@ -119,16 +202,58 @@ fn the_projects_stories_are_listed_in_roadmap_order() {
     let (mut conn, actor, project) = seeded_project();
     let first = epic_in(&mut conn, &project.id, &actor, "M1", "First");
     let second = epic_in(&mut conn, &project.id, &actor, "M2", "Second");
-    let b = write_story_by_hand(&mut conn, &actor, &second, "B", None, &[criterion("x", None)]).unwrap();
-    let a1 = write_story_by_hand(&mut conn, &actor, &first, "A1", None, &[criterion("x", None)]).unwrap();
-    let a2 = write_story_by_hand(&mut conn, &actor, &first, "A2", None, &[criterion("x", None)]).unwrap();
+    let b = write_story_by_hand(
+        &mut conn,
+        &actor,
+        &second,
+        "B",
+        None,
+        &[criterion("x", None)],
+    )
+    .unwrap();
+    let a1 = write_story_by_hand(
+        &mut conn,
+        &actor,
+        &first,
+        "A1",
+        None,
+        &[criterion("x", None)],
+    )
+    .unwrap();
+    let a2 = write_story_by_hand(
+        &mut conn,
+        &actor,
+        &first,
+        "A2",
+        None,
+        &[criterion("x", None)],
+    )
+    .unwrap();
 
-    let other_project = flywheel_core::domain::project::create_project(&mut conn, &actor, "Other", "/other", "OTH", "main")
-        .unwrap()
-        .id;
+    let other_project = flywheel_core::domain::project::create_project(
+        &mut conn, &actor, "Other", "/other", "OTH", "main",
+    )
+    .unwrap()
+    .id;
     let other_epic = epic_in(&mut conn, &other_project, &actor, "Other", "Other");
-    write_story_by_hand(&mut conn, &actor, &other_epic, "Elsewhere", None, &[criterion("x", None)]).unwrap();
+    write_story_by_hand(
+        &mut conn,
+        &actor,
+        &other_epic,
+        "Elsewhere",
+        None,
+        &[criterion("x", None)],
+    )
+    .unwrap();
 
-    let ids: Vec<String> = stories_in_project(&conn, &project.id).unwrap().into_iter().map(|s| s.id).collect();
-    assert_eq!(ids, [a1.id, a2.id, b.id], "Milestone order, then Epic order, then Story order; one project only");
+    let ids: Vec<String> = stories_in_project(&conn, &project.id)
+        .unwrap()
+        .into_iter()
+        .map(|s| s.id)
+        .collect();
+    assert_eq!(
+        ids,
+        [a1.id, a2.id, b.id],
+        "Milestone order, then Epic order, then Story order; one project only"
+    );
 }

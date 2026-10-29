@@ -89,7 +89,8 @@ pub fn open_command_template(
     surface: flywheel_core::domain::worktree::OpenSurface,
 ) -> Result<String, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    flywheel_core::domain::worktree::open_command_template(&conn, surface).map_err(|e| e.to_string())
+    flywheel_core::domain::worktree::open_command_template(&conn, surface)
+        .map_err(|e| e.to_string())
 }
 
 /// Set `surface`'s stored open-command template (D-130). `actor_id` is resolved server-side
@@ -105,6 +106,8 @@ pub fn set_open_command_template(
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     let actor_id =
         flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    flywheel_core::domain::worktree::set_open_command_template(&mut conn, &actor_id, surface, &template)
-        .map_err(|e| e.to_string())
+    flywheel_core::domain::worktree::set_open_command_template(
+        &mut conn, &actor_id, surface, &template,
+    )
+    .map_err(|e| e.to_string())
 }

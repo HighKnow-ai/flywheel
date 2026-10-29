@@ -27,12 +27,14 @@ use anyhow::Context;
 use rusqlite::{params, Connection};
 use serde::Serialize;
 
-use crate::domain::adr_link::{adr_links_for_project, AdrLinkTarget};
 use crate::domain::acceptance_criterion::criteria_for_story;
+use crate::domain::adr_link::{adr_links_for_project, AdrLinkTarget};
 use crate::domain::check::{check_for_criterion, current_result, CheckResult};
 use crate::domain::epic::get_epic;
 use crate::domain::milestone::get_milestone;
-use crate::domain::proposal::{proposal_kind_words, proposal_title, proposals_decided_since_last_session};
+use crate::domain::proposal::{
+    proposal_kind_words, proposal_title, proposals_decided_since_last_session,
+};
 use crate::domain::review::latest_review;
 use crate::domain::session_summary::list_summaries_for_story;
 use crate::domain::story::{get_story, stories_in_epic};
@@ -60,7 +62,11 @@ pub struct PacketSize {
 /// Measure a packet.
 pub fn measure(packet: &str) -> PacketSize {
     let approx_tokens = packet.chars().count().div_ceil(4);
-    PacketSize { bytes: packet.len(), approx_tokens, over_soft_limit: approx_tokens > SOFT_LIMIT_TOKENS }
+    PacketSize {
+        bytes: packet.len(),
+        approx_tokens,
+        over_soft_limit: approx_tokens > SOFT_LIMIT_TOKENS,
+    }
 }
 
 /// The size of the packet the Story's next session would start from, without a resume note (the
@@ -130,17 +136,29 @@ pub(crate) fn non_blank(value: &Option<String>) -> Option<&str> {
 
 /// Build the Context packet a session of `story_id` starts from. `resume_note` is the developer's
 /// optional one-line note; blank means none.
-pub fn build_context_packet(conn: &Connection, story_id: &str, resume_note: &str) -> anyhow::Result<String> {
-    let story = get_story(conn, story_id)?.with_context(|| format!("Story {story_id:?} not found"))?;
-    let epic = get_epic(conn, &story.epic_id)?.with_context(|| format!("Epic {:?} not found", story.epic_id))?;
-    let milestone =
-        get_milestone(conn, &epic.milestone_id)?.with_context(|| format!("Milestone {:?} not found", epic.milestone_id))?;
-    let repo_path: String =
-        conn.query_row("SELECT repo_path FROM projects WHERE id = ?1", params![story.project_id], |r| r.get(0))?;
+pub fn build_context_packet(
+    conn: &Connection,
+    story_id: &str,
+    resume_note: &str,
+) -> anyhow::Result<String> {
+    let story =
+        get_story(conn, story_id)?.with_context(|| format!("Story {story_id:?} not found"))?;
+    let epic = get_epic(conn, &story.epic_id)?
+        .with_context(|| format!("Epic {:?} not found", story.epic_id))?;
+    let milestone = get_milestone(conn, &epic.milestone_id)?
+        .with_context(|| format!("Milestone {:?} not found", epic.milestone_id))?;
+    let repo_path: String = conn.query_row(
+        "SELECT repo_path FROM projects WHERE id = ?1",
+        params![story.project_id],
+        |r| r.get(0),
+    )?;
     let worktree = worktree_for_story(conn, story_id)?;
     // The project's directory in the worktree: its root, or the subdirectory the project was
     // registered at in a larger repository, where its ADRs and glossary live.
-    let worktree_dir = worktree.as_ref().map(|w| w.project_dir()).filter(|p| p.is_dir());
+    let worktree_dir = worktree
+        .as_ref()
+        .map(|w| w.project_dir())
+        .filter(|p| p.is_dir());
     let head = worktree_dir.as_deref().and_then(head_sha);
 
     let mut out = String::new();
@@ -154,7 +172,11 @@ pub fn build_context_packet(conn: &Connection, story_id: &str, resume_note: &str
     section(&mut out, "Milestone and Epic");
     match non_blank(&milestone.exit_test) {
         Some(exit) => writeln!(out, "Milestone: {}. Exit test: {}", milestone.title, exit)?,
-        None => writeln!(out, "Milestone: {}. Exit test: none written", milestone.title)?,
+        None => writeln!(
+            out,
+            "Milestone: {}. Exit test: none written",
+            milestone.title
+        )?,
     }
     writeln!(out, "\n### Epic {} {}", epic.key, epic.title)?;
     for (label, value) in [
@@ -163,7 +185,11 @@ pub fn build_context_packet(conn: &Connection, story_id: &str, resume_note: &str
         ("Out of scope", &epic.spec.out_of_scope),
         ("Exit test", &epic.spec.exit_test),
     ] {
-        writeln!(out, "\n{label}:\n{}", non_blank(value).unwrap_or("(not written)"))?;
+        writeln!(
+            out,
+            "\n{label}:\n{}",
+            non_blank(value).unwrap_or("(not written)")
+        )?;
     }
     let rejected = rejected_proposals(conn, &epic.id)?;
     if !rejected.is_empty() {
@@ -175,7 +201,9 @@ pub fn build_context_packet(conn: &Connection, story_id: &str, resume_note: &str
 
     // 3. ADRs
     section(&mut out, "ADRs");
-    let docs_root = worktree_dir.clone().unwrap_or_else(|| PathBuf::from(&repo_path));
+    let docs_root = worktree_dir
+        .clone()
+        .unwrap_or_else(|| PathBuf::from(&repo_path));
     let adrs = live_adrs(&docs_root.join("docs").join("adr"));
     let links = adr_links_for_project(conn, &story.project_id)?;
     if adrs.is_empty() {
@@ -198,13 +226,21 @@ pub fn build_context_packet(conn: &Connection, story_id: &str, resume_note: &str
             if linked.is_empty() {
                 writeln!(out, "- {}: {}", adr.path, adr.title)?;
             } else {
-                writeln!(out, "- {}: {} (linked to {})", adr.path, adr.title, linked.join(", "))?;
+                writeln!(
+                    out,
+                    "- {}: {} (linked to {})",
+                    adr.path,
+                    adr.title,
+                    linked.join(", ")
+                )?;
             }
         }
     }
     // ADR 0002: an ADR accepted in shaping is written by the Epic's first Story, the first in execution order
     // that is not Dropped. Only its packet carries the text; a later Story's names the file and who writes it.
-    let writer = stories_in_epic(conn, &epic.id)?.into_iter().find(|s| s.state != "dropped");
+    let writer = stories_in_epic(conn, &epic.id)?
+        .into_iter()
+        .find(|s| s.state != "dropped");
     for (path, text) in unmerged_epic_adrs(conn, &epic.id, &docs_root)? {
         match writer.as_ref().filter(|w| w.id != story.id) {
             Some(first) => writeln!(
@@ -228,17 +264,32 @@ pub fn build_context_packet(conn: &Connection, story_id: &str, resume_note: &str
 
     // 4. Sibling Stories
     section(&mut out, "Sibling Stories");
-    let siblings: Vec<_> = stories_in_epic(conn, &epic.id)?.into_iter().filter(|s| s.id != story.id).collect();
+    let siblings: Vec<_> = stories_in_epic(conn, &epic.id)?
+        .into_iter()
+        .filter(|s| s.id != story.id)
+        .collect();
     if siblings.is_empty() {
         out.push_str("None: this is the Epic's only Story.\n");
     }
     for s in siblings {
-        writeln!(out, "- {} {} ({})", s.key, s.title, story_state_words(&s.state))?;
+        writeln!(
+            out,
+            "- {} {} ({})",
+            s.key,
+            s.title,
+            story_state_words(&s.state)
+        )?;
     }
 
     // 5. The Story, with each criterion's Check and latest result
     section(&mut out, "The Story");
-    writeln!(out, "{} {} ({})", story.key, story.title, story_state_words(&story.state))?;
+    writeln!(
+        out,
+        "{} {} ({})",
+        story.key,
+        story.title,
+        story_state_words(&story.state)
+    )?;
     if let Some(description) = non_blank(&story.description) {
         writeln!(out, "\n{description}")?;
     }
@@ -249,7 +300,13 @@ pub fn build_context_packet(conn: &Connection, story_id: &str, resume_note: &str
     }
     for (i, criterion) in criteria.iter().enumerate() {
         // The id is what `propose`'s amend_criterion names (issue #160).
-        writeln!(out, "{}. {} [criterion_id: {}]", i + 1, criterion.statement.trim(), criterion.id)?;
+        writeln!(
+            out,
+            "{}. {} [criterion_id: {}]",
+            i + 1,
+            criterion.statement.trim(),
+            criterion.id
+        )?;
         match check_for_criterion(conn, &criterion.id)? {
             None => out.push_str("   Check: none (judged at review)\n"),
             Some(check) => {
@@ -261,13 +318,19 @@ pub fn build_context_packet(conn: &Connection, story_id: &str, resume_note: &str
                         let stale = match head.as_deref() {
                             Some(head) if head != sha => " (stale: the branch has moved since)",
                             // Issue #163: an accepted Amend criterion marks the last run stale.
-                            _ if current.is_stale(head.as_deref()) => " (stale: the criterion changed since)",
+                            _ if current.is_stale(head.as_deref()) => {
+                                " (stale: the criterion changed since)"
+                            }
                             _ => "",
                         };
                         format!("{} at {short}{stale}", result.as_str().replace('_', " "))
                     }
                 };
-                writeln!(out, "   Check: `{}`; latest result: {result}", check.command)?;
+                writeln!(
+                    out,
+                    "   Check: `{}`; latest result: {result}",
+                    check.command
+                )?;
             }
         }
     }
@@ -299,7 +362,10 @@ pub fn build_context_packet(conn: &Connection, story_id: &str, resume_note: &str
     let feedback = changes_requested(conn, story_id)?;
     let note = resume_note.trim();
     if let Some(comments) = &feedback {
-        writeln!(out, "The developer requested changes at review:\n\n{comments}\n")?;
+        writeln!(
+            out,
+            "The developer requested changes at review:\n\n{comments}\n"
+        )?;
         out.push_str(
             "Before anything else, add one Task per review point to the checklist above, keeping the Tasks \
              already there, then work them.\n",
@@ -335,9 +401,17 @@ pub fn build_context_packet(conn: &Connection, story_id: &str, resume_note: &str
         n => writeln!(out, "{n} earlier sessions omitted.")?,
     }
     for (i, summary) in summaries.iter().enumerate().skip(omitted) {
-        let stub = if summary.is_stub { " (stub: the session ended without handing off)" } else { "" };
+        let stub = if summary.is_stub {
+            " (stub: the session ended without handing off)"
+        } else {
+            ""
+        };
         writeln!(out, "\n### Summary {} of {}{stub}", i + 1, summaries.len())?;
-        writeln!(out, "Next session must know:\n{}", summary.next_session_must_know.trim_end())?;
+        writeln!(
+            out,
+            "Next session must know:\n{}",
+            summary.next_session_must_know.trim_end()
+        )?;
         writeln!(out, "Decisions:\n{}", summary.decisions.trim_end())?;
     }
 
@@ -369,11 +443,17 @@ fn changes_requested(conn: &Connection, story_id: &str) -> anyhow::Result<Option
 fn decided_proposals(conn: &Connection, story_id: &str) -> anyhow::Result<Vec<String>> {
     let mut lines = Vec::new();
     for p in proposals_decided_since_last_session(conn, story_id)? {
-        let what = format!("{} \"{}\"", proposal_kind_words(&p), proposal_title(conn, &p)?);
+        let what = format!(
+            "{} \"{}\"",
+            proposal_kind_words(&p),
+            proposal_title(conn, &p)?
+        );
         let reason = non_blank(&p.rejection_reason);
         let outcome = match (p.state.as_str(), reason) {
             ("accepted", _) => "accepted".to_string(),
-            (_, Some(r)) if p.duplicate_of.is_some() && r.starts_with("duplicate of ") => format!("closed as a {r}"),
+            (_, Some(r)) if p.duplicate_of.is_some() && r.starts_with("duplicate of ") => {
+                format!("closed as a {r}")
+            }
             (_, Some(r)) => format!("rejected: {r}"),
             (_, None) => "rejected, no reason given".to_string(),
         };
@@ -397,13 +477,25 @@ fn head_sha(dir: &Path) -> Option<String> {
 /// ones, marked as left by a stopped session.
 fn write_diff(out: &mut String, dir: &Path, base: &str) -> anyhow::Result<()> {
     match git::review_files(dir, base, "HEAD") {
-        Err(err) => writeln!(out, "Could not read the committed changes against `{base}`: {err:#}")?,
-        Ok(files) if files.is_empty() => writeln!(out, "Nothing committed on this branch since `{base}`.")?,
+        Err(err) => writeln!(
+            out,
+            "Could not read the committed changes against `{base}`: {err:#}"
+        )?,
+        Ok(files) if files.is_empty() => {
+            writeln!(out, "Nothing committed on this branch since `{base}`.")?
+        }
         Ok(files) => {
             let (added, removed) = files.iter().fold((0u64, 0u64), |(a, r), f| {
-                (a + u64::from(f.added.unwrap_or(0)), r + u64::from(f.removed.unwrap_or(0)))
+                (
+                    a + u64::from(f.added.unwrap_or(0)),
+                    r + u64::from(f.removed.unwrap_or(0)),
+                )
             });
-            writeln!(out, "Committed since `{base}`: {} files changed, +{added} -{removed}", files.len())?;
+            writeln!(
+                out,
+                "Committed since `{base}`: {} files changed, +{added} -{removed}",
+                files.len()
+            )?;
             for f in files {
                 let path = match &f.old_path {
                     Some(old) => format!("{old} -> {}", f.path),
@@ -412,7 +504,13 @@ fn write_diff(out: &mut String, dir: &Path, base: &str) -> anyhow::Result<()> {
                 if f.binary {
                     writeln!(out, "- {} {path} (binary)", f.status)?;
                 } else {
-                    writeln!(out, "- {} {path} (+{} -{})", f.status, f.added.unwrap_or(0), f.removed.unwrap_or(0))?;
+                    writeln!(
+                        out,
+                        "- {} {path} (+{} -{})",
+                        f.status,
+                        f.added.unwrap_or(0),
+                        f.removed.unwrap_or(0)
+                    )?;
                 }
             }
         }
@@ -454,11 +552,16 @@ pub(crate) fn rejected_proposals(conn: &Connection, epic_id: &str) -> anyhow::Re
     Ok(rows
         .into_iter()
         .map(|(verb, target, payload, rationale, reason)| {
-            let payload: serde_json::Value = serde_json::from_str(&payload).unwrap_or(serde_json::Value::Null);
+            let payload: serde_json::Value =
+                serde_json::from_str(&payload).unwrap_or(serde_json::Value::Null);
             let reason = reason.unwrap_or_else(|| "no reason given".to_string());
             // A spec change (issue #125) names the field it would have rewritten and the text.
             if let Ok(change) = crate::domain::proposal_apply::SpecChange::from_payload(&payload) {
-                return format!("{verb} {target} {}: \"{}\"; rejected: {reason}", change.field.label(), change.text);
+                return format!(
+                    "{verb} {target} {}: \"{}\"; rejected: {reason}",
+                    change.field.label(),
+                    change.text
+                );
             }
             // A New criterion (issue #128) names its statement.
             if target == "criterion" {
@@ -484,18 +587,29 @@ pub(crate) fn rejected_proposals(conn: &Connection, epic_id: &str) -> anyhow::Re
 
 /// ADR Proposals accepted on the Epic whose file the repo checkout does not hold yet, as
 /// `(path, full text)`.
-fn unmerged_epic_adrs(conn: &Connection, epic_id: &str, docs_root: &Path) -> anyhow::Result<Vec<(String, String)>> {
+fn unmerged_epic_adrs(
+    conn: &Connection,
+    epic_id: &str,
+    docs_root: &Path,
+) -> anyhow::Result<Vec<(String, String)>> {
     let mut stmt = conn.prepare(
         "SELECT id, payload FROM proposals WHERE epic_id = ?1 AND target_type = 'adr' AND state = 'accepted'
          ORDER BY created_at, id",
     )?;
     let rows = stmt
-        .query_map(params![epic_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+        .query_map(params![epic_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?
         .collect::<Result<Vec<_>, _>>()?;
     let mut out = Vec::new();
     for (id, payload) in rows {
-        let value: serde_json::Value = serde_json::from_str(&payload).unwrap_or(serde_json::Value::Null);
-        let path = value.get("path").and_then(|v| v.as_str()).map(str::trim).filter(|p| !p.is_empty());
+        let value: serde_json::Value =
+            serde_json::from_str(&payload).unwrap_or(serde_json::Value::Null);
+        let path = value
+            .get("path")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|p| !p.is_empty());
         if let Some(path) = path {
             if docs_root.join(path).is_file() {
                 continue;
@@ -506,7 +620,11 @@ fn unmerged_epic_adrs(conn: &Connection, epic_id: &str, docs_root: &Path) -> any
             .find_map(|k| value.get(*k).and_then(|v| v.as_str()))
             .map(str::to_string)
             .unwrap_or_else(|| serde_json::to_string_pretty(&value).unwrap_or_default());
-        out.push((path.map(str::to_string).unwrap_or_else(|| format!("(no path given; Proposal {id})")), text));
+        out.push((
+            path.map(str::to_string)
+                .unwrap_or_else(|| format!("(no path given; Proposal {id})")),
+            text,
+        ));
     }
     Ok(out)
 }
@@ -523,7 +641,9 @@ pub(crate) struct AdrEntry {
 /// carries a `Status: superseded by …` line, or when another ADR names its number on a
 /// `Supersedes ADR-NNNN` line. A missing directory is an empty index.
 pub(crate) fn live_adrs(adr_dir: &Path) -> Vec<AdrEntry> {
-    let Ok(read) = std::fs::read_dir(adr_dir) else { return Vec::new() };
+    let Ok(read) = std::fs::read_dir(adr_dir) else {
+        return Vec::new();
+    };
     let mut names: Vec<String> = read
         .filter_map(Result::ok)
         .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
@@ -553,14 +673,35 @@ pub(crate) fn live_adrs_at(repo: &Path, rev: &str) -> anyhow::Result<Vec<AdrEntr
     names.sort();
     let grep = crate::git::git_output_at(
         repo,
-        &["grep", "--no-line-number", "--no-column", "--no-color", "-z", "-I", "-i", "-E", "-e", "^[[:space:]]*#[[:space:]]", "-e", "supersed", rev, "--", "docs/adr/"],
+        &[
+            "grep",
+            "--no-line-number",
+            "--no-column",
+            "--no-color",
+            "-z",
+            "-I",
+            "-i",
+            "-E",
+            "-e",
+            "^[[:space:]]*#[[:space:]]",
+            "-e",
+            "supersed",
+            rev,
+            "--",
+            "docs/adr/",
+        ],
     )?;
     // Exit 1 is "no line matched"; anything else is a failure.
-    anyhow::ensure!(grep.status.code().is_some_and(|c| c <= 1), "could not read the ADRs at {rev}");
+    anyhow::ensure!(
+        grep.status.code().is_some_and(|c| c <= 1),
+        "could not read the ADRs at {rev}"
+    );
     let mut texts: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
     let prefix = format!("{rev}:docs/adr/");
     for line in String::from_utf8_lossy(&grep.stdout).lines() {
-        let Some((file, text)) = line.split_once('\0') else { continue };
+        let Some((file, text)) = line.split_once('\0') else {
+            continue;
+        };
         if let Some(name) = file.strip_prefix(&prefix) {
             let body = texts.entry(name.to_string()).or_default();
             body.push_str(text);
@@ -605,19 +746,31 @@ fn live_adrs_of(files: impl Iterator<Item = (String, String)>) -> Vec<AdrEntry> 
             }
         }
         let title = title.unwrap_or_else(|| name.trim_end_matches(".md").to_string());
-        parsed.push(Parsed { name, number, title, marked_superseded });
+        parsed.push(Parsed {
+            name,
+            number,
+            title,
+            marked_superseded,
+        });
     }
     parsed
         .into_iter()
-        .filter(|p| !p.marked_superseded && !p.number.is_some_and(|n| superseded_numbers.contains(&n)))
-        .map(|p| AdrEntry { path: format!("docs/adr/{}", p.name), title: p.title })
+        .filter(|p| {
+            !p.marked_superseded && !p.number.is_some_and(|n| superseded_numbers.contains(&n))
+        })
+        .map(|p| AdrEntry {
+            path: format!("docs/adr/{}", p.name),
+            title: p.title,
+        })
         .collect()
 }
 
 /// An ADR line as the supersession walk reads it: trimmed of markdown emphasis, quote and list marks,
 /// lowercased.
 pub(crate) fn adr_line(line: &str) -> String {
-    line.trim().trim_matches(|c: char| c == '*' || c == '_' || c == '-' || c == '>' || c == ' ').to_lowercase()
+    line.trim()
+        .trim_matches(|c: char| c == '*' || c == '_' || c == '-' || c == '>' || c == ' ')
+        .to_lowercase()
 }
 
 /// Whether an [`adr_line`] is a `Status: superseded by …` line.
@@ -627,7 +780,9 @@ pub(crate) fn is_superseded_status(line: &str) -> bool {
 
 /// The ADR numbers an [`adr_line`] says it supersedes ("Supersedes ADR-NNNN"), in order.
 pub(crate) fn supersedes_numbers(line: &str) -> Vec<u32> {
-    line.find("supersedes").map(|at| adr_numbers(&line[at + "supersedes".len()..])).unwrap_or_default()
+    line.find("supersedes")
+        .map(|at| adr_numbers(&line[at + "supersedes".len()..]))
+        .unwrap_or_default()
 }
 
 pub(crate) fn leading_number(name: &str) -> Option<u32> {

@@ -20,8 +20,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use flywheel_desktop_lib::state::AppState;
 use fixture::{board, SlowGit, PARK_DEADLINE};
+use flywheel_desktop_lib::state::AppState;
 use tauri::Manager;
 
 /// How long the parked git call waits for the gate before going on by itself: long enough that a
@@ -50,22 +50,38 @@ fn another_command_completes_while_needs_you_list_waits_on_a_slow_git() {
     let slow = SlowGit::install("rev-parse", PARK_FOR);
     let needs_you_done = AtomicBool::new(false);
     // One thread drives both commands, as the dispatch thread would.
-    let dispatch = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let dispatch = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
     let (items, (other, needs_you_was_parked)) = dispatch.block_on(async {
         let state = app.state::<AppState>();
         let needs_you = async {
-            let items = flywheel_desktop_lib::commands::needs_you::needs_you_list(state.clone(), board.project_id.clone()).await;
+            let items = flywheel_desktop_lib::commands::needs_you::needs_you_list(
+                state.clone(),
+                board.project_id.clone(),
+            )
+            .await;
             needs_you_done.store(true, Ordering::SeqCst);
             items
         };
         let other = async {
             let start = Instant::now();
             while !slow.parked() {
-                assert!(!needs_you_done.load(Ordering::SeqCst), "needs_you_list never reached git");
-                assert!(start.elapsed() < PARK_DEADLINE, "needs_you_list never reached git");
+                assert!(
+                    !needs_you_done.load(Ordering::SeqCst),
+                    "needs_you_list never reached git"
+                );
+                assert!(
+                    start.elapsed() < PARK_DEADLINE,
+                    "needs_you_list never reached git"
+                );
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
-            let stories = flywheel_desktop_lib::commands::story::story_list(state.clone(), board.epic_id.clone());
+            let stories = flywheel_desktop_lib::commands::story::story_list(
+                state.clone(),
+                board.epic_id.clone(),
+            );
             let still_parked = !needs_you_done.load(Ordering::SeqCst);
             slow.open_gate();
             (stories, still_parked)
@@ -73,11 +89,16 @@ fn another_command_completes_while_needs_you_list_waits_on_a_slow_git() {
         tokio::join!(needs_you, other)
     });
 
-    assert!(needs_you_was_parked, "the other command waited for needs_you_list's git to finish");
+    assert!(
+        needs_you_was_parked,
+        "the other command waited for needs_you_list's git to finish"
+    );
     assert_eq!(other.expect("the other command answered").len(), 1);
     let items = items.expect("needs_you_list answered once git let go");
     assert!(
-        items.iter().any(|item| item.kind == "review" && item.id == story_id),
+        items
+            .iter()
+            .any(|item| item.kind == "review" && item.id == story_id),
         "the Story In review is on the list: {:?}",
         items.iter().map(|i| (&i.kind, &i.id)).collect::<Vec<_>>()
     );
@@ -99,50 +120,82 @@ fn another_command_completes_while_a_shaping_launch_waits_out_the_spawn_floor() 
     flywheel_core::db::apply_pragmas(&conn).unwrap();
     app.manage(AppState {
         db: Mutex::new(conn),
-        sidecar: Some(flywheel_desktop_lib::sidecar::SidecarHandle::without_process(
-            flywheel_core::git_retry::SpawnFloor::with_floor(FLOOR),
-        )),
+        sidecar: Some(
+            flywheel_desktop_lib::sidecar::SidecarHandle::without_process(
+                flywheel_core::git_retry::SpawnFloor::with_floor(FLOOR),
+            ),
+        ),
         pending_orphans: Mutex::new(Vec::new()),
         focused_story: Mutex::new(None),
         watched_run: Mutex::new(None),
     });
 
     let launched = AtomicBool::new(false);
-    let dispatch = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let dispatch = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
     let (second, (other, launch_was_waiting)) = dispatch.block_on(async {
         // The first launch takes the repository's turn; with no sidecar behind the handle its
         // request then fails, which closes its session and leaves the Epic free to shape again.
-        let first = flywheel_desktop_lib::commands::shaping::epic_shape(app.handle().clone(), board.epic_id.clone()).await;
-        assert!(first.unwrap_err().contains("not running"), "the first launch reached the sidecar");
+        let first = flywheel_desktop_lib::commands::shaping::epic_shape(
+            app.handle().clone(),
+            board.epic_id.clone(),
+        )
+        .await;
+        assert!(
+            first.unwrap_err().contains("not running"),
+            "the first launch reached the sidecar"
+        );
 
         let started = Instant::now();
         let second = async {
-            let out = flywheel_desktop_lib::commands::shaping::epic_shape(app.handle().clone(), board.epic_id.clone()).await;
+            let out = flywheel_desktop_lib::commands::shaping::epic_shape(
+                app.handle().clone(),
+                board.epic_id.clone(),
+            )
+            .await;
             launched.store(true, Ordering::SeqCst);
             (out, started.elapsed())
         };
         let other = async {
             tokio::time::sleep(Duration::from_millis(200)).await;
             let state = app.state::<AppState>();
-            let stories = flywheel_desktop_lib::commands::story::story_list(state, board.epic_id.clone());
+            let stories =
+                flywheel_desktop_lib::commands::story::story_list(state, board.epic_id.clone());
             (stories, !launched.load(Ordering::SeqCst))
         };
         tokio::join!(second, other)
     });
 
-    assert!(launch_was_waiting, "the other command waited for the shaping launch's spawn floor");
+    assert!(
+        launch_was_waiting,
+        "the other command waited for the shaping launch's spawn floor"
+    );
     assert!(other.is_ok(), "the other command answered: {other:?}");
     let (second, waited) = second;
-    assert!(second.unwrap_err().contains("not running"), "the second launch went on to the sidecar");
-    assert!(waited >= FLOOR - Duration::from_millis(500), "the second launch waited out the floor: {waited:?}");
+    assert!(
+        second.unwrap_err().contains("not running"),
+        "the second launch went on to the sidecar"
+    );
+    assert!(
+        waited >= FLOOR - Duration::from_millis(500),
+        "the second launch waited out the floor: {waited:?}"
+    );
 }
 
 /// The source tree the lint reads: the desktop crate and the core crate, stripped.
 fn tree() -> Vec<(String, String)> {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     let mut files = lint::sources(&manifest.join("src"), "packages/desktop/src-tauri/src");
-    files.extend(lint::sources(&manifest.join("../../core/src"), "packages/core/src"));
-    files.into_iter().map(|(p, t)| (p, lint::strip(&t))).collect()
+    files.extend(lint::sources(
+        &manifest.join("../../core/src"),
+        "packages/core/src",
+    ));
+    files
+        .into_iter()
+        .map(|(p, t)| (p, lint::strip(&t)))
+        .collect()
 }
 
 fn report(files: &[(String, String)]) -> Vec<String> {
@@ -223,8 +276,10 @@ fn the_lint_catches_a_command_that_spawns_or_waits_on_its_dispatch_thread() {
     "#;
     let files = vec![("planted.rs".to_string(), lint::strip(planted))];
     let spawning = lint::blocking_names(&files);
-    let mut commands: Vec<String> =
-        lint::commands_on_the_ipc_thread(&files, &spawning).into_iter().map(|c| c.command).collect();
+    let mut commands: Vec<String> = lint::commands_on_the_ipc_thread(&files, &spawning)
+        .into_iter()
+        .map(|c| c.command)
+        .collect();
     commands.dedup();
     assert_eq!(
         commands,
@@ -247,8 +302,12 @@ fn the_lint_catches_a_command_that_spawns_or_waits_on_its_dispatch_thread() {
 fn every_name_left_out_of_the_blocking_fixpoint_is_a_real_collision() {
     let files = tree();
     for (name, why) in lint::NOT_BLOCKING {
-        let others: Vec<&str> =
-            lint::NOT_A_SPAWN.iter().chain(lint::NOT_BLOCKING).map(|(n, _)| *n).filter(|n| n != name).collect();
+        let others: Vec<&str> = lint::NOT_A_SPAWN
+            .iter()
+            .chain(lint::NOT_BLOCKING)
+            .map(|(n, _)| *n)
+            .filter(|n| n != name)
+            .collect();
         assert!(
             lint::blocking_names_skipping(&files, &others).contains_key(*name),
             "`{name}` ({why}) no longer collides with a blocking function: remove it from NOT_BLOCKING"

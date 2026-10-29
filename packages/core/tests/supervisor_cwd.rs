@@ -49,7 +49,9 @@ fn rust_files_under(root: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
@@ -86,7 +88,9 @@ fn current_dir_arg_looks_non_absolute(line: &str) -> bool {
 }
 
 fn scan_file(path: &Path, violations: &mut Vec<Violation>) {
-    let Ok(contents) = std::fs::read_to_string(path) else { return };
+    let Ok(contents) = std::fs::read_to_string(path) else {
+        return;
+    };
     for (idx, raw_line) in contents.lines().enumerate() {
         let line_no = idx + 1;
         if is_whole_line_comment(raw_line) {
@@ -114,7 +118,8 @@ fn scan_file(path: &Path, violations: &mut Vec<Violation>) {
                 file: path.to_path_buf(),
                 line_no,
                 line: raw_line.to_string(),
-                rule: "Command::current_dir() argument does not look like an absolute-path parameter",
+                rule:
+                    "Command::current_dir() argument does not look like an absolute-path parameter",
             });
         }
     }
@@ -124,7 +129,10 @@ fn scan_file(path: &Path, violations: &mut Vec<Violation>) {
 fn no_ambient_current_directory_reads_or_writes_in_core_or_supervisor() {
     let root = workspace_root();
     let mut violations = Vec::new();
-    for dir in [root.join("packages/core/src"), root.join("packages/desktop/src-tauri/src")] {
+    for dir in [
+        root.join("packages/core/src"),
+        root.join("packages/desktop/src-tauri/src"),
+    ] {
         for file in rust_files_under(&dir) {
             scan_file(&file, &mut violations);
         }
@@ -133,7 +141,11 @@ fn no_ambient_current_directory_reads_or_writes_in_core_or_supervisor() {
     assert!(
         violations.is_empty(),
         "PROC-02 violations found:\n{}",
-        violations.iter().map(|v| v.to_string()).collect::<Vec<_>>().join("\n")
+        violations
+            .iter()
+            .map(|v| v.to_string())
+            .collect::<Vec<_>>()
+            .join("\n")
     );
 }
 
@@ -150,10 +162,17 @@ fn a_seeded_violation_is_caught_and_named_by_file_and_line() {
     let mut violations = Vec::new();
     scan_file(&fixture_path, &mut violations);
 
-    assert_eq!(violations.len(), 1, "expected exactly one seeded violation to be caught");
+    assert_eq!(
+        violations.len(),
+        1,
+        "expected exactly one seeded violation to be caught"
+    );
     let violation = &violations[0];
     assert_eq!(violation.file, fixture_path);
-    assert_eq!(violation.line_no, 3, "the violation must name the exact 1-based line it occurred on");
+    assert_eq!(
+        violation.line_no, 3,
+        "the violation must name the exact 1-based line it occurred on"
+    );
     let message = violation.to_string();
     assert!(message.contains(&fixture_path.display().to_string()) && message.contains(":3:"));
 }
@@ -189,18 +208,28 @@ fn stripping_a_commented_out_occurrence_does_not_trip_the_gate() {
 fn every_git_command_construction_lives_in_git_rs() {
     let root = workspace_root();
     let mut offenders = Vec::new();
-    for dir in [root.join("packages/core/src"), root.join("packages/desktop/src-tauri/src")] {
+    for dir in [
+        root.join("packages/core/src"),
+        root.join("packages/desktop/src-tauri/src"),
+    ] {
         for file in rust_files_under(&dir) {
             if file.ends_with("core/src/git.rs") {
                 continue;
             }
-            let Ok(contents) = std::fs::read_to_string(&file) else { continue };
+            let Ok(contents) = std::fs::read_to_string(&file) else {
+                continue;
+            };
             for (idx, raw_line) in contents.lines().enumerate() {
                 if is_whole_line_comment(raw_line) {
                     continue;
                 }
                 if raw_line.contains("Command::new(\"git\")") {
-                    offenders.push(format!("{}:{}: {}", file.display(), idx + 1, raw_line.trim()));
+                    offenders.push(format!(
+                        "{}:{}: {}",
+                        file.display(),
+                        idx + 1,
+                        raw_line.trim()
+                    ));
                 }
             }
         }
@@ -250,5 +279,8 @@ fn git_rs_applies_dash_c_before_any_subcommand_argument() {
             _ => panic!("expected .arg(\"-C\") immediately after Command::new(\"git\") at line {}, window:\n{window}", idx + 1),
         }
     }
-    assert!(call_sites_checked > 0, "expected at least one Command::new(\"git\") call site in git.rs");
+    assert!(
+        call_sites_checked > 0,
+        "expected at least one Command::new(\"git\") call site in git.rs"
+    );
 }

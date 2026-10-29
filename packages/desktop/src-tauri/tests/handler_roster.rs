@@ -195,8 +195,10 @@ fn collect_commands(module: &str, body: &str) -> BTreeSet<Command> {
         let rest = line.strip_prefix("pub ").unwrap_or(line);
         let rest = rest.strip_prefix("async ").unwrap_or(rest);
         if let Some(sig) = rest.strip_prefix("fn ") {
-            let name: String =
-                sig.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+            let name: String = sig
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
             found.insert((module.to_string(), name));
         }
         armed = false;
@@ -208,7 +210,10 @@ fn collect_commands(module: &str, body: &str) -> BTreeSet<Command> {
 /// is not `commands::<module>::<function>` comes back as `("?", entry)` so it is reported rather
 /// than silently skipped.
 fn parse_roster(main_src: &str) -> BTreeSet<Command> {
-    let start = main_src.find("generate_handler![").expect("main.rs has no generate_handler![") + "generate_handler![".len();
+    let start = main_src
+        .find("generate_handler![")
+        .expect("main.rs has no generate_handler![")
+        + "generate_handler![".len();
     let mut text = String::new();
     'lines: for line in main_src[start..].lines() {
         let code = line.split("//").next().unwrap_or("");
@@ -253,11 +258,16 @@ fn commands_in(dir: &Path) -> BTreeSet<Command> {
         .collect();
     files.sort();
     for path in files {
-        let module = path.file_stem().expect("file stem").to_string_lossy().to_string();
+        let module = path
+            .file_stem()
+            .expect("file stem")
+            .to_string_lossy()
+            .to_string();
         if module == "mod" {
             continue; // the module list itself declares no commands
         }
-        let body = fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+        let body = fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
         all.extend(collect_commands(&module, &body));
     }
     all
@@ -269,8 +279,15 @@ fn every_tauri_command_is_registered_in_generate_handler() {
     let main_src = fs::read_to_string(manifest_dir().join("src/main.rs")).expect("read main.rs");
     let roster = parse_roster(&main_src);
 
-    assert!(ROSTER.len() > 50, "ROSTER lists {} commands; a list that small means it was truncated", ROSTER.len());
-    assert!(ROSTER.windows(2).all(|w| w[0] < w[1]), "ROSTER must stay sorted with no duplicates, one name per line");
+    assert!(
+        ROSTER.len() > 50,
+        "ROSTER lists {} commands; a list that small means it was truncated",
+        ROSTER.len()
+    );
+    assert!(
+        ROSTER.windows(2).all(|w| w[0] < w[1]),
+        "ROSTER must stay sorted with no duplicates, one name per line"
+    );
     if let Err(e) = check_roster_list(&roster, ROSTER) {
         panic!("{e}");
     }
@@ -305,15 +322,25 @@ pub fn forgotten_command() {}
     let roster_src = "tauri::generate_handler![\n    commands::planted::registered_one,\n    commands::planted::registered_two,\n    // commands::planted::commented_roster_entry,\n]";
 
     let declared = collect_commands("planted", body);
-    assert_eq!(declared.len(), 3, "the extractor must see all three live commands: {declared:?}");
+    assert_eq!(
+        declared.len(),
+        3,
+        "the extractor must see all three live commands: {declared:?}"
+    );
 
     let (missing, orphaned) = diff(&declared, &parse_roster(roster_src));
-    assert_eq!(missing, vec![("planted".to_string(), "forgotten_command".to_string())]);
+    assert_eq!(
+        missing,
+        vec![("planted".to_string(), "forgotten_command".to_string())]
+    );
     assert!(orphaned.is_empty(), "{orphaned:?}");
 
     // The other direction: a roster entry that names no command is reported exactly once.
     let stale = "generate_handler![ commands::planted::registered_one, commands::planted::ghost ]";
-    let (_, orphaned) = diff(&collect_commands("planted", "#[tauri::command]\npub fn registered_one() {}\n"), &parse_roster(stale));
+    let (_, orphaned) = diff(
+        &collect_commands("planted", "#[tauri::command]\npub fn registered_one() {}\n"),
+        &parse_roster(stale),
+    );
     assert_eq!(orphaned, vec![("planted".to_string(), "ghost".to_string())]);
 }
 
@@ -324,19 +351,35 @@ fn roster_of(names: &[&str]) -> BTreeSet<Command> {
 
 #[test]
 fn the_roster_list_fails_on_an_unlisted_command() {
-    let err = check_roster_list(&roster_of(&["planted::a", "planted::b", "planted::extra"]), &["planted::a", "planted::b"])
-        .expect_err("an unlisted command must fail");
-    assert!(err.contains("registered but not listed in ROSTER: [\"planted::extra\"]"), "{err}");
+    let err = check_roster_list(
+        &roster_of(&["planted::a", "planted::b", "planted::extra"]),
+        &["planted::a", "planted::b"],
+    )
+    .expect_err("an unlisted command must fail");
+    assert!(
+        err.contains("registered but not listed in ROSTER: [\"planted::extra\"]"),
+        "{err}"
+    );
 }
 
 #[test]
 fn the_roster_list_fails_on_a_missing_command() {
-    let err = check_roster_list(&roster_of(&["planted::a"]), &["planted::a", "planted::gone"])
-        .expect_err("a listed command that is no longer registered must fail");
-    assert!(err.contains("listed in ROSTER but not registered: [\"planted::gone\"]"), "{err}");
+    let err = check_roster_list(
+        &roster_of(&["planted::a"]),
+        &["planted::a", "planted::gone"],
+    )
+    .expect_err("a listed command that is no longer registered must fail");
+    assert!(
+        err.contains("listed in ROSTER but not registered: [\"planted::gone\"]"),
+        "{err}"
+    );
 }
 
 #[test]
 fn the_roster_list_passes_on_an_exact_match() {
-    assert!(check_roster_list(&roster_of(&["planted::a", "planted::b"]), &["planted::a", "planted::b"]).is_ok());
+    assert!(check_roster_list(
+        &roster_of(&["planted::a", "planted::b"]),
+        &["planted::a", "planted::b"]
+    )
+    .is_ok());
 }

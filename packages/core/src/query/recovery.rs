@@ -28,7 +28,10 @@ const RECOVERY_COUNT_SQL: &str = "SELECT COUNT(*) FROM (\
     WHERE project_id = ?1 AND kind = 'story' AND status = 'abandoned' AND acknowledged_at IS NULL)";
 
 /// Every distinct Story id in `project_id` with an outstanding recovery item (D-46).
-pub fn recovery_story_ids_for_project(conn: &Connection, project_id: &str) -> anyhow::Result<Vec<String>> {
+pub fn recovery_story_ids_for_project(
+    conn: &Connection,
+    project_id: &str,
+) -> anyhow::Result<Vec<String>> {
     let mut stmt = conn.prepare(RECOVERY_STORY_IDS_SQL)?;
     let rows = stmt
         .query_map(params![project_id], |row| row.get::<_, String>(0))?
@@ -55,11 +58,19 @@ const MISSING_WORKTREES_SQL: &str = "SELECT w.story_id, s.key, s.title, \
     ORDER BY w.story_id ASC";
 
 /// Every open Story in `project_id` whose worktree is missing, by Story id.
-pub fn missing_worktrees_for_project(conn: &Connection, project_id: &str) -> anyhow::Result<Vec<MissingWorktree>> {
+pub fn missing_worktrees_for_project(
+    conn: &Connection,
+    project_id: &str,
+) -> anyhow::Result<Vec<MissingWorktree>> {
     let mut stmt = conn.prepare(MISSING_WORKTREES_SQL)?;
     let rows = stmt
         .query_map(params![project_id], |row| {
-            Ok(MissingWorktree { story_id: row.get(0)?, story_key: row.get(1)?, story_title: row.get(2)?, since: row.get(3)? })
+            Ok(MissingWorktree {
+                story_id: row.get(0)?,
+                story_key: row.get(1)?,
+                story_title: row.get(2)?,
+                since: row.get(3)?,
+            })
         })?
         .collect::<Result<Vec<_>, _>>();
     rows.context("failed to list the missing worktrees for project")

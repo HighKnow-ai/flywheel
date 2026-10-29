@@ -11,10 +11,18 @@ use flywheel_core::domain::worktree::base_ref_for_story;
 #[test]
 fn story_branch_name_covers_every_behavior_case() {
     let cases: &[(&str, &str, &str)] = &[
-        ("THRE-142", "FTS5 search and filters", "flywheel/thre-142-fts5-search-and-filters"),
+        (
+            "THRE-142",
+            "FTS5 search and filters",
+            "flywheel/thre-142-fts5-search-and-filters",
+        ),
         ("THRE-9", "", "flywheel/thre-9"),
         ("THRE-9", "!!! ??? ***", "flywheel/thre-9"),
-        ("THRE-9", "Café — naïve façade", "flywheel/thre-9-caf-nave-faade"),
+        (
+            "THRE-9",
+            "Café — naïve façade",
+            "flywheel/thre-9-caf-nave-faade",
+        ),
     ];
     for (key, title, expected) in cases {
         assert_eq!(
@@ -29,13 +37,20 @@ fn story_branch_name_covers_every_behavior_case() {
 fn story_branch_name_truncates_a_long_title_to_at_most_200_bytes_ending_alphanumeric() {
     let long_title: String = "word ".repeat(80); // 400 chars
     let name = story_branch_name("THRE-9", &long_title);
-    assert!(name.len() <= 200, "expected at most 200 bytes, got {}", name.len());
+    assert!(
+        name.len() <= 200,
+        "expected at most 200 bytes, got {}",
+        name.len()
+    );
     let last_char = name.chars().last().expect("name should not be empty");
     assert!(
         last_char.is_ascii_alphanumeric(),
         "expected the name to end in an alphanumeric character, got {name:?}"
     );
-    assert!(!name.ends_with('-'), "name must never end in a hyphen, got {name:?}");
+    assert!(
+        !name.ends_with('-'),
+        "name must never end in a hyphen, got {name:?}"
+    );
 }
 
 #[test]
@@ -55,7 +70,10 @@ fn two_stories_with_identical_titles_in_one_project_get_different_branch_names()
 
     let branch_a = story_branch_name(&story_a.key, &story_a.title);
     let branch_b = story_branch_name(&story_b.key, &story_b.title);
-    assert_ne!(branch_a, branch_b, "distinct Story keys must produce distinct branch names");
+    assert_ne!(
+        branch_a, branch_b,
+        "distinct Story keys must produce distinct branch names"
+    );
 }
 
 #[test]
@@ -88,7 +106,10 @@ fn ensure_worktree_refuses_when_the_derived_branch_already_exists() {
     assert!(status.success());
 
     let result = flywheel_core::domain::worktree::ensure_worktree(&mut conn, &story.id, &actor_id);
-    assert!(result.is_err(), "ensure_worktree should refuse when the branch already exists");
+    assert!(
+        result.is_err(),
+        "ensure_worktree should refuse when the branch already exists"
+    );
     // `anyhow::Error::to_string()` only prints the top-level context — the `{:?}` Debug impl
     // prints the full "Caused by:" chain, so a wrapped ("failed to create worktree for Story ...")
     // outer message doesn't hide the inner "branch already exists" cause this assertion cares

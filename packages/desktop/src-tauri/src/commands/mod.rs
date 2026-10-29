@@ -9,7 +9,6 @@
 //! (Acceptance criteria and their Checks), `task` (the Story checklist) and `proposal`.
 
 pub mod actor;
-pub mod session;
 pub mod criterion;
 pub mod epic;
 pub mod events;
@@ -24,6 +23,7 @@ pub mod proposal;
 pub mod review;
 pub mod roadmap;
 pub mod roadmap_round;
+pub mod session;
 pub mod settings;
 pub mod shaping;
 pub mod story;
@@ -40,7 +40,9 @@ pub(crate) const MAX_PROSE_LEN: usize = 20_000;
 pub(crate) fn validate_text(field: &str, value: &str, max_chars: usize) -> Result<(), String> {
     let count = value.trim().chars().count();
     if count == 0 || count > max_chars {
-        return Err(format!("{field} must be 1-{max_chars} characters, got {count}"));
+        return Err(format!(
+            "{field} must be 1-{max_chars} characters, got {count}"
+        ));
     }
     Ok(())
 }
@@ -123,14 +125,20 @@ pub(crate) fn project_of_locked(
 ///
 /// The board-wide mutex used to be what kept two such commands on one Story apart (two Starts, a
 /// Start and a Drop); hold [`story_work`] for that.
-pub(crate) fn side_connection(db: &std::sync::Mutex<rusqlite::Connection>) -> Result<rusqlite::Connection, String> {
+pub(crate) fn side_connection(
+    db: &std::sync::Mutex<rusqlite::Connection>,
+) -> Result<rusqlite::Connection, String> {
     open_beside(&board_path(db)?)
 }
 
 /// The board database's file, read under the mutex: what a command takes onto the blocking pool
 /// to open its [`side_connection`] there with [`open_beside`] (issue #220).
-pub(crate) fn board_path(db: &std::sync::Mutex<rusqlite::Connection>) -> Result<std::path::PathBuf, String> {
-    let conn = db.lock().map_err(|e| ipc_error("side_connection:lock", e))?;
+pub(crate) fn board_path(
+    db: &std::sync::Mutex<rusqlite::Connection>,
+) -> Result<std::path::PathBuf, String> {
+    let conn = db
+        .lock()
+        .map_err(|e| ipc_error("side_connection:lock", e))?;
     conn.path()
         .filter(|p| !p.is_empty())
         .map(std::path::PathBuf::from)
@@ -139,7 +147,8 @@ pub(crate) fn board_path(db: &std::sync::Mutex<rusqlite::Connection>) -> Result<
 
 /// A [`side_connection`] on the database at `path`, from [`board_path`].
 pub(crate) fn open_beside(path: &std::path::Path) -> Result<rusqlite::Connection, String> {
-    let conn = rusqlite::Connection::open(path).map_err(|e| ipc_error("side_connection:open", e))?;
+    let conn =
+        rusqlite::Connection::open(path).map_err(|e| ipc_error("side_connection:open", e))?;
     flywheel_core::db::apply_pragmas(&conn).map_err(|e| ipc_error("side_connection:pragmas", e))?;
     Ok(conn)
 }
@@ -152,7 +161,10 @@ pub fn story_work(story_id: &str) -> std::sync::Arc<std::sync::Mutex<()>> {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex, OnceLock};
     static LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
-    let mut locks = LOCKS.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap_or_else(|p| p.into_inner());
+    let mut locks = LOCKS
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
     Arc::clone(locks.entry(story_id.to_string()).or_default())
 }
 

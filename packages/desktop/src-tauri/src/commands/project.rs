@@ -66,15 +66,27 @@ pub async fn project_register(
     // Registering installs the repository's git hooks, which reads git's config: a side
     // connection, never the board mutex (issue #215), on the blocking pool (issue #220).
     let path = super::board_path(&state.db)?;
-    let (name, repo_path, key_prefix) = (name.to_string(), repo_path.to_string(), key_prefix.to_string());
-    tauri::async_runtime::spawn_blocking(move || register_beside(&path, &name, &repo_path, &key_prefix))
-        .await
-        .map_err(|e| super::ipc_error("project_register:join", e))?
+    let (name, repo_path, key_prefix) = (
+        name.to_string(),
+        repo_path.to_string(),
+        key_prefix.to_string(),
+    );
+    tauri::async_runtime::spawn_blocking(move || {
+        register_beside(&path, &name, &repo_path, &key_prefix)
+    })
+    .await
+    .map_err(|e| super::ipc_error("project_register:join", e))?
 }
 
-fn register_beside(path: &Path, name: &str, repo_path: &str, key_prefix: &str) -> Result<ProjectDto, String> {
+fn register_beside(
+    path: &Path,
+    name: &str,
+    repo_path: &str,
+    key_prefix: &str,
+) -> Result<ProjectDto, String> {
     let mut conn = super::open_beside(path)?;
-    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     // T-01-13: the native folder picker returns an absolute path, but this handler is the trust
     // boundary — length/emptiness are validated above, and `register_project` (01-11-PLAN.md
     // Task 2) is where canonicalization (resolving symlinks and `.`/`..` segments) now happens,
@@ -89,7 +101,11 @@ fn register_beside(path: &Path, name: &str, repo_path: &str, key_prefix: &str) -
     // that reuse is what `RegisterProjectFlow.tsx` surfaces to the user as "already registered"
     // before completing (01-11-PLAN.md Task 3), a UI-layer courtesy, not a core precondition.
     let project = flywheel_core::domain::project::register_project(
-        &mut conn, &actor_id, Path::new(repo_path), name, key_prefix,
+        &mut conn,
+        &actor_id,
+        Path::new(repo_path),
+        name,
+        key_prefix,
     )
     .map_err(|e| e.to_string())?;
 
@@ -182,7 +198,10 @@ pub fn project_hide(state: State<AppState>, project_id: String) -> Result<(), St
 /// marker afterwards, so a restored project does not keep a stale `unreachable` or `active` status
 /// until the next launch. Same argument rules as [`project_hide`]: an id, no actor.
 #[tauri::command]
-pub fn project_restore(state: State<AppState>, project_id: String) -> Result<Vec<ProjectDto>, String> {
+pub fn project_restore(
+    state: State<AppState>,
+    project_id: String,
+) -> Result<Vec<ProjectDto>, String> {
     let project_id = project_id.trim();
     if project_id.is_empty() {
         return Err("project id is required".to_string());

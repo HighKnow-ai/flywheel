@@ -57,12 +57,25 @@ fn a_child_that_never_exits_is_still_killed_and_reported_as_a_timeout() {
     // `exec` so the recorded pid is the direct child that `output_with_timeout` kills.
     let script = format!("echo $$ > '{}'; exec sleep 30", pid_file.display());
 
-    let err = output_with_timeout(&mut sh(&script), None, Duration::from_millis(500), "hung child")
-        .expect_err("a child that outlives the ceiling must time out");
+    let err = output_with_timeout(
+        &mut sh(&script),
+        None,
+        Duration::from_millis(500),
+        "hung child",
+    )
+    .expect_err("a child that outlives the ceiling must time out");
     assert_eq!(err.kind(), std::io::ErrorKind::TimedOut);
 
-    let pid = std::fs::read_to_string(&pid_file).expect("the child recorded its pid").trim().to_string();
-    let alive = Command::new("kill").args(["-0", &pid]).output().unwrap().status.success();
+    let pid = std::fs::read_to_string(&pid_file)
+        .expect("the child recorded its pid")
+        .trim()
+        .to_string();
+    let alive = Command::new("kill")
+        .args(["-0", &pid])
+        .output()
+        .unwrap()
+        .status
+        .success();
     assert!(!alive, "the timed-out child (pid {pid}) must not survive");
     let _ = std::fs::remove_dir_all(&dir);
 }

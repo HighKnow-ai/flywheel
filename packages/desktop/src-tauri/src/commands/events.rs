@@ -57,11 +57,15 @@ impl From<flywheel_core::query::events::EventRow> for EventDto {
 }
 
 fn resolve_trail_limit(limit: Option<i64>) -> i64 {
-    limit.unwrap_or(TRAIL_DEFAULT_LIMIT).clamp(1, TRAIL_MAX_LIMIT)
+    limit
+        .unwrap_or(TRAIL_DEFAULT_LIMIT)
+        .clamp(1, TRAIL_MAX_LIMIT)
 }
 
 fn resolve_cursor_limit(limit: Option<i64>) -> i64 {
-    limit.unwrap_or(CURSOR_DEFAULT_LIMIT).clamp(1, CURSOR_MAX_LIMIT)
+    limit
+        .unwrap_or(CURSOR_DEFAULT_LIMIT)
+        .clamp(1, CURSOR_MAX_LIMIT)
 }
 
 /// A Story's or an Epic's own chronological activity trail (BOARD-09) — its own events plus, for
@@ -85,8 +89,14 @@ pub fn events_activity_trail(
     let offset = offset.unwrap_or(0).max(0);
 
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let rows = flywheel_core::query::events::activity_trail(&conn, &parent_kind, &parent_id, limit, offset)
-        .map_err(|e| e.to_string())?;
+    let rows = flywheel_core::query::events::activity_trail(
+        &conn,
+        &parent_kind,
+        &parent_id,
+        limit,
+        offset,
+    )
+    .map_err(|e| e.to_string())?;
     Ok(rows.into_iter().map(EventDto::from).collect())
 }
 
@@ -105,7 +115,11 @@ pub fn events_since_cursor(
     let limit = resolve_cursor_limit(limit);
 
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let cursor = flywheel_core::query::events::EventCursor { project_id, origin, sequence };
+    let cursor = flywheel_core::query::events::EventCursor {
+        project_id,
+        origin,
+        sequence,
+    };
     let rows = flywheel_core::query::events::events_since_cursor(&conn, &cursor, limit)
         .map_err(|e| e.to_string())?;
     Ok(rows.into_iter().map(EventDto::from).collect())
@@ -138,17 +152,30 @@ pub struct SinceLastLookedDto {
 /// land while it is open are seen live and are not listed. The actor is resolved server-side. Emits
 /// no `board:changed`: looking changes nothing on the board.
 #[tauri::command]
-pub fn board_visit(state: State<AppState>, project_id: String) -> Result<SinceLastLookedDto, String> {
+pub fn board_visit(
+    state: State<AppState>,
+    project_id: String,
+) -> Result<SinceLastLookedDto, String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    let seen = flywheel_core::domain::settings::board_visit(&mut conn, &actor_id, &project_id, SINCE_LAST_LOOKED_LIMIT)
-        .map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    let seen = flywheel_core::domain::settings::board_visit(
+        &mut conn,
+        &actor_id,
+        &project_id,
+        SINCE_LAST_LOOKED_LIMIT,
+    )
+    .map_err(|e| e.to_string())?;
     Ok(SinceLastLookedDto {
         total: seen.total,
         events: seen
             .events
             .into_iter()
-            .map(|e| LookedEventDto { event: e.event.into(), subject_key: e.subject_key, subject_title: e.subject_title })
+            .map(|e| LookedEventDto {
+                event: e.event.into(),
+                subject_key: e.subject_key,
+                subject_title: e.subject_title,
+            })
             .collect(),
     })
 }

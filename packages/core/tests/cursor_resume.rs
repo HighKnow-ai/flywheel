@@ -15,7 +15,9 @@
 mod common;
 
 use common::{new_story, seeded_project};
-use flywheel_core::domain::acceptance_criterion::{amend_criterion, create_criterion, delete_criterion};
+use flywheel_core::domain::acceptance_criterion::{
+    amend_criterion, create_criterion, delete_criterion,
+};
 use flywheel_core::domain::event::{append_event, next_sequence};
 use flywheel_core::domain::{epic, milestone, story};
 use flywheel_core::query::events::{events_since_cursor, EventCursor, EventRow};
@@ -26,11 +28,14 @@ use std::collections::HashMap;
 fn cursor_batches_deliver_every_event_exactly_once() {
     let (mut conn, actor_id, project) = seeded_project();
     // One Milestone + one Epic + 98 Stories: exactly 100 events, one per mutation.
-    let m = milestone::create_milestone(&mut conn, &project.id, &actor_id, "Cursor milestone", None)
-        .expect("create_milestone should succeed");
-    let e = epic::create_epic(&mut conn, &actor_id, &m.id, "Cursor epic").expect("create_epic should succeed");
+    let m =
+        milestone::create_milestone(&mut conn, &project.id, &actor_id, "Cursor milestone", None)
+            .expect("create_milestone should succeed");
+    let e = epic::create_epic(&mut conn, &actor_id, &m.id, "Cursor epic")
+        .expect("create_epic should succeed");
     for i in 0..98 {
-        story::create_story(&mut conn, &actor_id, &e.id, &format!("Story {i}")).expect("create_story should succeed");
+        story::create_story(&mut conn, &actor_id, &e.id, &format!("Story {i}"))
+            .expect("create_story should succeed");
     }
 
     let mut cursor = EventCursor {
@@ -43,15 +48,24 @@ fn cursor_batches_deliver_every_event_exactly_once() {
         // 7 does not divide 100 — the last batch is a short, uneven remainder, exactly where an
         // off-by-one bug would surface as a gap or a duplicate rather than hiding inside an even
         // split.
-        let batch = events_since_cursor(&conn, &cursor, 7).expect("events_since_cursor should succeed");
+        let batch =
+            events_since_cursor(&conn, &cursor, 7).expect("events_since_cursor should succeed");
         if batch.is_empty() {
             break;
         }
         seen_sequences.extend(batch.iter().map(|e| e.sequence));
-        cursor.sequence = batch.iter().map(|e| e.sequence).max().expect("batch is non-empty");
+        cursor.sequence = batch
+            .iter()
+            .map(|e| e.sequence)
+            .max()
+            .expect("batch is non-empty");
     }
 
-    assert_eq!(seen_sequences.len(), 100, "every one of the 100 events must be delivered");
+    assert_eq!(
+        seen_sequences.len(),
+        100,
+        "every one of the 100 events must be delivered"
+    );
     let mut deduped = seen_sequences.clone();
     deduped.sort_unstable();
     deduped.dedup();
@@ -73,8 +87,12 @@ fn cursor_past_the_end_returns_empty() {
         origin: "local".to_string(),
         sequence: 1_000_000,
     };
-    let batch = events_since_cursor(&conn, &cursor, 50).expect("events_since_cursor should not error");
-    assert!(batch.is_empty(), "a cursor past the last sequence must return an empty batch, not an error");
+    let batch =
+        events_since_cursor(&conn, &cursor, 50).expect("events_since_cursor should not error");
+    assert!(
+        batch.is_empty(),
+        "a cursor past the last sequence must return an empty batch, not an error"
+    );
 }
 
 #[test]
@@ -88,7 +106,8 @@ fn cursor_zero_returns_the_first_event() {
         origin: "local".to_string(),
         sequence: 0,
     };
-    let batch = events_since_cursor(&conn, &cursor, 50).expect("events_since_cursor should succeed");
+    let batch =
+        events_since_cursor(&conn, &cursor, 50).expect("events_since_cursor should succeed");
     assert_eq!(batch.len(), 1);
     assert_eq!(batch[0].sequence, 1);
     assert_eq!(batch[0].stream_id, m.id);
@@ -102,14 +121,24 @@ fn a_second_origin_has_its_own_cursor() {
     // assumption" section requires: proving `(project_id, origin)` isolation now, against a
     // second origin that does not exist yet in any real write path, so a later refactor cannot
     // silently collapse the two-column key back down to a bare `sequence` counter.
-    let m = milestone::create_milestone(&mut conn, &project.id, &actor_id, "Local origin milestone", None)
-        .expect("create_milestone should succeed");
+    let m = milestone::create_milestone(
+        &mut conn,
+        &project.id,
+        &actor_id,
+        "Local origin milestone",
+        None,
+    )
+    .expect("create_milestone should succeed");
 
     let other_origin = "teammate-machine";
     let other_event_id = {
         let tx = conn.transaction().expect("transaction should open");
-        let seq = next_sequence(&tx, &project.id, other_origin).expect("next_sequence should succeed");
-        assert_eq!(seq, 1, "a second origin's counter starts at 1, independent of \"local\"'s counter");
+        let seq =
+            next_sequence(&tx, &project.id, other_origin).expect("next_sequence should succeed");
+        assert_eq!(
+            seq, 1,
+            "a second origin's counter starts at 1, independent of \"local\"'s counter"
+        );
         let id = append_event(
             &tx,
             &project.id,
@@ -129,15 +158,25 @@ fn a_second_origin_has_its_own_cursor() {
         id
     };
 
-    let local_cursor = EventCursor { project_id: project.id.clone(), origin: "local".to_string(), sequence: 0 };
-    let local_batch = events_since_cursor(&conn, &local_cursor, 50).expect("events_since_cursor should succeed");
+    let local_cursor = EventCursor {
+        project_id: project.id.clone(),
+        origin: "local".to_string(),
+        sequence: 0,
+    };
+    let local_batch =
+        events_since_cursor(&conn, &local_cursor, 50).expect("events_since_cursor should succeed");
     assert!(
         local_batch.iter().all(|e| e.id != other_event_id),
         "the \"local\" cursor must never see an event written under a different origin"
     );
 
-    let other_cursor = EventCursor { project_id: project.id.clone(), origin: other_origin.to_string(), sequence: 0 };
-    let other_batch = events_since_cursor(&conn, &other_cursor, 50).expect("events_since_cursor should succeed");
+    let other_cursor = EventCursor {
+        project_id: project.id.clone(),
+        origin: other_origin.to_string(),
+        sequence: 0,
+    };
+    let other_batch =
+        events_since_cursor(&conn, &other_cursor, 50).expect("events_since_cursor should succeed");
     assert_eq!(other_batch.len(), 1);
     assert_eq!(other_batch[0].id, other_event_id);
 
@@ -147,7 +186,11 @@ fn a_second_origin_has_its_own_cursor() {
     let mut merged: Vec<EventRow> = local_batch.into_iter().chain(other_batch).collect();
     merged.sort_by(|a, b| a.id.cmp(&b.id));
     let merged_types: Vec<&str> = merged.iter().map(|e| e.event_type.as_str()).collect();
-    assert_eq!(merged_types, vec!["milestone.created", "milestone.updated"], "merged order must match write order");
+    assert_eq!(
+        merged_types,
+        vec!["milestone.created", "milestone.updated"],
+        "merged order must match write order"
+    );
 }
 
 #[test]
@@ -155,20 +198,28 @@ fn replay_reconstructs_the_projection() {
     let (mut conn, actor_id, project) = seeded_project();
 
     let story = new_story(&mut conn, &project.id, &actor_id, "Replayed story");
-    create_criterion(&mut conn, &actor_id, &story.id, "Alpha").expect("create_criterion should succeed");
-    let beta = create_criterion(&mut conn, &actor_id, &story.id, "Beta").expect("create_criterion should succeed");
+    create_criterion(&mut conn, &actor_id, &story.id, "Alpha")
+        .expect("create_criterion should succeed");
+    let beta = create_criterion(&mut conn, &actor_id, &story.id, "Beta")
+        .expect("create_criterion should succeed");
     let gamma = create_criterion(&mut conn, &actor_id, &story.id, "Gamma (to be deleted)")
         .expect("create_criterion should succeed");
-    amend_criterion(&mut conn, &actor_id, &beta.id, "Beta, amended").expect("amend_criterion should succeed");
+    amend_criterion(&mut conn, &actor_id, &beta.id, "Beta, amended")
+        .expect("amend_criterion should succeed");
     delete_criterion(&mut conn, &actor_id, &gamma.id).expect("delete_criterion should succeed");
 
     // Replay the log from sequence zero, applying only `criterion.*` events (the log also carries
     // the Milestone/Epic/Story creation events, so the filter is load-bearing) — reconstructing an `id -> title` map exactly the way a from-scratch relay
     // consumer would, using only what the event stream carries.
-    let mut cursor = EventCursor { project_id: project.id.clone(), origin: "local".to_string(), sequence: 0 };
+    let mut cursor = EventCursor {
+        project_id: project.id.clone(),
+        origin: "local".to_string(),
+        sequence: 0,
+    };
     let mut replayed: HashMap<String, String> = HashMap::new();
     loop {
-        let batch = events_since_cursor(&conn, &cursor, 10).expect("events_since_cursor should succeed");
+        let batch =
+            events_since_cursor(&conn, &cursor, 10).expect("events_since_cursor should succeed");
         if batch.is_empty() {
             break;
         }
@@ -192,7 +243,11 @@ fn replay_reconstructs_the_projection() {
                 _ => {}
             }
         }
-        cursor.sequence = batch.iter().map(|e| e.sequence).max().expect("batch is non-empty");
+        cursor.sequence = batch
+            .iter()
+            .map(|e| e.sequence)
+            .max()
+            .expect("batch is non-empty");
     }
 
     // The projection itself — the `acceptance_criteria` table `create_criterion`/`amend_criterion`/
@@ -204,11 +259,17 @@ fn replay_reconstructs_the_projection() {
         )
         .expect("prepare should succeed");
     let projection: HashMap<String, String> = stmt
-        .query_map(params![project.id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .query_map(params![project.id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
         .expect("query_map should succeed")
         .collect::<Result<HashMap<_, _>, _>>()
         .expect("reading the projection should succeed");
 
     assert_eq!(replayed, projection, "replaying the log must reconstruct the same criterion id/statement set the projection holds");
-    assert_eq!(projection.len(), 2, "alpha and the amended beta survive; gamma was deleted");
+    assert_eq!(
+        projection.len(),
+        2,
+        "alpha and the amended beta survive; gamma was deleted"
+    );
 }

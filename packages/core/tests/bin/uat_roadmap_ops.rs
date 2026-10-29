@@ -37,13 +37,21 @@
 //!   uat_roadmap_ops roadmap <project_id>
 
 use flywheel_core::domain::confirm_done::{confirm_epic_done, DoneTrigger};
-use flywheel_core::domain::proposal::{accept_proposal_released, proposals_in_round, proposals_on_milestone, reject_proposal_released};
+use flywheel_core::domain::proposal::{
+    accept_proposal_released, proposals_in_round, proposals_on_milestone, reject_proposal_released,
+};
+use flywheel_core::domain::roadmap_round::{
+    describe_proposal, latest_roadmap_round, noted_triggers,
+};
 use flywheel_core::domain::round::{accept_all_recommended, rounds_for_milestone};
-use flywheel_core::domain::stage::{close_stage, open_stage};
-use flywheel_core::domain::roadmap_round::{describe_proposal, latest_roadmap_round, noted_triggers};
-use flywheel_core::domain::session::{close_session, start_shaping_session, SessionStatus, ShapingSubject};
+use flywheel_core::domain::session::{
+    close_session, start_shaping_session, SessionStatus, ShapingSubject,
+};
 use flywheel_core::domain::session_kind::SessionKind;
-use flywheel_core::domain::shaping_tool::{apply_shaping_tool_call, ShapingToolCall, ShapingToolOutcome};
+use flywheel_core::domain::shaping_tool::{
+    apply_shaping_tool_call, ShapingToolCall, ShapingToolOutcome,
+};
+use flywheel_core::domain::stage::{close_stage, open_stage};
 use flywheel_core::domain::story::{self, StoryState};
 use flywheel_core::domain::{actor, epic, milestone, project};
 use rusqlite::Connection;
@@ -58,9 +66,12 @@ fn open_conn() -> Connection {
     if std::env::var_os("FLYWHEEL_APP_DATA_DIR").is_none() {
         fail("FLYWHEEL_APP_DATA_DIR is not set — refusing to touch the real fleet database. Point it at a scratch directory.");
     }
-    let db_path = flywheel_core::db::default_db_path().unwrap_or_else(|e| fail(&format!("db path: {e:#}")));
-    let backups = flywheel_core::db::default_backups_dir().unwrap_or_else(|e| fail(&format!("backups dir: {e:#}")));
-    flywheel_core::db::open_and_migrate(&db_path, &backups).unwrap_or_else(|e| fail(&format!("open: {e:#}")))
+    let db_path =
+        flywheel_core::db::default_db_path().unwrap_or_else(|e| fail(&format!("db path: {e:#}")));
+    let backups = flywheel_core::db::default_backups_dir()
+        .unwrap_or_else(|e| fail(&format!("backups dir: {e:#}")));
+    flywheel_core::db::open_and_migrate(&db_path, &backups)
+        .unwrap_or_else(|e| fail(&format!("open: {e:#}")))
 }
 
 fn human(conn: &Connection) -> String {
@@ -76,24 +87,65 @@ fn ok<T>(what: &str, r: anyhow::Result<T>) -> T {
 fn seed(repo: &str) -> Value {
     let mut conn = open_conn();
     let h = human(&conn);
-    let p = ok("create_project", project::create_project(&mut conn, &h, "Threadfin", repo, "FLY", "main"));
+    let p = ok(
+        "create_project",
+        project::create_project(&mut conn, &h, "Threadfin", repo, "FLY", "main"),
+    );
     let m = ok(
         "create_milestone",
-        milestone::create_milestone(&mut conn, &p.id, &h, "Shaping", Some("Cyril takes a one-line idea to Ready Stories in Flywheel")),
+        milestone::create_milestone(
+            &mut conn,
+            &p.id,
+            &h,
+            "Shaping",
+            Some("Cyril takes a one-line idea to Ready Stories in Flywheel"),
+        ),
     );
     // The Milestone stays in Shaping: the UAT shapes its exit test, and closing that Stage makes it Ready.
-    let next = ok("create_milestone", milestone::create_milestone(&mut conn, &p.id, &h, "Board and review", Some("A Story merges in Flywheel alone")));
+    let next = ok(
+        "create_milestone",
+        milestone::create_milestone(
+            &mut conn,
+            &p.id,
+            &h,
+            "Board and review",
+            Some("A Story merges in Flywheel alone"),
+        ),
+    );
     let mut epics = Vec::new();
-    for (title, exit) in [("Rounds", "A Round is answered on the board"), ("Roadmap strip", "The Roadmap reads at a glance")] {
-        let e = ok("create_epic", epic::create_epic(&mut conn, &h, &m.id, title));
+    for (title, exit) in [
+        ("Rounds", "A Round is answered on the board"),
+        ("Roadmap strip", "The Roadmap reads at a glance"),
+    ] {
+        let e = ok(
+            "create_epic",
+            epic::create_epic(&mut conn, &h, &m.id, title),
+        );
         let mut spec = e.spec.clone();
         spec.exit_test = Some(exit.to_string());
-        ok("update_epic", epic::update_epic(&mut conn, &h, &e.id, title, &spec));
-        let s = ok("create_story", story::create_story(&mut conn, &h, &e.id, &format!("{title}: the one slice")));
-        for to in [StoryState::Ready, StoryState::Running, StoryState::InReview, StoryState::Merged] {
-            ok("set_story_state", story::set_story_state(&mut conn, &h, &s.id, to));
+        ok(
+            "update_epic",
+            epic::update_epic(&mut conn, &h, &e.id, title, &spec),
+        );
+        let s = ok(
+            "create_story",
+            story::create_story(&mut conn, &h, &e.id, &format!("{title}: the one slice")),
+        );
+        for to in [
+            StoryState::Ready,
+            StoryState::Running,
+            StoryState::InReview,
+            StoryState::Merged,
+        ] {
+            ok(
+                "set_story_state",
+                story::set_story_state(&mut conn, &h, &s.id, to),
+            );
         }
-        ok("set_epic_state", epic::set_epic_state(&mut conn, &h, &e.id, epic::EpicState::Ready));
+        ok(
+            "set_epic_state",
+            epic::set_epic_state(&mut conn, &h, &e.id, epic::EpicState::Ready),
+        );
         epics.push(json!({ "id": e.id, "key": e.key, "title": title }));
     }
     json!({ "projectId": p.id, "milestoneId": m.id, "nextMilestoneId": next.id, "epics": epics })
@@ -104,7 +156,10 @@ fn seed(repo: &str) -> Value {
 fn confirm_epic(epic_id: &str) -> Value {
     let mut conn = open_conn();
     let h = human(&conn);
-    let outcome = ok("confirm_epic_done", confirm_epic_done(&mut conn, &h, epic_id));
+    let outcome = ok(
+        "confirm_epic_done",
+        confirm_epic_done(&mut conn, &h, epic_id),
+    );
     let round = outcome.round().clone();
     let DoneTrigger::Opened(_) = outcome else {
         return json!({ "outcome": "noted", "round": round.number });
@@ -118,7 +173,10 @@ fn confirm_epic(epic_id: &str) -> Value {
             &h,
         ),
     );
-    let prompt = ok("build_roadmap_packet", flywheel_core::roadmap_packet::build_roadmap_packet(&conn, &round.project_id));
+    let prompt = ok(
+        "build_roadmap_packet",
+        flywheel_core::roadmap_packet::build_roadmap_packet(&conn, &round.project_id),
+    );
     let mut out = spawn_for(&session.id, prompt);
     out["outcome"] = json!("opened");
     out["round"] = json!(round.number);
@@ -130,7 +188,9 @@ fn confirm_epic(epic_id: &str) -> Value {
 fn tool_call(run_id: &str, request_id: &str, tool: &str, args: &str) -> Value {
     let mut conn = open_conn();
     let args: Value = serde_json::from_str(args).unwrap_or_else(|e| fail(&format!("args: {e}")));
-    let answer = match ShapingToolCall::parse(tool, &args).and_then(|call| apply_shaping_tool_call(&mut conn, run_id, request_id, &call)) {
+    let answer = match ShapingToolCall::parse(tool, &args)
+        .and_then(|call| apply_shaping_tool_call(&mut conn, run_id, request_id, &call))
+    {
         Ok(ShapingToolOutcome::Held { .. }) => Value::Null,
         Ok(ShapingToolOutcome::Answered { result, .. }) => json!({ "result": result }),
         Err(e) => json!({ "error": format!("{e:#}") }),
@@ -143,8 +203,14 @@ fn decide(proposal_id: &str, verdict: &str) -> Value {
     let mut conn = open_conn();
     let h = human(&conn);
     let decided = match verdict {
-        "accept" => ok("accept", accept_proposal_released(&mut conn, &h, proposal_id, None)),
-        "reject" => ok("reject", reject_proposal_released(&mut conn, &h, proposal_id, Some("Not in this Milestone"))),
+        "accept" => ok(
+            "accept",
+            accept_proposal_released(&mut conn, &h, proposal_id, None),
+        ),
+        "reject" => ok(
+            "reject",
+            reject_proposal_released(&mut conn, &h, proposal_id, Some("Not in this Milestone")),
+        ),
         other => fail(&format!("decide: {other:?} is not accept or reject")),
     };
     let release = decided.release.map(|r| json!({ "sessionId": r.session_id, "requestId": r.request_id, "answer": { "result": r.result } }));
@@ -156,7 +222,11 @@ fn decide(proposal_id: &str, verdict: &str) -> Value {
 fn spawn_for(run_id: &str, prompt: String) -> Value {
     let kind = SessionKind::Shaping;
     let policy = kind.launch_policy();
-    let policy_env: serde_json::Map<String, Value> = policy.env.iter().map(|(k, v)| (k.to_string(), json!(v))).collect();
+    let policy_env: serde_json::Map<String, Value> = policy
+        .env
+        .iter()
+        .map(|(k, v)| (k.to_string(), json!(v)))
+        .collect();
     json!({
         "spawn": {
             "op": "spawn",
@@ -180,9 +250,17 @@ fn shape_milestone(milestone_id: &str) -> Value {
     let subject = ShapingSubject::Milestone(milestone_id.to_string());
     let session = ok(
         "start_shaping_session",
-        start_shaping_session(&mut conn, &subject, SessionKind::Shaping.launch_policy().permission_mode, &h),
+        start_shaping_session(
+            &mut conn,
+            &subject,
+            SessionKind::Shaping.launch_policy().permission_mode,
+            &h,
+        ),
     );
-    let prompt = ok("build_shaping_packet", flywheel_core::shaping_packet::build_shaping_packet(&conn, &subject));
+    let prompt = ok(
+        "build_shaping_packet",
+        flywheel_core::shaping_packet::build_shaping_packet(&conn, &subject),
+    );
     spawn_for(&session.id, prompt)
 }
 
@@ -191,11 +269,17 @@ fn shape_milestone(milestone_id: &str) -> Value {
 fn answer_round(milestone_id: &str) -> Value {
     let mut conn = open_conn();
     let h = human(&conn);
-    let round = ok("rounds_for_milestone", rounds_for_milestone(&conn, milestone_id))
-        .into_iter()
-        .find(|r| r.state == "open")
-        .unwrap_or_else(|| fail("the Milestone has no open Round"));
-    let outcome = ok("accept_all_recommended", accept_all_recommended(&mut conn, &h, &round.id));
+    let round = ok(
+        "rounds_for_milestone",
+        rounds_for_milestone(&conn, milestone_id),
+    )
+    .into_iter()
+    .find(|r| r.state == "open")
+    .unwrap_or_else(|| fail("the Milestone has no open Round"));
+    let outcome = ok(
+        "accept_all_recommended",
+        accept_all_recommended(&mut conn, &h, &round.id),
+    );
     let release = outcome.release.map(|r| json!({ "sessionId": r.session_id, "requestId": r.request_id, "answer": { "result": r.result } }));
     json!({ "round": round.number, "release": release })
 }
@@ -203,12 +287,19 @@ fn answer_round(milestone_id: &str) -> Value {
 /// The Milestone as its shaping left it: state, exit test, and its pending Proposals.
 fn milestone_view(milestone_id: &str) -> Value {
     let conn = open_conn();
-    let m = ok("get_milestone", milestone::get_milestone(&conn, milestone_id)).unwrap_or_else(|| fail("no such Milestone"));
-    let pending: Vec<Value> = ok("proposals_on_milestone", proposals_on_milestone(&conn, milestone_id))
-        .iter()
-        .filter(|p| p.state == "pending")
-        .map(|p| json!({ "id": p.id, "payload": p.payload }))
-        .collect();
+    let m = ok(
+        "get_milestone",
+        milestone::get_milestone(&conn, milestone_id),
+    )
+    .unwrap_or_else(|| fail("no such Milestone"));
+    let pending: Vec<Value> = ok(
+        "proposals_on_milestone",
+        proposals_on_milestone(&conn, milestone_id),
+    )
+    .iter()
+    .filter(|p| p.state == "pending")
+    .map(|p| json!({ "id": p.id, "payload": p.payload }))
+    .collect();
     json!({ "state": m.state, "exitTest": m.exit_test, "pending": pending })
 }
 
@@ -216,15 +307,28 @@ fn milestone_view(milestone_id: &str) -> Value {
 fn close_exit_test(milestone_id: &str) -> Value {
     let mut conn = open_conn();
     let h = human(&conn);
-    let stage = ok("open_stage", open_stage(&conn, &ShapingSubject::Milestone(milestone_id.to_string())))
-        .unwrap_or_else(|| fail("the Milestone has no open Stage"));
+    let stage = ok(
+        "open_stage",
+        open_stage(&conn, &ShapingSubject::Milestone(milestone_id.to_string())),
+    )
+    .unwrap_or_else(|| fail("the Milestone has no open Stage"));
     let closed = ok("close_stage", close_stage(&mut conn, &h, &stage.id));
     json!({ "closed": closed.closed.id, "endedSession": closed.ended_session })
 }
 
 fn session_closed(run_id: &str) -> Value {
     let mut conn = open_conn();
-    ok("close_session", close_session(&mut conn, run_id, SessionStatus::Completed, None, None, None));
+    ok(
+        "close_session",
+        close_session(
+            &mut conn,
+            run_id,
+            SessionStatus::Completed,
+            None,
+            None,
+            None,
+        ),
+    );
     json!({ "closed": run_id })
 }
 
@@ -266,7 +370,11 @@ fn roadmap(project_id: &str) -> Value {
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let arg = |i: usize| args.get(i).map(String::as_str).unwrap_or_else(|| fail("missing argument; see the usage in this file's header"));
+    let arg = |i: usize| {
+        args.get(i)
+            .map(String::as_str)
+            .unwrap_or_else(|| fail("missing argument; see the usage in this file's header"))
+    };
     let out = match arg(0) {
         "seed" => seed(arg(1)),
         "shape-milestone" => shape_milestone(arg(1)),

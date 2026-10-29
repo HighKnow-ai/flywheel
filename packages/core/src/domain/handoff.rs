@@ -82,9 +82,16 @@ pub enum HandoffToolCall {
 }
 
 fn parse_check_objections(value: Option<&Value>) -> anyhow::Result<Vec<CheckObjection>> {
-    let Some(value) = value.filter(|v| !v.is_null()) else { return Ok(Vec::new()) };
-    let items = value.as_array().context("`check_objections` is a list of {criterion, why}")?;
-    anyhow::ensure!(items.len() <= MAX_OBJECTIONS, "at most {MAX_OBJECTIONS} Check objections");
+    let Some(value) = value.filter(|v| !v.is_null()) else {
+        return Ok(Vec::new());
+    };
+    let items = value
+        .as_array()
+        .context("`check_objections` is a list of {criterion, why}")?;
+    anyhow::ensure!(
+        items.len() <= MAX_OBJECTIONS,
+        "at most {MAX_OBJECTIONS} Check objections"
+    );
     items
         .iter()
         .map(|item| {
@@ -154,7 +161,9 @@ impl HandoffToolCall {
 /// The hand-off's optional `adrs`: each ADR's path and bar lines, checked as an ADR draft's are,
 /// each path at most once.
 fn parse_adrs(value: Option<&Value>) -> anyhow::Result<Vec<AdrBarLines>> {
-    let Some(value) = value.filter(|v| !v.is_null()) else { return Ok(Vec::new()) };
+    let Some(value) = value.filter(|v| !v.is_null()) else {
+        return Ok(Vec::new());
+    };
     let items = value
         .as_array()
         .context("`adrs` is a list: one entry per ADR you wrote, with its path and bar lines")?;
@@ -237,19 +246,38 @@ pub struct HandoffOutcome {
 /// The session's Story, project and status; refused unless the session is live.
 fn live_session(conn: &Connection, session_id: &str) -> anyhow::Result<(String, String)> {
     let (story_id, project_id, status) = crate::domain::session::story_session(conn, session_id)?;
-    anyhow::ensure!(status == "running" || status == "blocked", "this session has ended ({status}); it can no longer run Checks or hand off");
+    anyhow::ensure!(
+        status == "running" || status == "blocked",
+        "this session has ended ({status}); it can no longer run Checks or hand off"
+    );
     Ok((story_id, project_id))
 }
 
-fn plan(conn: &Connection, session_id: Option<&str>, story_id: String, project_id: String, for_review: bool) -> anyhow::Result<CheckPlan> {
+fn plan(
+    conn: &Connection,
+    session_id: Option<&str>,
+    story_id: String,
+    project_id: String,
+    for_review: bool,
+) -> anyhow::Result<CheckPlan> {
     let worktree = crate::domain::worktree::worktree_for_story(conn, &story_id)?
         .context("this Story has no worktree to run its Checks in")?;
-    anyhow::ensure!(Path::new(&worktree.path).is_dir(), "this Story's worktree is missing from disk");
+    anyhow::ensure!(
+        Path::new(&worktree.path).is_dir(),
+        "this Story's worktree is missing from disk"
+    );
     let project_dir = worktree.project_dir();
-    anyhow::ensure!(project_dir.is_dir(), "the project's directory is missing from this Story's worktree");
+    anyhow::ensure!(
+        project_dir.is_dir(),
+        "the project's directory is missing from this Story's worktree"
+    );
     let checks = check::checks_for_story(conn, &story_id)?
         .into_iter()
-        .map(|c| PlannedCheck { check_id: c.id, command: c.command, timeout_secs: c.timeout_secs })
+        .map(|c| PlannedCheck {
+            check_id: c.id,
+            command: c.command,
+            timeout_secs: c.timeout_secs,
+        })
         .collect();
     let review_base = for_review.then(|| worktree.base_branch.clone());
     Ok(CheckPlan {
@@ -272,9 +300,17 @@ pub fn plan_feedback_run(conn: &Connection, session_id: &str) -> anyhow::Result<
 /// Plan a hand-off for session `session_id`, refusing it unless the Story is Running and its Task
 /// checklist is current: written, with no Task left doing. Each Check objection must name a
 /// criterion that has a Check; it is resolved to that Check here, before anything runs.
-pub fn plan_handoff(conn: &Connection, session_id: &str, check_objections: &[CheckObjection]) -> anyhow::Result<CheckPlan> {
+pub fn plan_handoff(
+    conn: &Connection,
+    session_id: &str,
+    check_objections: &[CheckObjection],
+) -> anyhow::Result<CheckPlan> {
     let (story_id, project_id) = live_session(conn, session_id)?;
-    let state: String = conn.query_row("SELECT state FROM stories WHERE id = ?1", params![story_id], |r| r.get(0))?;
+    let state: String = conn.query_row(
+        "SELECT state FROM stories WHERE id = ?1",
+        params![story_id],
+        |r| r.get(0),
+    )?;
     anyhow::ensure!(
         state == StoryState::Running.as_str(),
         "only a Running Story hands off, and this one is {state}"
@@ -298,7 +334,11 @@ pub fn plan_handoff(conn: &Connection, session_id: &str, check_objections: &[Che
 /// Resolve each objection's criterion number to the criterion and its Check, as the review records
 /// it: `{criterion_id, check_id, command, why}`. The command is kept so a Check edited afterwards
 /// can be told apart from the one the agent objected to.
-fn resolve_check_objections(conn: &Connection, story_id: &str, objections: &[CheckObjection]) -> anyhow::Result<Value> {
+fn resolve_check_objections(
+    conn: &Connection,
+    story_id: &str,
+    objections: &[CheckObjection],
+) -> anyhow::Result<Value> {
     let criteria = crate::domain::acceptance_criterion::criteria_for_story(conn, story_id)?;
     let resolved = objections
         .iter()
@@ -308,10 +348,17 @@ fn resolve_check_objections(conn: &Connection, story_id: &str, objections: &[Che
                 .and_then(|n| n.checked_sub(1))
                 .and_then(|i| criteria.get(i))
                 .with_context(|| {
-                    format!("your Story has no criterion {}: it has {}, numbered from 1 as listed", o.criterion, criteria.len())
+                    format!(
+                        "your Story has no criterion {}: it has {}, numbered from 1 as listed",
+                        o.criterion,
+                        criteria.len()
+                    )
                 })?;
             let check = check::check_for_criterion(conn, &criterion.id)?.with_context(|| {
-                format!("criterion {} has no Check to object to: it is judged at review", o.criterion)
+                format!(
+                    "criterion {} has no Check to object to: it is judged at review",
+                    o.criterion
+                )
             })?;
             Ok(serde_json::json!({
                 "criterion_id": criterion.id,
@@ -350,13 +397,23 @@ impl std::error::Error for ReviewRunRefused {}
 /// Refuse a Re-run Checks unless the Story is In review with no live session.
 fn ensure_rerunnable(conn: &Connection, story_id: &str) -> anyhow::Result<String> {
     let (state, project_id): (String, String) = conn
-        .query_row("SELECT state, project_id FROM stories WHERE id = ?1", params![story_id], |r| Ok((r.get(0)?, r.get(1)?)))
+        .query_row(
+            "SELECT state, project_id FROM stories WHERE id = ?1",
+            params![story_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
         .with_context(|| format!("Story {story_id:?} not found"))?;
     if state != StoryState::InReview.as_str() {
-        return Err(ReviewRunRefused("Checks are re-run from review, and this Story is not In review.".into()).into());
+        return Err(ReviewRunRefused(
+            "Checks are re-run from review, and this Story is not In review.".into(),
+        )
+        .into());
     }
     if story_has_live_session(conn, story_id)? {
-        return Err(ReviewRunRefused("A session of this Story is live: stop it before re-running the Checks.".into()).into());
+        return Err(ReviewRunRefused(
+            "A session of this Story is live: stop it before re-running the Checks.".into(),
+        )
+        .into());
     }
     Ok(project_id)
 }
@@ -389,14 +446,21 @@ pub fn complete_review_run(
     crate::domain::actor::assert_human_actor_in_tx(&tx, actor_id)?;
     ensure_rerunnable(&tx, &plan.story_id)?;
     record_batch_in_tx(&tx, &batch)?;
-    let epic_id: String = tx.query_row("SELECT epic_id FROM stories WHERE id = ?1", params![plan.story_id], |r| r.get(0))?;
+    let epic_id: String = tx.query_row(
+        "SELECT epic_id FROM stories WHERE id = ?1",
+        params![plan.story_id],
+        |r| r.get(0),
+    )?;
     let (passed, failed, timed_out) = tally(&batch);
     record_event(
         &tx,
         &plan.project_id,
         "story",
         &plan.story_id,
-        EventScope { story_id: Some(&plan.story_id), epic_id: Some(&epic_id) },
+        EventScope {
+            story_id: Some(&plan.story_id),
+            epic_id: Some(&epic_id),
+        },
         actor_id,
         "story.checks_rerun",
         &serde_json::json!({
@@ -407,12 +471,20 @@ pub fn complete_review_run(
         &now(),
     )?;
     tx.commit().context("failed to record the re-run")?;
-    Ok(ReviewRunOutcome { project_id: plan.project_id.clone(), story_id: plan.story_id.clone(), batch })
+    Ok(ReviewRunOutcome {
+        project_id: plan.project_id.clone(),
+        story_id: plan.story_id.clone(),
+        batch,
+    })
 }
 
 /// Re-run Checks in one go: plan, run every Check, then record. For a caller that may hold the
 /// connection for the whole run.
-pub fn rerun_checks(conn: &mut Connection, actor_id: &str, story_id: &str) -> anyhow::Result<ReviewRunOutcome> {
+pub fn rerun_checks(
+    conn: &mut Connection,
+    actor_id: &str,
+    story_id: &str,
+) -> anyhow::Result<ReviewRunOutcome> {
     crate::domain::actor::assert_human_actor(conn, actor_id)?;
     let plan = plan_review_run(conn, story_id)?;
     let batch = run_checks(&plan)?;
@@ -423,8 +495,11 @@ pub fn rerun_checks(conn: &mut Connection, actor_id: &str, story_id: &str) -> an
 /// it ran: there is nothing to record it on.
 fn record_batch_in_tx(tx: &rusqlite::Transaction, batch: &CheckBatch) -> anyhow::Result<()> {
     for outcome in &batch.outcomes {
-        let still_there: bool =
-            tx.query_row("SELECT EXISTS (SELECT 1 FROM checks WHERE id = ?1)", params![outcome.check_id], |r| r.get(0))?;
+        let still_there: bool = tx.query_row(
+            "SELECT EXISTS (SELECT 1 FROM checks WHERE id = ?1)",
+            params![outcome.check_id],
+            |r| r.get(0),
+        )?;
         if !still_there {
             continue;
         }
@@ -447,7 +522,11 @@ fn record_batch_in_tx(tx: &rusqlite::Transaction, batch: &CheckBatch) -> anyhow:
 /// How many Checks of `batch` passed, failed and timed out.
 fn tally(batch: &CheckBatch) -> (usize, usize, usize) {
     let count = |result: CheckResult| batch.outcomes.iter().filter(|o| o.result == result).count();
-    (count(CheckResult::Passed), count(CheckResult::Failed), count(CheckResult::TimedOut))
+    (
+        count(CheckResult::Passed),
+        count(CheckResult::Failed),
+        count(CheckResult::TimedOut),
+    )
 }
 
 /// Run every planned Check from the project's directory in the worktree (its root, unless the
@@ -461,9 +540,13 @@ pub fn run_checks(plan: &CheckPlan) -> anyhow::Result<CheckBatch> {
 /// [`run_checks`], telling `on_progress` how far it is: `(0, total)` once the commit is read and
 /// before the first Check starts, then `(done, total)` after each Check ends. The review card draws
 /// it as "Running 8 Checks · 3/8".
-pub fn run_checks_reporting(plan: &CheckPlan, mut on_progress: impl FnMut(usize, usize)) -> anyhow::Result<CheckBatch> {
+pub fn run_checks_reporting(
+    plan: &CheckPlan,
+    mut on_progress: impl FnMut(usize, usize),
+) -> anyhow::Result<CheckBatch> {
     let total = plan.checks.len();
-    let commit_sha = check::worktree_head(&plan.project_dir).context("could not read the branch's commit")?;
+    let commit_sha =
+        check::worktree_head(&plan.project_dir).context("could not read the branch's commit")?;
     let diff = plan
         .review_base
         .as_deref()
@@ -478,14 +561,23 @@ pub fn run_checks_reporting(plan: &CheckPlan, mut on_progress: impl FnMut(usize,
         .map(|(index, c)| {
             let started_at = now();
             let timeout = Duration::from_secs(u64::try_from(c.timeout_secs).unwrap_or(1).max(1));
-            let (result, exit_code, output_tail) = match run_shell_check(&plan.project_dir, &c.command, timeout) {
-                Ok(run) => match run.outcome {
-                    ShellOutcome::Exited(Some(0)) => (CheckResult::Passed, Some(0), run.output_tail),
-                    ShellOutcome::Exited(code) => (CheckResult::Failed, code.map(i64::from), run.output_tail),
-                    ShellOutcome::TimedOut => (CheckResult::TimedOut, None, run.output_tail),
-                },
-                Err(e) => (CheckResult::Failed, None, format!("Flywheel could not start the shell: {e}")),
-            };
+            let (result, exit_code, output_tail) =
+                match run_shell_check(&plan.project_dir, &c.command, timeout) {
+                    Ok(run) => match run.outcome {
+                        ShellOutcome::Exited(Some(0)) => {
+                            (CheckResult::Passed, Some(0), run.output_tail)
+                        }
+                        ShellOutcome::Exited(code) => {
+                            (CheckResult::Failed, code.map(i64::from), run.output_tail)
+                        }
+                        ShellOutcome::TimedOut => (CheckResult::TimedOut, None, run.output_tail),
+                    },
+                    Err(e) => (
+                        CheckResult::Failed,
+                        None,
+                        format!("Flywheel could not start the shell: {e}"),
+                    ),
+                };
             let outcome = CheckOutcome {
                 check_id: c.check_id.clone(),
                 command: c.command.clone(),
@@ -499,7 +591,11 @@ pub fn run_checks_reporting(plan: &CheckPlan, mut on_progress: impl FnMut(usize,
             outcome
         })
         .collect();
-    Ok(CheckBatch { commit_sha, outcomes, diff })
+    Ok(CheckBatch {
+        commit_sha,
+        outcomes,
+        diff,
+    })
 }
 
 /// Write the hand-off in one transaction, as the agent: the Session summary, every Check result
@@ -511,20 +607,35 @@ pub fn complete_handoff(
     handoff: &HandoffSummary,
     batch: CheckBatch,
 ) -> anyhow::Result<HandoffOutcome> {
-    let session_id = plan.session_id.as_deref().context("a hand-off runs on its session; this plan has none")?;
+    let session_id = plan
+        .session_id
+        .as_deref()
+        .context("a hand-off runs on its session; this plan has none")?;
     let agent = agent_actor_id(conn)?;
     let tx = conn.transaction()?;
-    let summary = create_summary_in_tx(&tx, session_id, &handoff.next_session_must_know, &handoff.decisions)?;
+    let summary = create_summary_in_tx(
+        &tx,
+        session_id,
+        &handoff.next_session_must_know,
+        &handoff.decisions,
+    )?;
     record_batch_in_tx(&tx, &batch)?;
     set_story_state_in_tx(&tx, &agent, &plan.story_id, StoryState::InReview)?;
-    let epic_id: String = tx.query_row("SELECT epic_id FROM stories WHERE id = ?1", params![plan.story_id], |r| r.get(0))?;
+    let epic_id: String = tx.query_row(
+        "SELECT epic_id FROM stories WHERE id = ?1",
+        params![plan.story_id],
+        |r| r.get(0),
+    )?;
     let (passed, failed, timed_out) = tally(&batch);
     record_event(
         &tx,
         &plan.project_id,
         "story",
         &plan.story_id,
-        EventScope { story_id: Some(&plan.story_id), epic_id: Some(&epic_id) },
+        EventScope {
+            story_id: Some(&plan.story_id),
+            epic_id: Some(&epic_id),
+        },
         &agent,
         "story.handed_off",
         &serde_json::json!({
@@ -535,9 +646,15 @@ pub fn complete_handoff(
         }),
         &now(),
     )?;
-    let open_tasks: i64 =
-        tx.query_row("SELECT COUNT(*) FROM tasks WHERE story_id = ?1 AND state = 'open'", params![plan.story_id], |r| r.get(0))?;
-    let diff = batch.diff.as_ref().context("a hand-off's run reads the branch's diff; this one did not")?;
+    let open_tasks: i64 = tx.query_row(
+        "SELECT COUNT(*) FROM tasks WHERE story_id = ?1 AND state = 'open'",
+        params![plan.story_id],
+        |r| r.get(0),
+    )?;
+    let diff = batch
+        .diff
+        .as_ref()
+        .context("a hand-off's run reads the branch's diff; this one did not")?;
     let adr_notes = Value::Array(handoff.adrs.iter().map(AdrBarLines::to_payload).collect());
     let review_id = open_review_in_tx(
         &tx,
@@ -561,7 +678,11 @@ pub fn complete_handoff(
 
 /// Hand off in one go: plan, run every Check, then record. For a caller that may hold the
 /// connection for the whole run.
-pub fn hand_off_with(conn: &mut Connection, session_id: &str, handoff: &HandoffSummary) -> anyhow::Result<HandoffOutcome> {
+pub fn hand_off_with(
+    conn: &mut Connection,
+    session_id: &str,
+    handoff: &HandoffSummary,
+) -> anyhow::Result<HandoffOutcome> {
     let plan = plan_handoff(conn, session_id, &handoff.check_objections)?;
     let batch = run_checks(&plan)?;
     complete_handoff(conn, &plan, handoff, batch)

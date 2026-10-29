@@ -45,8 +45,10 @@ struct BoardCounts {
 
 fn board_counts(conn: &rusqlite::Connection) -> BoardCounts {
     let count = |table: &str| -> i64 {
-        conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0))
-            .unwrap_or_else(|e| panic!("failed to count rows in {table}: {e}"))
+        conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+            row.get(0)
+        })
+        .unwrap_or_else(|e| panic!("failed to count rows in {table}: {e}"))
     };
     BoardCounts {
         worktrees: count("worktrees"),
@@ -133,23 +135,46 @@ fn simulate_discard_stop_path_rolled_back(
 fn discarding_a_run_with_an_agent_recorded_summary_leaves_it_present_and_the_run_interrupted() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-        let story = common::new_story(&mut conn, &project.id, &actor_id, "Discard: agent summary present");
+        let story = common::new_story(
+            &mut conn,
+            &project.id,
+            &actor_id,
+            "Discard: agent summary present",
+        );
         let run = start_session(&mut conn, &story.id, "acceptEdits", &actor_id)
             .expect("start_session should succeed");
 
         // The agent recorded its own closing summary BEFORE the discard's wait elapsed.
-        create_summary(&mut conn, &run.id, "Watch out for the trailing comma bug.", "Use recursive descent")
-            .expect("the agent's own create_summary call should succeed");
+        create_summary(
+            &mut conn,
+            &run.id,
+            "Watch out for the trailing comma bug.",
+            "Use recursive descent",
+        )
+        .expect("the agent's own create_summary call should succeed");
 
         let status = simulate_discard_stop_path_in_tx(&mut conn, &run.id, &actor_id)
             .expect("the discard's stop path should succeed");
-        assert_eq!(status, "interrupted", "the run must reach a terminal state (B1)");
+        assert_eq!(
+            status, "interrupted",
+            "the run must reach a terminal state (B1)"
+        );
 
         let summaries = list_summaries_for_story(&conn, &story.id)
             .expect("list_summaries_for_story should succeed");
-        assert_eq!(summaries.len(), 1, "the agent's summary must be the ONLY one — no second, synthesized row");
-        assert!(!summaries[0].is_stub, "an agent-authored summary must never be relabelled a stub (B1)");
-        assert_eq!(summaries[0].next_session_must_know, "Watch out for the trailing comma bug.");
+        assert_eq!(
+            summaries.len(),
+            1,
+            "the agent's summary must be the ONLY one — no second, synthesized row"
+        );
+        assert!(
+            !summaries[0].is_stub,
+            "an agent-authored summary must never be relabelled a stub (B1)"
+        );
+        assert_eq!(
+            summaries[0].next_session_must_know,
+            "Watch out for the trailing comma bug."
+        );
         assert_eq!(summaries[0].decisions, "Use recursive descent");
     });
 }
@@ -158,19 +183,34 @@ fn discarding_a_run_with_an_agent_recorded_summary_leaves_it_present_and_the_run
 fn discarding_a_run_with_no_agent_summary_synthesizes_exactly_one_stub_fallback() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-        let story = common::new_story(&mut conn, &project.id, &actor_id, "Discard: no agent summary");
+        let story = common::new_story(
+            &mut conn,
+            &project.id,
+            &actor_id,
+            "Discard: no agent summary",
+        );
         let run = start_session(&mut conn, &story.id, "acceptEdits", &actor_id)
             .expect("start_session should succeed");
 
         // No report_summary call ever landed — the wait elapsed with nothing recorded.
         let status = simulate_discard_stop_path_in_tx(&mut conn, &run.id, &actor_id)
             .expect("the discard's stop path should succeed");
-        assert_eq!(status, "interrupted", "the run must reach a terminal state (B2)");
+        assert_eq!(
+            status, "interrupted",
+            "the run must reach a terminal state (B2)"
+        );
 
         let summaries = list_summaries_for_story(&conn, &story.id)
             .expect("list_summaries_for_story should succeed");
-        assert_eq!(summaries.len(), 1, "exactly one fallback summary must exist (B2)");
-        assert!(summaries[0].is_stub, "the fallback row must be flagged a stub (B2)");
+        assert_eq!(
+            summaries.len(),
+            1,
+            "exactly one fallback summary must exist (B2)"
+        );
+        assert!(
+            summaries[0].is_stub,
+            "the fallback row must be flagged a stub (B2)"
+        );
         assert_eq!(summaries[0].session_id, run.id);
     });
 }
@@ -179,18 +219,27 @@ fn discarding_a_run_with_no_agent_summary_synthesizes_exactly_one_stub_fallback(
 fn discarding_an_already_terminal_run_writes_no_second_terminal_event() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-        let story = common::new_story(&mut conn, &project.id, &actor_id, "Discard: already terminal");
+        let story = common::new_story(
+            &mut conn,
+            &project.id,
+            &actor_id,
+            "Discard: already terminal",
+        );
         let run = start_session(&mut conn, &story.id, "acceptEdits", &actor_id)
             .expect("start_session should succeed");
 
         // The run is ALREADY interrupted — e.g. a prior Stop, or a first discard — before this
         // second discard call ever runs.
-        interrupt_session(&mut conn, &run.id, &actor_id).expect("the first interrupt should succeed");
+        interrupt_session(&mut conn, &run.id, &actor_id)
+            .expect("the first interrupt should succeed");
         assert_eq!(terminal_event_count(&conn, &run.id), 1);
 
         let status = simulate_discard_stop_path_in_tx(&mut conn, &run.id, &actor_id)
             .expect("discarding an already-terminal run must not error (B6)");
-        assert_eq!(status, "interrupted", "the status must remain interrupted, never overwritten");
+        assert_eq!(
+            status, "interrupted",
+            "the status must remain interrupted, never overwritten"
+        );
 
         assert_eq!(
             terminal_event_count(&conn, &run.id),
@@ -204,7 +253,12 @@ fn discarding_an_already_terminal_run_writes_no_second_terminal_event() {
 fn the_story_worktree_row_count_and_directory_are_unchanged_by_a_discard() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-        let story = common::new_story(&mut conn, &project.id, &actor_id, "Discard: worktree untouched");
+        let story = common::new_story(
+            &mut conn,
+            &project.id,
+            &actor_id,
+            "Discard: worktree untouched",
+        );
         let run = start_session(&mut conn, &story.id, "acceptEdits", &actor_id)
             .expect("start_session should succeed");
 
@@ -222,7 +276,10 @@ fn the_story_worktree_row_count_and_directory_are_unchanged_by_a_discard() {
                 |row| row.get(0),
             )
             .expect("count query should succeed");
-        assert!(std::path::Path::new(&worktree_path).is_dir(), "the worktree must exist on disk before the discard");
+        assert!(
+            std::path::Path::new(&worktree_path).is_dir(),
+            "the worktree must exist on disk before the discard"
+        );
 
         simulate_discard_stop_path_in_tx(&mut conn, &run.id, &actor_id)
             .expect("the discard's stop path should succeed");
@@ -249,7 +306,12 @@ fn the_story_worktree_row_count_and_directory_are_unchanged_by_a_discard() {
 fn no_prior_session_summary_row_is_removed_by_a_discard() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-        let story = common::new_story(&mut conn, &project.id, &actor_id, "Discard: prior summaries preserved");
+        let story = common::new_story(
+            &mut conn,
+            &project.id,
+            &actor_id,
+            "Discard: prior summaries preserved",
+        );
 
         // A first run, already closed with its own agent-authored summary — the "prior session"
         // this discard must not touch.
@@ -257,7 +319,8 @@ fn no_prior_session_summary_row_is_removed_by_a_discard() {
             .expect("start_session should succeed");
         let prior_summary = create_summary(&mut conn, &first_run.id, "First session's work.", "")
             .expect("create_summary for the first run should succeed");
-        interrupt_session(&mut conn, &first_run.id, &actor_id).expect("closing the first run should succeed");
+        interrupt_session(&mut conn, &first_run.id, &actor_id)
+            .expect("closing the first run should succeed");
 
         // A second, live run against the SAME Story — this is the one being discarded.
         let second_run = start_session(&mut conn, &story.id, "acceptEdits", &actor_id)
@@ -268,7 +331,11 @@ fn no_prior_session_summary_row_is_removed_by_a_discard() {
 
         let summaries = list_summaries_for_story(&conn, &story.id)
             .expect("list_summaries_for_story should succeed");
-        assert_eq!(summaries.len(), 2, "the prior summary plus the second run's own fallback — nothing removed (B5)");
+        assert_eq!(
+            summaries.len(),
+            2,
+            "the prior summary plus the second run's own fallback — nothing removed (B5)"
+        );
         assert!(
             summaries.iter().any(|s| s.id == prior_summary.id),
             "the first run's own summary row must still exist, byte-identical, after discarding a LATER run (B5)"
@@ -277,7 +344,10 @@ fn no_prior_session_summary_row_is_removed_by_a_discard() {
             .iter()
             .find(|s| s.session_id == second_run.id)
             .expect("the second run must have gotten its own fallback summary");
-        assert!(second_run_summary.is_stub, "the second run's fallback must be flagged a stub");
+        assert!(
+            second_run_summary.is_stub,
+            "the second run's fallback must be flagged a stub"
+        );
     });
 }
 
@@ -285,13 +355,17 @@ fn no_prior_session_summary_row_is_removed_by_a_discard() {
 fn board_counts_are_unchanged_across_a_discard_when_the_agent_already_recorded_its_own_summary() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-        let story = common::new_story(&mut conn, &project.id, &actor_id, "Discard counts: agent summary present");
+        let story = common::new_story(
+            &mut conn,
+            &project.id,
+            &actor_id,
+            "Discard counts: agent summary present",
+        );
         create_criterion(&mut conn, &actor_id, &story.id, "Ships without regressions")
             .expect("create_criterion should succeed");
         let run = start_session(&mut conn, &story.id, "acceptEdits", &actor_id)
             .expect("start_session should succeed");
-        create_summary(&mut conn, &run.id, "Done.", "")
-            .expect("create_summary should succeed");
+        create_summary(&mut conn, &run.id, "Done.", "").expect("create_summary should succeed");
 
         // The agent's summary is already on the board BEFORE the "before" snapshot — a discard
         // against this run should write NOTHING new to session_summaries (B1's "present" case).
@@ -301,8 +375,14 @@ fn board_counts_are_unchanged_across_a_discard_when_the_agent_already_recorded_i
             .expect("the discard's stop path should succeed");
 
         let after = board_counts(&conn);
-        assert_eq!(before.worktrees, after.worktrees, "worktrees must be unchanged by a discard (T-04-38)");
-        assert_eq!(before.sessions, after.sessions, "sessions row count must be unchanged by a discard (T-04-38)");
+        assert_eq!(
+            before.worktrees, after.worktrees,
+            "worktrees must be unchanged by a discard (T-04-38)"
+        );
+        assert_eq!(
+            before.sessions, after.sessions,
+            "sessions row count must be unchanged by a discard (T-04-38)"
+        );
         assert_eq!(
             before.acceptance_criteria, after.acceptance_criteria,
             "acceptance_criteria must be unchanged by a discard (T-04-38)"
@@ -318,7 +398,12 @@ fn board_counts_are_unchanged_across_a_discard_when_the_agent_already_recorded_i
 fn board_counts_gain_exactly_one_session_summary_when_no_agent_summary_was_recorded() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-        let story = common::new_story(&mut conn, &project.id, &actor_id, "Discard counts: no agent summary");
+        let story = common::new_story(
+            &mut conn,
+            &project.id,
+            &actor_id,
+            "Discard counts: no agent summary",
+        );
         create_criterion(&mut conn, &actor_id, &story.id, "Ships without regressions")
             .expect("create_criterion should succeed");
         let run = start_session(&mut conn, &story.id, "acceptEdits", &actor_id)
@@ -330,8 +415,14 @@ fn board_counts_gain_exactly_one_session_summary_when_no_agent_summary_was_recor
             .expect("the discard's stop path should succeed");
 
         let after = board_counts(&conn);
-        assert_eq!(before.worktrees, after.worktrees, "worktrees must be unchanged by a discard (T-04-38)");
-        assert_eq!(before.sessions, after.sessions, "sessions row count must be unchanged by a discard (T-04-38)");
+        assert_eq!(
+            before.worktrees, after.worktrees,
+            "worktrees must be unchanged by a discard (T-04-38)"
+        );
+        assert_eq!(
+            before.sessions, after.sessions,
+            "sessions row count must be unchanged by a discard (T-04-38)"
+        );
         assert_eq!(
             before.acceptance_criteria, after.acceptance_criteria,
             "acceptance_criteria must be unchanged by a discard (T-04-38)"
@@ -378,7 +469,12 @@ fn discarding_twice_appends_no_second_summary_and_no_second_interrupted_event() 
 fn the_fallback_never_overwrites_an_agent_authored_summary_recorded_moments_before_the_interrupt() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-        let story = common::new_story(&mut conn, &project.id, &actor_id, "Discard: last-moment agent summary");
+        let story = common::new_story(
+            &mut conn,
+            &project.id,
+            &actor_id,
+            "Discard: last-moment agent summary",
+        );
         let run = start_session(&mut conn, &story.id, "acceptEdits", &actor_id)
             .expect("start_session should succeed");
 
@@ -386,14 +482,19 @@ fn the_fallback_never_overwrites_an_agent_authored_summary_recorded_moments_befo
         // here as "recorded, then the stop path runs", exactly like the present-summary test above
         // but asserting the NEGATIVE property explicitly: no second, stub row appears
         // alongside it.
-        create_summary(&mut conn, &run.id, "Landed just in time.", "").expect("create_summary should succeed");
+        create_summary(&mut conn, &run.id, "Landed just in time.", "")
+            .expect("create_summary should succeed");
 
         simulate_discard_stop_path_in_tx(&mut conn, &run.id, &actor_id)
             .expect("the discard's stop path should succeed");
 
         let summaries = list_summaries_for_story(&conn, &story.id)
             .expect("list_summaries_for_story should succeed");
-        assert_eq!(summaries.len(), 1, "the presence check must prevent a second, synthesized row");
+        assert_eq!(
+            summaries.len(),
+            1,
+            "the presence check must prevent a second, synthesized row"
+        );
         assert!(
             !summaries.iter().any(|s| s.is_stub),
             "no stub row may exist alongside an agent-authored one for the same run"
@@ -418,7 +519,10 @@ fn an_unknown_run_id_is_a_harmless_no_op_for_the_discard_stop_path() {
         let sessions_count: i64 = conn
             .query_row("SELECT COUNT(*) FROM sessions", [], |row| row.get(0))
             .expect("count query should succeed");
-        assert_eq!(sessions_count, 0, "an unknown run id must write no sessions row");
+        assert_eq!(
+            sessions_count, 0,
+            "an unknown run id must write no sessions row"
+        );
     });
 }
 
@@ -443,14 +547,20 @@ fn a_rolled_back_termination_unit_leaves_no_trace() {
 
         let before = board_counts(&conn);
 
-        let status = simulate_discard_stop_path_rolled_back(&mut conn, &run.id, &actor_id)
-            .expect("the non-committing termination unit should succeed before its transaction is dropped");
-        assert_eq!(status, "interrupted", "the in-tx write must still report the terminal status it wrote");
+        let status = simulate_discard_stop_path_rolled_back(&mut conn, &run.id, &actor_id).expect(
+            "the non-committing termination unit should succeed before its transaction is dropped",
+        );
+        assert_eq!(
+            status, "interrupted",
+            "the in-tx write must still report the terminal status it wrote"
+        );
 
         let status_after_rollback: String = conn
-            .query_row("SELECT status FROM sessions WHERE id = ?1", rusqlite::params![run.id], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT status FROM sessions WHERE id = ?1",
+                rusqlite::params![run.id],
+                |row| row.get(0),
+            )
             .expect("sessions row should exist");
         assert_eq!(
             status_after_rollback, "running",
@@ -458,11 +568,16 @@ fn a_rolled_back_termination_unit_leaves_no_trace() {
         );
 
         let ended_at: Option<String> = conn
-            .query_row("SELECT ended_at FROM sessions WHERE id = ?1", rusqlite::params![run.id], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT ended_at FROM sessions WHERE id = ?1",
+                rusqlite::params![run.id],
+                |row| row.get(0),
+            )
             .expect("sessions row should exist");
-        assert!(ended_at.is_none(), "a rolled-back termination unit must leave ended_at NULL");
+        assert!(
+            ended_at.is_none(),
+            "a rolled-back termination unit must leave ended_at NULL"
+        );
 
         assert_eq!(
             terminal_event_count(&conn, &run.id),
@@ -496,14 +611,21 @@ fn a_rolled_back_termination_unit_leaves_no_trace() {
 #[test]
 fn a_terminal_transition_never_commits_without_a_summary() {
     with_scratch_worktree_root(|_| {
-        let assert_terminal_has_summary = |conn: &rusqlite::Connection, run_id: &str, label: &str| {
+        let assert_terminal_has_summary = |conn: &rusqlite::Connection,
+                                           run_id: &str,
+                                           label: &str| {
             let status: String = conn
-                .query_row("SELECT status FROM sessions WHERE id = ?1", rusqlite::params![run_id], |row| {
-                    row.get(0)
-                })
+                .query_row(
+                    "SELECT status FROM sessions WHERE id = ?1",
+                    rusqlite::params![run_id],
+                    |row| row.get(0),
+                )
                 .expect("sessions row should exist");
             assert!(
-                matches!(status.as_str(), "completed" | "failed" | "interrupted" | "abandoned"),
+                matches!(
+                    status.as_str(),
+                    "completed" | "failed" | "interrupted" | "abandoned"
+                ),
                 "{label}: expected a terminal status, got {status:?}"
             );
 
@@ -523,7 +645,12 @@ fn a_terminal_transition_never_commits_without_a_summary() {
 
         // Variant one: natural close via apply_session_closed.
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-        let story = common::new_story(&mut conn, &project.id, &actor_id, "Terminal-implies-summary: natural close");
+        let story = common::new_story(
+            &mut conn,
+            &project.id,
+            &actor_id,
+            "Terminal-implies-summary: natural close",
+        );
         let natural_close_run = start_session(&mut conn, &story.id, "acceptEdits", &actor_id)
             .expect("start_session should succeed");
         let event = serde_json::json!({
@@ -540,6 +667,10 @@ fn a_terminal_transition_never_commits_without_a_summary() {
             .expect("start_session should succeed for the second run");
         simulate_discard_stop_path_in_tx(&mut conn, &interrupt_run.id, &actor_id)
             .expect("the committing termination unit should succeed");
-        assert_terminal_has_summary(&conn, &interrupt_run.id, "variant two (Stop/Discard interrupt)");
+        assert_terminal_has_summary(
+            &conn,
+            &interrupt_run.id,
+            "variant two (Stop/Discard interrupt)",
+        );
     });
 }

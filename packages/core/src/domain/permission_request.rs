@@ -20,8 +20,8 @@ use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use crate::destructive::DestructiveCategory;
-use crate::domain::session::{clear_run_blocked, set_run_blocked};
 use crate::domain::event::{append_event, next_sequence};
+use crate::domain::session::{clear_run_blocked, set_run_blocked};
 use crate::ids::new_id;
 
 /// A `permission_requests` row, as read back after [`create_pending_request`] or
@@ -122,7 +122,10 @@ const PENDING_FOR_RUN_SQL: &str = "SELECT id, session_id, story_id, project_id, 
 /// Look up a single request by id, whatever its status — used by callers (the sidecar relay,
 /// tests) that need to read a request back without knowing in advance whether it is still
 /// pending.
-pub fn find_request(conn: &Connection, request_id: &str) -> anyhow::Result<Option<PermissionRequest>> {
+pub fn find_request(
+    conn: &Connection,
+    request_id: &str,
+) -> anyhow::Result<Option<PermissionRequest>> {
     conn.query_row(REQUEST_SELECT_SQL, params![request_id], row_to_request)
         .optional()
         .context("failed to look up a permission request")
@@ -131,7 +134,10 @@ pub fn find_request(conn: &Connection, request_id: &str) -> anyhow::Result<Optio
 /// The pending request for `session_id`, if one exists — a run can have at most one `pending`
 /// request open at a time in this phase's flow (the sidecar holds one tool call open per gated
 /// call before the next one is raised).
-pub fn pending_for_run(conn: &Connection, session_id: &str) -> anyhow::Result<Option<PermissionRequest>> {
+pub fn pending_for_run(
+    conn: &Connection,
+    session_id: &str,
+) -> anyhow::Result<Option<PermissionRequest>> {
     conn.query_row(PENDING_FOR_RUN_SQL, params![session_id], row_to_request)
         .optional()
         .context("failed to look up the pending permission request for this run")
@@ -176,7 +182,11 @@ pub fn create_pending_request(
 
     let (story_id, project_id, _) = crate::domain::session::story_session(&tx, session_id)?;
     let epic_id: Option<String> = tx
-        .query_row("SELECT epic_id FROM stories WHERE id = ?1", params![story_id], |row| row.get(0))
+        .query_row(
+            "SELECT epic_id FROM stories WHERE id = ?1",
+            params![story_id],
+            |row| row.get(0),
+        )
         .optional()?;
 
     tx.execute(
@@ -227,7 +237,8 @@ pub fn create_pending_request(
         &now,
     )?;
 
-    tx.commit().context("failed to commit create_pending_request transaction")?;
+    tx.commit()
+        .context("failed to commit create_pending_request transaction")?;
 
     Ok(PermissionRequest {
         id,
@@ -269,10 +280,17 @@ pub fn answer_request(
     // Issue #100: a question is answered with answers (`domain::question::answer_question`), never
     // with allow or deny, and no rule may ever be granted from it.
     let tool: Option<String> = tx
-        .query_row("SELECT tool_name FROM permission_requests WHERE id = ?1", params![request_id], |row| row.get(0))
+        .query_row(
+            "SELECT tool_name FROM permission_requests WHERE id = ?1",
+            params![request_id],
+            |row| row.get(0),
+        )
         .optional()
         .context("failed to read the request's tool before answering it")?;
-    if tool.as_deref().is_some_and(crate::domain::question::is_question) {
+    if tool
+        .as_deref()
+        .is_some_and(crate::domain::question::is_question)
+    {
         bail!("request {request_id:?} is the agent's question: answer it, it is not allowed or denied");
     }
 
@@ -308,8 +326,12 @@ pub fn answer_request(
         .context("failed to answer permission request")?;
 
     if affected == 0 {
-        tx.commit().context("failed to commit no-op answer_request transaction")?;
-        return Err(AlreadyAnsweredError { request_id: request_id.to_string() }.into());
+        tx.commit()
+            .context("failed to commit no-op answer_request transaction")?;
+        return Err(AlreadyAnsweredError {
+            request_id: request_id.to_string(),
+        }
+        .into());
     }
 
     let (session_id, story_id, project_id, tool_name, created_at, answered_category): (
@@ -324,11 +346,24 @@ pub fn answer_request(
             "SELECT session_id, story_id, project_id, tool_name, created_at, \
              destructive_category FROM permission_requests WHERE id = ?1",
             params![request_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            },
         )
         .context("failed to read the permission_requests row after answering it")?;
     let epic_id: Option<String> = tx
-        .query_row("SELECT epic_id FROM stories WHERE id = ?1", params![story_id], |row| row.get(0))
+        .query_row(
+            "SELECT epic_id FROM stories WHERE id = ?1",
+            params![story_id],
+            |row| row.get(0),
+        )
         .optional()?;
 
     clear_run_blocked(&tx, &session_id).context("failed to clear the run's blocked status")?;
@@ -362,7 +397,8 @@ pub fn answer_request(
         &now,
     )?;
 
-    tx.commit().context("failed to commit answer_request transaction")?;
+    tx.commit()
+        .context("failed to commit answer_request transaction")?;
 
     Ok(PermissionRequest {
         id: request_id.to_string(),

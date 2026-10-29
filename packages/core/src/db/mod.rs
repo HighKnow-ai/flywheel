@@ -13,7 +13,9 @@ use rusqlite_migration::{
 };
 use std::path::{Path, PathBuf};
 
-use self::backup::{backup_database_file, prune_backups, restore_from_backup, DEFAULT_BACKUP_RETENTION};
+use self::backup::{
+    backup_database_file, prune_backups, restore_from_backup, DEFAULT_BACKUP_RETENTION,
+};
 
 /// The migration SQL sources, in order. This is the *only* place a new migration file is
 /// registered — [`MIGRATIONS`] is built from this list, and `tests/migration_safety.rs` (DATA-08)
@@ -108,7 +110,9 @@ fn schema_ahead_context(
     backups_dir: &Path,
 ) -> Option<String> {
     match err.downcast_ref::<MigrationError>() {
-        Some(MigrationError::MigrationDefinition(MigrationDefinitionError::DatabaseTooFarAhead)) => {}
+        Some(MigrationError::MigrationDefinition(
+            MigrationDefinitionError::DatabaseTooFarAhead,
+        )) => {}
         _ => return None,
     }
     schema_ahead_message(migrations, db_user_version, backups_dir)
@@ -123,7 +127,9 @@ fn schema_ahead_message(
 ) -> Option<String> {
     let mut probe = Connection::open_in_memory().ok()?;
     migrations.to_latest(&mut probe).ok()?;
-    let supported: i64 = probe.query_row("PRAGMA user_version", [], |row| row.get(0)).ok()?;
+    let supported: i64 = probe
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .ok()?;
     Some(format!(
         "this build supports database schema version {supported} but the database is at version \
          {db_user_version}, written by a newer build; install the newer build, or restore a \
@@ -146,18 +152,24 @@ fn refuse_if_schema_ahead(
         return Ok(());
     }
     let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .with_context(|| format!("failed to open {db_path:?} read-only to check its schema version"))?;
-    if let SchemaVersion::Outside(on_disk) =
-        migrations.current_version(&conn).context("failed to read the database schema version")?
+        .with_context(|| {
+            format!("failed to open {db_path:?} read-only to check its schema version")
+        })?;
+    if let SchemaVersion::Outside(on_disk) = migrations
+        .current_version(&conn)
+        .context("failed to read the database schema version")?
     {
         let on_disk = on_disk.get() as i64;
-        let msg = schema_ahead_message(migrations, on_disk, backups_dir)
-            .unwrap_or_else(|| format!("the database is at schema version {on_disk}, ahead of this build"));
+        let msg = schema_ahead_message(migrations, on_disk, backups_dir).unwrap_or_else(|| {
+            format!("the database is at schema version {on_disk}, ahead of this build")
+        });
         return Err(anyhow::Error::from(MigrationError::MigrationDefinition(
             MigrationDefinitionError::DatabaseTooFarAhead,
         ))
         .context(msg)
-        .context(format!("refused to open {db_path:?}: nothing was backed up, restored or modified")));
+        .context(format!(
+            "refused to open {db_path:?}: nothing was backed up, restored or modified"
+        )));
     }
     Ok(())
 }
@@ -198,13 +210,15 @@ pub fn move_aside_legacy_database(db_path: &Path) -> anyhow::Result<Option<PathB
     // Fold any write-ahead log into the main file first, so the moved file is complete on its own
     // and no v0.1 page is left in a `-wal` the new database would then inherit.
     {
-        let conn = Connection::open(db_path).with_context(|| format!("failed to open {db_path:?} to checkpoint it"))?;
+        let conn = Connection::open(db_path)
+            .with_context(|| format!("failed to open {db_path:?} to checkpoint it"))?;
         conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
             .with_context(|| format!("failed to checkpoint {db_path:?} before moving it aside"))?;
     }
 
     let target = legacy_target(db_path);
-    std::fs::rename(db_path, &target).with_context(|| format!("failed to move {db_path:?} aside to {target:?}"))?;
+    std::fs::rename(db_path, &target)
+        .with_context(|| format!("failed to move {db_path:?} aside to {target:?}"))?;
     for suffix in ["-wal", "-shm"] {
         let side = sibling_with_suffix(db_path, suffix);
         if side.exists() {
@@ -219,19 +233,34 @@ pub fn move_aside_legacy_database(db_path: &Path) -> anyhow::Result<Option<PathB
 /// `<dir>/<stem>.v0.1-<UTC timestamp>.<ext>` beside `db_path`, made unique with the milliseconds
 /// when a second move lands in the same second.
 fn legacy_target(db_path: &Path) -> PathBuf {
-    let stem = db_path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "flywheel".into());
-    let ext = db_path.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_else(|| "db".into());
+    let stem = db_path
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "flywheel".into());
+    let ext = db_path
+        .extension()
+        .map(|e| e.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "db".into());
     let now = chrono::Utc::now();
-    let candidate = db_path.with_file_name(format!("{stem}{LEGACY_SUFFIX}{}.{ext}", now.format("%Y%m%dT%H%M%SZ")));
+    let candidate = db_path.with_file_name(format!(
+        "{stem}{LEGACY_SUFFIX}{}.{ext}",
+        now.format("%Y%m%dT%H%M%SZ")
+    ));
     if !candidate.exists() {
         return candidate;
     }
-    db_path.with_file_name(format!("{stem}{LEGACY_SUFFIX}{}.{ext}", now.format("%Y%m%dT%H%M%S%.3fZ")))
+    db_path.with_file_name(format!(
+        "{stem}{LEGACY_SUFFIX}{}.{ext}",
+        now.format("%Y%m%dT%H%M%S%.3fZ")
+    ))
 }
 
 /// `path` with `suffix` appended to its file name (`flywheel.db` + `-wal`).
 fn sibling_with_suffix(path: &Path, suffix: &str) -> PathBuf {
-    let mut name = path.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+    let mut name = path
+        .file_name()
+        .map(|n| n.to_os_string())
+        .unwrap_or_default();
     name.push(suffix);
     path.with_file_name(name)
 }
@@ -291,7 +320,11 @@ pub fn open_and_migrate_with(
             conn.pragma_update(None, "foreign_keys", "ON")
                 .context("failed to re-enable foreign_keys after migrating")?;
             let fk_violation: Option<String> = conn
-                .query_row("SELECT * FROM pragma_foreign_key_check LIMIT 1", [], |row| row.get(0))
+                .query_row(
+                    "SELECT * FROM pragma_foreign_key_check LIMIT 1",
+                    [],
+                    |row| row.get(0),
+                )
                 .optional()
                 .context("failed to run foreign_key_check after migrating")?;
             if let Some(table) = fk_violation {
@@ -305,8 +338,9 @@ pub fn open_and_migrate_with(
 
     if let Err(migration_err) = migration_result {
         // Read before the connection goes away: only the too-far-ahead refusal uses it.
-        let ahead_user_version: i64 =
-            conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap_or(-1);
+        let ahead_user_version: i64 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap_or(-1);
         // Drop the connection before touching the file on disk — SQLite (and the OS, on
         // Windows in particular) will not let another process overwrite a file that is still
         // held open.
@@ -326,7 +360,8 @@ pub fn open_and_migrate_with(
             )
         })?;
 
-        let ahead = schema_ahead_context(migrations, &migration_err, ahead_user_version, backups_dir);
+        let ahead =
+            schema_ahead_context(migrations, &migration_err, ahead_user_version, backups_dir);
         let migration_err = match ahead {
             Some(msg) => migration_err.context(msg),
             None => migration_err,

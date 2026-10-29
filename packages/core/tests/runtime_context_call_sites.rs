@@ -42,8 +42,8 @@ fn is_whole_line_comment(line: &str) -> bool {
 /// that crate is covered without this test needing to name it.
 fn desktop_sources() -> Vec<(PathBuf, String)> {
     fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
-        let entries = std::fs::read_dir(dir)
-            .unwrap_or_else(|e| panic!("failed to read {dir:?}: {e}"));
+        let entries =
+            std::fs::read_dir(dir).unwrap_or_else(|e| panic!("failed to read {dir:?}: {e}"));
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
@@ -61,8 +61,8 @@ fn desktop_sources() -> Vec<(PathBuf, String)> {
     paths
         .into_iter()
         .map(|p| {
-            let body = std::fs::read_to_string(&p)
-                .unwrap_or_else(|e| panic!("failed to read {p:?}: {e}"));
+            let body =
+                std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("failed to read {p:?}: {e}"));
             (p, body)
         })
         .collect()
@@ -106,8 +106,14 @@ fn no_tokio_timer_is_constructed_as_a_block_on_argument() {
 fn the_gate_detects_the_shape_that_shipped() {
     let shipped = "    let r = tauri::async_runtime::block_on(tokio::time::timeout(";
     let fixed = "    let r = tauri::async_runtime::block_on(async {";
-    assert!(offends(shipped), "the gate must detect the argument form that caused G-02-5");
-    assert!(!offends(fixed), "the gate must not fire on the corrected async-block form");
+    assert!(
+        offends(shipped),
+        "the gate must detect the argument form that caused G-02-5"
+    );
+    assert!(
+        !offends(fixed),
+        "the gate must not fire on the corrected async-block form"
+    );
     // A whole-line comment describing the bad shape must not trip the gate. `offends` itself is
     // deliberately comment-blind — the filtering is the caller's job — so assert the two halves
     // compose, which is the property the gate actually relies on.

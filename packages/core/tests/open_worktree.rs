@@ -29,7 +29,14 @@ fn insert_worktree_row(
         "INSERT INTO worktrees (
             id, story_id, project_id, path, branch, base_branch, status, created_by, created_at
         ) VALUES (?1, ?2, ?3, ?4, 'flywheel/fixture', 'main', 'active', ?5, ?6)",
-        params![new_id(), story_id, project_id, path, actor_id, "2026-01-01T00:00:00.000Z"],
+        params![
+            new_id(),
+            story_id,
+            project_id,
+            path,
+            actor_id,
+            "2026-01-01T00:00:00.000Z"
+        ],
     )
     .expect("failed to insert worktree row");
 }
@@ -37,8 +44,7 @@ fn insert_worktree_row(
 #[test]
 fn open_command_template_defaults_to_the_editor_constant_with_no_stored_row() {
     let (conn, _actor_id, _project) = seeded_project();
-    let template =
-        open_command_template(&conn, OpenSurface::Editor).expect("read should succeed");
+    let template = open_command_template(&conn, OpenSurface::Editor).expect("read should succeed");
     assert_eq!(template, DEFAULT_EDITOR_TEMPLATE);
 }
 
@@ -53,11 +59,15 @@ fn open_command_template_defaults_to_the_terminal_constant_with_no_stored_row() 
 #[test]
 fn open_command_template_returns_the_stored_value_once_set() {
     let (mut conn, actor_id, _project) = seeded_project();
-    set_open_command_template(&mut conn, &actor_id, OpenSurface::Editor, "subl {worktree_path}")
-        .expect("set should succeed");
+    set_open_command_template(
+        &mut conn,
+        &actor_id,
+        OpenSurface::Editor,
+        "subl {worktree_path}",
+    )
+    .expect("set should succeed");
 
-    let template =
-        open_command_template(&conn, OpenSurface::Editor).expect("read should succeed");
+    let template = open_command_template(&conn, OpenSurface::Editor).expect("read should succeed");
     assert_eq!(template, "subl {worktree_path}");
 
     // The other surface's default is unaffected by a write to this one — the two keys are
@@ -73,7 +83,10 @@ fn set_open_command_template_rejects_an_empty_or_whitespace_only_template_naming
 
     let empty_err =
         set_open_command_template(&mut conn, &actor_id, OpenSurface::Editor, "").unwrap_err();
-    assert!(empty_err.to_string().contains("editor"), "error should name the surface: {empty_err}");
+    assert!(
+        empty_err.to_string().contains("editor"),
+        "error should name the surface: {empty_err}"
+    );
 
     let whitespace_err =
         set_open_command_template(&mut conn, &actor_id, OpenSurface::Terminal, "   ").unwrap_err();
@@ -125,7 +138,11 @@ fn resolve_open_argv_never_splits_a_path_containing_a_space_and_a_semicolon() {
 
     // "open -a Terminal {worktree_path}" → exactly four elements, the fourth carrying the whole
     // dangerous path verbatim — never split, never interpreted as a second command.
-    assert_eq!(argv.len(), 4, "expected exactly 4 argv elements, got {argv:?}");
+    assert_eq!(
+        argv.len(),
+        4,
+        "expected exactly 4 argv elements, got {argv:?}"
+    );
     assert_eq!(argv[0], "open");
     assert_eq!(argv[1], "-a");
     assert_eq!(argv[2], "Terminal");
@@ -153,7 +170,12 @@ fn resolve_open_argv_collapses_whitespace_runs_rather_than_producing_empty_eleme
 #[test]
 fn resolve_open_argv_for_a_story_with_no_worktree_row_errors_naming_the_story() {
     let (mut conn, actor_id, project) = seeded_project();
-    let story = common::new_story(&mut conn, &project.id, &actor_id, "A Story With No Worktree");
+    let story = common::new_story(
+        &mut conn,
+        &project.id,
+        &actor_id,
+        "A Story With No Worktree",
+    );
 
     let err = resolve_open_argv(&conn, &story.id, OpenSurface::Editor).unwrap_err();
     assert!(

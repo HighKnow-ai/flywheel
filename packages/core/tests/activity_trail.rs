@@ -23,9 +23,14 @@ fn new_item_has_exactly_one_entry() {
     let (mut conn, actor_id, project) = seeded_project();
     let story = new_story(&mut conn, &project.id, &actor_id, "Fresh story");
 
-    let trail = activity_trail(&conn, "story", &story.id, 50, 0).expect("activity_trail should succeed");
+    let trail =
+        activity_trail(&conn, "story", &story.id, 50, 0).expect("activity_trail should succeed");
 
-    assert_eq!(trail.len(), 1, "a never-edited Story must show exactly one trail entry");
+    assert_eq!(
+        trail.len(),
+        1,
+        "a never-edited Story must show exactly one trail entry"
+    );
     assert_eq!(trail[0].event_type, "story.created");
     assert!(!trail[0].description.is_empty());
 }
@@ -35,9 +40,12 @@ fn criterion_changes_appear_on_the_parent_trail() {
     let (mut conn, actor_id, project) = seeded_project();
     let story = new_story(&mut conn, &project.id, &actor_id, "Trail story");
 
-    update_story(&mut conn, &actor_id, &story.id, "Renamed", None).expect("update_story should succeed");
-    set_story_state(&mut conn, &actor_id, &story.id, StoryState::Ready).expect("set_story_state should succeed");
-    set_story_state(&mut conn, &actor_id, &story.id, StoryState::Running).expect("set_story_state should succeed");
+    update_story(&mut conn, &actor_id, &story.id, "Renamed", None)
+        .expect("update_story should succeed");
+    set_story_state(&mut conn, &actor_id, &story.id, StoryState::Ready)
+        .expect("set_story_state should succeed");
+    set_story_state(&mut conn, &actor_id, &story.id, StoryState::Running)
+        .expect("set_story_state should succeed");
 
     // Insert the criterion fixture directly (bypassing `create_criterion`) so setting it up does
     // not itself append a sixth `criterion.created` event onto this trail — this test proves that
@@ -54,7 +62,8 @@ fn criterion_changes_appear_on_the_parent_trail() {
 
     accept_criterion(&mut conn, &actor_id, &criterion_id).expect("accept_criterion should succeed");
 
-    let trail = activity_trail(&conn, "story", &story.id, 50, 0).expect("activity_trail should succeed");
+    let trail =
+        activity_trail(&conn, "story", &story.id, 50, 0).expect("activity_trail should succeed");
 
     assert_eq!(
         trail.len(),
@@ -121,15 +130,23 @@ fn same_millisecond_events_order_stably() {
         tx.commit().expect("commit should succeed");
     }
 
-    let first = activity_trail(&conn, "story", &story.id, 50, 0).expect("activity_trail should succeed");
+    let first =
+        activity_trail(&conn, "story", &story.id, 50, 0).expect("activity_trail should succeed");
     assert_eq!(first.len(), 3, "created + the two same-instant updates");
-    assert_eq!(first[1].occurred_at, first[2].occurred_at, "fixture events share one timestamp");
+    assert_eq!(
+        first[1].occurred_at, first[2].occurred_at,
+        "fixture events share one timestamp"
+    );
 
     let first_ids: Vec<String> = first.iter().map(|e| e.id.clone()).collect();
     for read_number in 0..10 {
-        let again = activity_trail(&conn, "story", &story.id, 50, 0).expect("activity_trail should succeed");
+        let again = activity_trail(&conn, "story", &story.id, 50, 0)
+            .expect("activity_trail should succeed");
         let again_ids: Vec<String> = again.iter().map(|e| e.id.clone()).collect();
-        assert_eq!(again_ids, first_ids, "read {read_number} returned a different order");
+        assert_eq!(
+            again_ids, first_ids,
+            "read {read_number} returned a different order"
+        );
     }
 }
 
@@ -137,10 +154,13 @@ fn same_millisecond_events_order_stably() {
 fn every_entry_has_a_description_and_an_actor() {
     let (mut conn, actor_id, project) = seeded_project();
     let story = new_story(&mut conn, &project.id, &actor_id, "Described");
-    update_story(&mut conn, &actor_id, &story.id, "Renamed", None).expect("update_story should succeed");
-    set_story_state(&mut conn, &actor_id, &story.id, StoryState::Ready).expect("set_story_state should succeed");
+    update_story(&mut conn, &actor_id, &story.id, "Renamed", None)
+        .expect("update_story should succeed");
+    set_story_state(&mut conn, &actor_id, &story.id, StoryState::Ready)
+        .expect("set_story_state should succeed");
 
-    let trail = activity_trail(&conn, "story", &story.id, 50, 0).expect("activity_trail should succeed");
+    let trail =
+        activity_trail(&conn, "story", &story.id, 50, 0).expect("activity_trail should succeed");
 
     assert_eq!(trail.len(), 3);
     for event in &trail {
@@ -160,15 +180,22 @@ fn trail_paging_covers_every_entry_once() {
     let story = new_story(&mut conn, &project.id, &actor_id, "Paged");
     update_story(&mut conn, &actor_id, &story.id, "A", None).expect("update_story should succeed");
     update_story(&mut conn, &actor_id, &story.id, "B", None).expect("update_story should succeed");
-    set_story_state(&mut conn, &actor_id, &story.id, StoryState::Ready).expect("set_story_state should succeed");
+    set_story_state(&mut conn, &actor_id, &story.id, StoryState::Ready)
+        .expect("set_story_state should succeed");
 
-    let full = activity_trail(&conn, "story", &story.id, 50, 0).expect("activity_trail should succeed");
-    assert_eq!(full.len(), 4, "created + two title edits + one state change");
+    let full =
+        activity_trail(&conn, "story", &story.id, 50, 0).expect("activity_trail should succeed");
+    assert_eq!(
+        full.len(),
+        4,
+        "created + two title edits + one state change"
+    );
 
     let mut paged_ids: Vec<String> = Vec::new();
     let mut offset = 0;
     loop {
-        let page = activity_trail(&conn, "story", &story.id, 2, offset).expect("activity_trail should succeed");
+        let page = activity_trail(&conn, "story", &story.id, 2, offset)
+            .expect("activity_trail should succeed");
         if page.is_empty() {
             break;
         }
@@ -177,5 +204,8 @@ fn trail_paging_covers_every_entry_once() {
     }
 
     let full_ids: Vec<String> = full.iter().map(|e| e.id.clone()).collect();
-    assert_eq!(paged_ids, full_ids, "paging must cover every entry exactly once, in the same order");
+    assert_eq!(
+        paged_ids, full_ids,
+        "paging must cover every entry exactly once, in the same order"
+    );
 }

@@ -78,10 +78,19 @@ fn main() {
         }
     }
 
-    env.insert(flywheel_core::destructive::DEFAULT_BRANCH_ENV.to_string(), default_branch);
+    env.insert(
+        flywheel_core::destructive::DEFAULT_BRANCH_ENV.to_string(),
+        default_branch,
+    );
     if let (Some(story_branch), Some(worktree_path)) = (args.get(3), args.get(4)) {
-        env.insert(flywheel_core::destructive::STORY_BRANCH_ENV.to_string(), story_branch.clone());
-        env.insert(flywheel_core::destructive::WORKTREE_ENV.to_string(), worktree_path.clone());
+        env.insert(
+            flywheel_core::destructive::STORY_BRANCH_ENV.to_string(),
+            story_branch.clone(),
+        );
+        env.insert(
+            flywheel_core::destructive::WORKTREE_ENV.to_string(),
+            worktree_path.clone(),
+        );
     }
     env.insert(
         "FLYWHEEL_HEARTBEAT_STALE_MS".to_string(),

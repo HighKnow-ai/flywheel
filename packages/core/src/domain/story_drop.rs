@@ -25,15 +25,27 @@ use crate::git;
 /// Story with no worktree is a no-op; a worktree already missing on disk is pruned from git's list.
 /// Refuses a path outside the Flywheel worktree root, the repository itself, and any branch outside
 /// the `flywheel/` namespace or equal to the base branch.
-fn wipe_worktree_and_branch(conn: &mut Connection, story_id: &str, actor_id: &str) -> anyhow::Result<()> {
+fn wipe_worktree_and_branch(
+    conn: &mut Connection,
+    story_id: &str,
+    actor_id: &str,
+) -> anyhow::Result<()> {
     let Some(worktree) = worktree_for_story(conn, story_id)? else {
         return Ok(());
     };
     let repo_path: String = conn
-        .query_row("SELECT repo_path FROM projects WHERE id = ?1", params![worktree.project_id], |row| row.get(0))
+        .query_row(
+            "SELECT repo_path FROM projects WHERE id = ?1",
+            params![worktree.project_id],
+            |row| row.get(0),
+        )
         .with_context(|| format!("project {:?} not found", worktree.project_id))?;
     let story_key: String = conn
-        .query_row("SELECT key FROM stories WHERE id = ?1", params![story_id], |row| row.get(0))
+        .query_row(
+            "SELECT key FROM stories WHERE id = ?1",
+            params![story_id],
+            |row| row.get(0),
+        )
         .with_context(|| format!("Story {story_id:?} not found"))?;
     let repo = Path::new(&repo_path);
     let path = Path::new(&worktree.path);
@@ -42,7 +54,9 @@ fn wipe_worktree_and_branch(conn: &mut Connection, story_id: &str, actor_id: &st
         bail!("Drop refused: {path:?} is not a Flywheel worktree");
     }
     let branch = worktree.branch.as_str();
-    if branch == worktree.base_branch || !branch.starts_with(crate::branch::FLYWHEEL_BRANCH_NAMESPACE) {
+    if branch == worktree.base_branch
+        || !branch.starts_with(crate::branch::FLYWHEEL_BRANCH_NAMESPACE)
+    {
         bail!("Drop refused: {branch:?} is not a Story branch");
     }
 
@@ -51,15 +65,19 @@ fn wipe_worktree_and_branch(conn: &mut Connection, story_id: &str, actor_id: &st
         git::git_at(repo, &["worktree", "remove", "--force", &path_str])
             .with_context(|| format!("failed to remove the worktree of {story_key}"))?;
     } else {
-        git::git_at(repo, &["worktree", "prune"]).context("failed to prune the missing worktree")?;
+        git::git_at(repo, &["worktree", "prune"])
+            .context("failed to prune the missing worktree")?;
     }
     if git::rev_parse_verify(repo, &format!("refs/heads/{branch}"))? {
-        git::git_at(repo, &["branch", "-D", "--", branch])
-            .with_context(|| format!("the worktree of {story_key} is gone, but its branch could not be deleted"))?;
+        git::git_at(repo, &["branch", "-D", "--", branch]).with_context(|| {
+            format!("the worktree of {story_key} is gone, but its branch could not be deleted")
+        })?;
     }
 
     record_worktree_removed(conn, &worktree, story_id, &story_key, actor_id).map_err(|e| {
-        anyhow::anyhow!("the worktree and branch were removed but their record was not updated: {e:#}")
+        anyhow::anyhow!(
+            "the worktree and branch were removed but their record was not updated: {e:#}"
+        )
     })
 }
 
@@ -68,7 +86,8 @@ fn wipe_worktree_and_branch(conn: &mut Connection, story_id: &str, actor_id: &st
 /// Story to Dropped, so a failed removal leaves the Story where it was.
 pub fn drop_story(conn: &mut Connection, actor_id: &str, story_id: &str) -> anyhow::Result<()> {
     assert_human_actor(conn, actor_id)?;
-    let story = get_story(conn, story_id)?.with_context(|| format!("Story {story_id:?} not found"))?;
+    let story =
+        get_story(conn, story_id)?.with_context(|| format!("Story {story_id:?} not found"))?;
     let from = StoryState::parse(&story.state)?;
     anyhow::ensure!(
         is_allowed_transition(from, StoryState::Dropped),
@@ -82,7 +101,11 @@ pub fn drop_story(conn: &mut Connection, actor_id: &str, story_id: &str) -> anyh
             |row| row.get(0),
         )
         .context("failed to check for a live session before Drop")?;
-    anyhow::ensure!(!live, "{} has a live session. Stop the session first, then drop it.", story.key);
+    anyhow::ensure!(
+        !live,
+        "{} has a live session. Stop the session first, then drop it.",
+        story.key
+    );
 
     wipe_worktree_and_branch(conn, story_id, actor_id)?;
     set_story_state(conn, actor_id, story_id, StoryState::Dropped)

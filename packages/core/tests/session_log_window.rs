@@ -9,7 +9,9 @@
 //! ULID-shaped run id so tests never collide, and removes its own file when it finishes.
 
 use flywheel_core::ids::new_id;
-use flywheel_core::session_log::{count_lines, read_window, session_log_path, sessions_dir, LOG_WINDOW_MAX_LIMIT};
+use flywheel_core::session_log::{
+    count_lines, read_window, session_log_path, sessions_dir, LOG_WINDOW_MAX_LIMIT,
+};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 
@@ -44,13 +46,22 @@ fn ten_thousand_line_log_returns_exactly_the_requested_window_and_the_true_total
     let (run_id, path) = fresh_run();
     let mut content = String::new();
     for i in 0..10_000 {
-        content.push_str(&format!("{{\"type\":\"assistant_text\",\"text\":\"line {i}\"}}\n"));
+        content.push_str(&format!(
+            "{{\"type\":\"assistant_text\",\"text\":\"line {i}\"}}\n"
+        ));
     }
     write_raw(&path, &content);
 
     let window = read_window(&run_id, 0, 50).expect("read_window should succeed");
-    assert_eq!(window.entries.len(), 50, "a window of 50 must return exactly 50 entries");
-    assert_eq!(window.total, 10_000, "the window must report the true total line count");
+    assert_eq!(
+        window.entries.len(),
+        50,
+        "a window of 50 must return exactly 50 entries"
+    );
+    assert_eq!(
+        window.total, 10_000,
+        "the window must report the true total line count"
+    );
     assert_eq!(window.offset, 0);
     assert_eq!(window.limit, 50);
 
@@ -65,7 +76,9 @@ fn a_requested_limit_of_1000_is_clamped_to_the_max_and_the_window_reports_the_cl
     let (run_id, path) = fresh_run();
     let mut content = String::new();
     for i in 0..250 {
-        content.push_str(&format!("{{\"type\":\"assistant_text\",\"text\":\"line {i}\"}}\n"));
+        content.push_str(&format!(
+            "{{\"type\":\"assistant_text\",\"text\":\"line {i}\"}}\n"
+        ));
     }
     write_raw(&path, &content);
 
@@ -75,7 +88,10 @@ fn a_requested_limit_of_1000_is_clamped_to_the_max_and_the_window_reports_the_cl
         "requesting 1000 must never return more than LOG_WINDOW_MAX_LIMIT entries"
     );
     assert_eq!(window.entries.len(), LOG_WINDOW_MAX_LIMIT);
-    assert_eq!(window.limit, LOG_WINDOW_MAX_LIMIT, "the window must report the effective (clamped) limit");
+    assert_eq!(
+        window.limit, LOG_WINDOW_MAX_LIMIT,
+        "the window must report the effective (clamped) limit"
+    );
     assert_eq!(window.total, 250);
 
     cleanup(&path);
@@ -108,10 +124,17 @@ fn a_trailing_fragment_with_no_newline_is_excluded_but_complete_lines_before_it_
     write_raw(&path, content);
 
     let total = count_lines(&run_id).expect("count_lines should succeed");
-    assert_eq!(total, 2, "the trailing fragment must not count toward the total");
+    assert_eq!(
+        total, 2,
+        "the trailing fragment must not count toward the total"
+    );
 
     let window = read_window(&run_id, 0, 10).expect("read_window should succeed");
-    assert_eq!(window.entries.len(), 2, "the two complete lines before the fragment must still be returned");
+    assert_eq!(
+        window.entries.len(),
+        2,
+        "the two complete lines before the fragment must still be returned"
+    );
     assert_eq!(window.total, 2);
 
     cleanup(&path);
@@ -135,13 +158,18 @@ fn an_offset_beyond_the_end_of_the_file_returns_an_empty_window_with_the_true_to
     let (run_id, path) = fresh_run();
     let mut content = String::new();
     for i in 0..10 {
-        content.push_str(&format!("{{\"type\":\"assistant_text\",\"text\":\"line {i}\"}}\n"));
+        content.push_str(&format!(
+            "{{\"type\":\"assistant_text\",\"text\":\"line {i}\"}}\n"
+        ));
     }
     write_raw(&path, &content);
 
     let window = read_window(&run_id, 1000, 50).expect("read_window should succeed");
     assert!(window.entries.is_empty());
-    assert_eq!(window.total, 10, "an out-of-range offset must still report the true total, not an error");
+    assert_eq!(
+        window.total, 10,
+        "an out-of-range offset must still report the true total, not an error"
+    );
 
     cleanup(&path);
 }
@@ -151,16 +179,31 @@ fn an_offset_beyond_the_end_of_the_file_returns_an_empty_window_with_the_true_to
 /// candidate below is a shape the old unvalidated `join(format!(...))` would have accepted.
 #[test]
 fn session_log_path_rejects_every_implausible_shape_and_accepts_a_real_ulid() {
-    assert!(session_log_path("../../../etc/passwd").is_err(), "traversal-shaped id must be rejected");
-    assert!(session_log_path("").is_err(), "an empty id must be rejected");
-    assert!(session_log_path(&"a".repeat(25)).is_err(), "a 25-character id must be rejected");
+    assert!(
+        session_log_path("../../../etc/passwd").is_err(),
+        "traversal-shaped id must be rejected"
+    );
+    assert!(
+        session_log_path("").is_err(),
+        "an empty id must be rejected"
+    );
+    assert!(
+        session_log_path(&"a".repeat(25)).is_err(),
+        "a 25-character id must be rejected"
+    );
     let separator_id = format!("{}/", "a".repeat(25));
-    assert!(session_log_path(&separator_id).is_err(), "a 26-character id containing a path separator must be rejected");
+    assert!(
+        session_log_path(&separator_id).is_err(),
+        "a 26-character id containing a path separator must be rejected"
+    );
 
     let real_id = new_id();
     let path = session_log_path(&real_id).expect("a real ULID must resolve to a path");
     let expected_dir = sessions_dir().expect("sessions_dir should resolve");
-    assert!(path.starts_with(&expected_dir), "the resolved path must live under sessions_dir()");
+    assert!(
+        path.starts_with(&expected_dir),
+        "the resolved path must live under sessions_dir()"
+    );
 }
 
 /// `count_lines` and `read_window` must not degrade a rejected id to the "missing file returns
@@ -169,8 +212,14 @@ fn session_log_path_rejects_every_implausible_shape_and_accepts_a_real_ulid() {
 fn count_lines_and_read_window_return_err_for_every_rejected_id() {
     let rejected_ids = ["../../../etc/passwd", "", &"a".repeat(25)];
     for id in rejected_ids {
-        assert!(count_lines(id).is_err(), "count_lines must error for rejected id {id:?}");
-        assert!(read_window(id, 0, 10).is_err(), "read_window must error for rejected id {id:?}");
+        assert!(
+            count_lines(id).is_err(),
+            "count_lines must error for rejected id {id:?}"
+        );
+        assert!(
+            read_window(id, 0, 10).is_err(),
+            "read_window must error for rejected id {id:?}"
+        );
     }
 }
 
@@ -180,7 +229,8 @@ fn reading_a_window_while_the_writer_is_appending_returns_a_consistent_prefix() 
     // A complete line followed immediately by a partial one, as if the writer's next
     // `writeln!` had not yet completed — `read_window` must return only the complete prefix,
     // never a parse attempt against the half-written tail.
-    let content = "{\"type\":\"assistant_text\",\"text\":\"complete\"}\n{\"type\":\"assistant_text\",\"tex";
+    let content =
+        "{\"type\":\"assistant_text\",\"text\":\"complete\"}\n{\"type\":\"assistant_text\",\"tex";
     write_raw(&path, content);
 
     let window = read_window(&run_id, 0, 10).expect("read_window should succeed");

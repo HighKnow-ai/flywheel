@@ -26,7 +26,8 @@ struct AheadFixture {
 
 fn set_user_version(db_path: &Path, version: i64) {
     let conn = Connection::open(db_path).expect("open for user_version");
-    conn.pragma_update(None, "user_version", version).expect("set user_version");
+    conn.pragma_update(None, "user_version", version)
+        .expect("set user_version");
 }
 
 fn ahead_fixture() -> AheadFixture {
@@ -38,7 +39,12 @@ fn ahead_fixture() -> AheadFixture {
     drop(open_and_migrate(&db_path, &backups_dir).expect("the real migration set applies cleanly"));
     set_user_version(&db_path, supported + 1);
 
-    AheadFixture { _dir: dir, db_path, backups_dir, supported }
+    AheadFixture {
+        _dir: dir,
+        db_path,
+        backups_dir,
+        supported,
+    }
 }
 
 #[test]
@@ -72,9 +78,13 @@ fn a_database_ahead_of_this_build_is_refused_with_the_mismatch_named() {
 /// absence let WR-01 ship: an identical backup copy is invisible to a byte comparison of the live
 /// file, but it is a new entry here.
 fn backups_dir_entries(backups_dir: &Path) -> Vec<String> {
-    let Ok(rd) = fs::read_dir(backups_dir) else { return Vec::new() };
-    let mut names: Vec<String> =
-        rd.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+    let Ok(rd) = fs::read_dir(backups_dir) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = rd
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
     names.sort();
     names
 }
@@ -83,17 +93,36 @@ fn backups_dir_entries(backups_dir: &Path) -> Vec<String> {
 fn the_refused_database_is_left_byte_for_byte_intact() {
     let f = ahead_fixture();
     let before = fs::read(&f.db_path).expect("read db before");
-    let mtime_before = fs::metadata(&f.db_path).expect("stat before").modified().expect("mtime");
+    let mtime_before = fs::metadata(&f.db_path)
+        .expect("stat before")
+        .modified()
+        .expect("mtime");
     let entries_before = backups_dir_entries(&f.backups_dir);
 
     assert!(open_and_migrate(&f.db_path, &f.backups_dir).is_err());
 
-    assert!(f.db_path.exists(), "a refused open must not delete the database file");
+    assert!(
+        f.db_path.exists(),
+        "a refused open must not delete the database file"
+    );
     let after = fs::read(&f.db_path).expect("read db after");
-    assert_eq!(before.len(), after.len(), "a refused open must not truncate or grow the file");
-    assert!(before == after, "a refused open must not rewrite, repair or downgrade any byte");
-    let mtime_after = fs::metadata(&f.db_path).expect("stat after").modified().expect("mtime");
-    assert_eq!(mtime_before, mtime_after, "a refused open must not touch the live file at all");
+    assert_eq!(
+        before.len(),
+        after.len(),
+        "a refused open must not truncate or grow the file"
+    );
+    assert!(
+        before == after,
+        "a refused open must not rewrite, repair or downgrade any byte"
+    );
+    let mtime_after = fs::metadata(&f.db_path)
+        .expect("stat after")
+        .modified()
+        .expect("mtime");
+    assert_eq!(
+        mtime_before, mtime_after,
+        "a refused open must not touch the live file at all"
+    );
 
     // No backup, hence no restore: nothing was written, so there is nothing to copy back over a
     // file a newer build may hold open.
@@ -132,12 +161,18 @@ fn a_genuine_mid_migration_failure_still_takes_a_backup_and_restores_it() {
     let err = open_and_migrate_with(&db_path, &backups_dir, &bad)
         .expect_err("a malformed migration must fail");
 
-    assert!(format!("{err:#}").contains("restored the pre-migration backup"), "{err:#}");
+    assert!(
+        format!("{err:#}").contains("restored the pre-migration backup"),
+        "{err:#}"
+    );
     assert!(
         !backups_dir_entries(&backups_dir).is_empty(),
         "the genuine-failure branch must still take a backup"
     );
-    assert!(fs::read(&db_path).expect("read db after") == before, "the live file must be restored");
+    assert!(
+        fs::read(&db_path).expect("read db after") == before,
+        "the live file must be restored"
+    );
 }
 
 #[test]
@@ -150,8 +185,12 @@ fn the_same_database_opens_once_its_version_is_back_in_range() {
     let conn = open_and_migrate(&f.db_path, &f.backups_dir)
         .expect("a database at this build's own version opens");
 
-    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).expect("user_version");
+    let version: i64 = conn
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .expect("user_version");
     assert_eq!(version, f.supported);
-    let epics: i64 = conn.query_row("SELECT count(*) FROM epics", [], |r| r.get(0)).expect("epics table");
+    let epics: i64 = conn
+        .query_row("SELECT count(*) FROM epics", [], |r| r.get(0))
+        .expect("epics table");
     assert_eq!(epics, 0);
 }

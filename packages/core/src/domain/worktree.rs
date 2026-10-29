@@ -106,7 +106,11 @@ pub fn base_ref_for_story(conn: &Connection, story_id: &str) -> anyhow::Result<S
 /// worktree path as `worktree_root()/{project.key_prefix}/{story.key}/`, calls
 /// `git::worktree_add`, then opens one transaction that inserts the `worktrees` row and appends a
 /// `worktree.created` event.
-pub fn ensure_worktree(conn: &mut Connection, story_id: &str, actor_id: &str) -> anyhow::Result<Worktree> {
+pub fn ensure_worktree(
+    conn: &mut Connection,
+    story_id: &str,
+    actor_id: &str,
+) -> anyhow::Result<Worktree> {
     if let Some(existing) = worktree_for_story(conn, story_id)? {
         return Ok(existing);
     }
@@ -129,8 +133,9 @@ pub fn ensure_worktree(conn: &mut Connection, story_id: &str, actor_id: &str) ->
 
     let branch = story_branch_name(&story_key, &story_title);
     let base_branch = base_ref_for_story(conn, story_id)?;
-    let subdir = git::project_subdir(Path::new(&repo_path))
-        .with_context(|| format!("failed to read where the project sits in its repository for Story {story_id:?}"))?;
+    let subdir = git::project_subdir(Path::new(&repo_path)).with_context(|| {
+        format!("failed to read where the project sits in its repository for Story {story_id:?}")
+    })?;
 
     let worktree_path = worktree_root().join(&key_prefix).join(&story_key);
 
@@ -184,7 +189,8 @@ pub fn ensure_worktree(conn: &mut Connection, story_id: &str, actor_id: &str) ->
         &now,
     )?;
 
-    tx.commit().context("failed to commit ensure_worktree transaction")?;
+    tx.commit()
+        .context("failed to commit ensure_worktree transaction")?;
 
     Ok(Worktree {
         id,
@@ -220,9 +226,15 @@ pub fn porcelain_entries(worktree_path: &Path) -> anyhow::Result<Vec<PorcelainEn
         .lines()
         .map(|line| {
             if line.len() < 4 {
-                PorcelainEntry { code: "??".to_string(), path: line.to_string() }
+                PorcelainEntry {
+                    code: "??".to_string(),
+                    path: line.to_string(),
+                }
             } else {
-                PorcelainEntry { code: line[0..2].to_string(), path: line[3..].to_string() }
+                PorcelainEntry {
+                    code: line[0..2].to_string(),
+                    path: line[3..].to_string(),
+                }
             }
         })
         .collect())
@@ -280,7 +292,11 @@ fn remove_worktree(
         .with_context(|| format!("project {:?} not found", worktree.project_id))?;
 
     let story_key: String = conn
-        .query_row("SELECT key FROM stories WHERE id = ?1", params![story_id], |row| row.get(0))
+        .query_row(
+            "SELECT key FROM stories WHERE id = ?1",
+            params![story_id],
+            |row| row.get(0),
+        )
         .with_context(|| format!("Story {story_id:?} not found"))?;
 
     // Re-read porcelain HERE, never trusting the renderer's own earlier check (D-43's "no
@@ -317,7 +333,9 @@ fn remove_worktree(
         } else {
             "the directory is gone but git reported an error, so the worktree record was kept"
         };
-        return Err(e.context(format!("failed to remove worktree for Story {story_id:?}: {on_disk}")));
+        return Err(e.context(format!(
+            "failed to remove worktree for Story {story_id:?}: {on_disk}"
+        )));
     }
 
     // Past this point the directory is gone, so a database failure is its own outcome (WR-05).
@@ -341,7 +359,8 @@ pub(crate) fn record_worktree_removed(
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     record_worktree_removed_in_tx(&tx, worktree, story_id, story_key, actor_id, &now)?;
-    tx.commit().context("failed to commit remove_worktree_for_story transaction")?;
+    tx.commit()
+        .context("failed to commit remove_worktree_for_story transaction")?;
     Ok(())
 }
 
@@ -439,8 +458,11 @@ pub fn reconcile_worktrees(conn: &mut Connection, actor_id: &str) -> anyhow::Res
         }
 
         let tx = conn.transaction()?;
-        tx.execute("UPDATE worktrees SET status = ?1 WHERE id = ?2", params![new_status, worktree.id])
-            .context("failed to update worktree status during reconciliation")?;
+        tx.execute(
+            "UPDATE worktrees SET status = ?1 WHERE id = ?2",
+            params![new_status, worktree.id],
+        )
+        .context("failed to update worktree status during reconciliation")?;
 
         let sequence = next_sequence(&tx, &worktree.project_id, "local")?;
         let payload = serde_json::json!({
@@ -465,7 +487,8 @@ pub fn reconcile_worktrees(conn: &mut Connection, actor_id: &str) -> anyhow::Res
             &now,
         )?;
 
-        tx.commit().context("failed to commit reconcile_worktrees transaction")?;
+        tx.commit()
+            .context("failed to commit reconcile_worktrees transaction")?;
     }
 
     Ok(())
@@ -525,25 +548,40 @@ pub fn recreate_worktree_for_story(
     git::git_at(repo_path, &["worktree", "prune"])
         .with_context(|| format!("failed to prune stale worktree metadata in {repo_path:?}"))?;
 
-    let branch_exists = git::rev_parse_verify(repo_path, &worktree.branch)
-        .with_context(|| format!("failed to probe branch {:?} in {repo_path:?}", worktree.branch))?;
+    let branch_exists = git::rev_parse_verify(repo_path, &worktree.branch).with_context(|| {
+        format!(
+            "failed to probe branch {:?} in {repo_path:?}",
+            worktree.branch
+        )
+    })?;
 
     if branch_exists {
         // The realistic case: only the working directory was deleted, the branch survives.
         // Check it out rather than minting a new one — `git worktree add`'s `-b` form would
         // refuse anyway, since `worktree_add`'s own guard rejects an already-existing branch.
         let worktree_path_str = worktree_path.to_string_lossy().into_owned();
-        git::git_at(repo_path, &["worktree", "add", &worktree_path_str, &worktree.branch])
-            .with_context(|| format!("failed to recreate worktree for Story {story_id:?}"))?;
+        git::git_at(
+            repo_path,
+            &["worktree", "add", &worktree_path_str, &worktree.branch],
+        )
+        .with_context(|| format!("failed to recreate worktree for Story {story_id:?}"))?;
     } else {
-        git::worktree_add(repo_path, worktree_path, &worktree.branch, &worktree.base_branch)
-            .with_context(|| format!("failed to recreate worktree for Story {story_id:?}"))?;
+        git::worktree_add(
+            repo_path,
+            worktree_path,
+            &worktree.branch,
+            &worktree.base_branch,
+        )
+        .with_context(|| format!("failed to recreate worktree for Story {story_id:?}"))?;
     }
 
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
-    tx.execute("UPDATE worktrees SET status = 'active' WHERE id = ?1", params![worktree.id])
-        .context("failed to update worktree status after recreate")?;
+    tx.execute(
+        "UPDATE worktrees SET status = 'active' WHERE id = ?1",
+        params![worktree.id],
+    )
+    .context("failed to update worktree status after recreate")?;
 
     let sequence = next_sequence(&tx, &worktree.project_id, "local")?;
     let payload = serde_json::json!({
@@ -568,9 +606,13 @@ pub fn recreate_worktree_for_story(
         &now,
     )?;
 
-    tx.commit().context("failed to commit recreate_worktree_for_story transaction")?;
+    tx.commit()
+        .context("failed to commit recreate_worktree_for_story transaction")?;
 
-    Ok(Worktree { status: "active".to_string(), ..worktree })
+    Ok(Worktree {
+        status: "active".to_string(),
+        ..worktree
+    })
 }
 
 /// Delete a `missing` row's record with no filesystem call of any kind (D-45's "Remove Record"
@@ -578,7 +620,11 @@ pub fn recreate_worktree_for_story(
 /// (via `bail!`, naming the actual status) when no row exists for `story_id` or when the row's
 /// status is not `missing`; the only removal path for a REAL, on-disk worktree remains
 /// [`remove_worktree_for_story`]'s porcelain-checked one.
-pub fn forget_worktree_record(conn: &mut Connection, story_id: &str, actor_id: &str) -> anyhow::Result<()> {
+pub fn forget_worktree_record(
+    conn: &mut Connection,
+    story_id: &str,
+    actor_id: &str,
+) -> anyhow::Result<()> {
     let worktree = worktree_for_story(conn, story_id)?
         .ok_or_else(|| anyhow::anyhow!("no worktree exists for Story {story_id:?}"))?;
 
@@ -627,7 +673,8 @@ pub fn forget_worktree_record(conn: &mut Connection, story_id: &str, actor_id: &
         &now,
     )?;
 
-    tx.commit().context("failed to commit forget_worktree_record transaction")?;
+    tx.commit()
+        .context("failed to commit forget_worktree_record transaction")?;
     Ok(())
 }
 
@@ -684,8 +731,10 @@ pub const DEFAULT_TERMINAL_TEMPLATE: &str = "open -a Terminal {worktree_path}";
 /// `domain::settings::global_credential_mode`'s read-with-default idiom. These two actions are
 /// global, not per-project, exactly like the credential mode's global half.
 pub fn open_command_template(conn: &Connection, surface: OpenSurface) -> anyhow::Result<String> {
-    Ok(crate::domain::settings::read_setting(conn, surface.settings_key())?
-        .unwrap_or_else(|| surface.default_template().to_string()))
+    Ok(
+        crate::domain::settings::read_setting(conn, surface.settings_key())?
+            .unwrap_or_else(|| surface.default_template().to_string()),
+    )
 }
 
 /// Set `surface`'s stored open-command template (D-130). Rejects an empty or whitespace-only
@@ -729,7 +778,11 @@ pub fn set_open_command_template(
 ///
 /// Errors naming `story_id` when no `worktrees` row exists for it — never returns an argv
 /// carrying an empty path.
-pub fn resolve_open_argv(conn: &Connection, story_id: &str, surface: OpenSurface) -> anyhow::Result<Vec<String>> {
+pub fn resolve_open_argv(
+    conn: &Connection,
+    story_id: &str,
+    surface: OpenSurface,
+) -> anyhow::Result<Vec<String>> {
     let worktree = worktree_for_story(conn, story_id)?
         .ok_or_else(|| anyhow::anyhow!("no worktree exists for Story {story_id:?}"))?;
 
@@ -823,7 +876,9 @@ impl ReclaimDisposition {
 
     pub fn reason(self) -> ReclaimReason {
         match self {
-            ReclaimDisposition::Reclaimable(r) | ReclaimDisposition::InUse(r) | ReclaimDisposition::Keep(r) => r,
+            ReclaimDisposition::Reclaimable(r)
+            | ReclaimDisposition::InUse(r)
+            | ReclaimDisposition::Keep(r) => r,
         }
     }
 }
@@ -852,7 +907,11 @@ pub fn reclaim_eligibility(
         return ReclaimDisposition::Keep(ReclaimReason::DirectoryMissing);
     }
     if let Some(status) = live_run {
-        let reason = if status == "blocked" { ReclaimReason::Blocked } else { ReclaimReason::Sessionning };
+        let reason = if status == "blocked" {
+            ReclaimReason::Blocked
+        } else {
+            ReclaimReason::Sessionning
+        };
         return ReclaimDisposition::InUse(reason);
     }
     if dirty {
@@ -895,15 +954,24 @@ pub fn worktree_size(path: &Path) -> anyhow::Result<WalkSize> {
 
 /// [`worktree_size`] with its two bounds as arguments, so a test can hit them without building two
 /// million files. Production code calls [`worktree_size`].
-pub fn worktree_size_limited(path: &Path, max_entries: usize, max_depth: usize) -> anyhow::Result<WalkSize> {
+pub fn worktree_size_limited(
+    path: &Path,
+    max_entries: usize,
+    max_depth: usize,
+) -> anyhow::Result<WalkSize> {
     use std::os::unix::fs::MetadataExt;
 
     let root = worktree_root();
-    if !path.starts_with(&root) || path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+    if !path.starts_with(&root)
+        || path
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
         anyhow::bail!("refusing to measure {path:?}: it is not under the worktree root {root:?}");
     }
 
-    let top = std::fs::symlink_metadata(path).with_context(|| format!("failed to read {path:?}"))?;
+    let top =
+        std::fs::symlink_metadata(path).with_context(|| format!("failed to read {path:?}"))?;
     let mut bytes = top.blocks() * 512;
     let mut bounded = false;
     let mut entries = 0usize;
@@ -977,7 +1045,11 @@ pub struct ReclaimOutcome {
 /// This holds no lock of its own, but `remove_worktree_for_story` runs `git worktree remove` on
 /// whatever `conn` it is given, so the caller must pass a connection that is NOT behind the
 /// application's shared mutex.
-pub fn reclaim_worktrees(conn: &mut Connection, story_ids: &[String], actor_id: &str) -> Vec<ReclaimOutcome> {
+pub fn reclaim_worktrees(
+    conn: &mut Connection,
+    story_ids: &[String],
+    actor_id: &str,
+) -> Vec<ReclaimOutcome> {
     let mut seen = std::collections::HashSet::new();
     let mut outcomes = Vec::new();
     for story_id in story_ids {
@@ -1017,10 +1089,17 @@ pub fn reclaim_worktrees(conn: &mut Connection, story_ids: &[String], actor_id: 
             });
             continue;
         };
-        outcomes.push(match remove_worktree_for_story_refusing_live_run(conn, story_id, actor_id) {
-            Ok(()) => ReclaimOutcome { story_id: story_id.clone(), removed: true, reason: Some(reason), error: None },
-            Err(e) => failed(format!("{e:#}")),
-        });
+        outcomes.push(
+            match remove_worktree_for_story_refusing_live_run(conn, story_id, actor_id) {
+                Ok(()) => ReclaimOutcome {
+                    story_id: story_id.clone(),
+                    removed: true,
+                    reason: Some(reason),
+                    error: None,
+                },
+                Err(e) => failed(format!("{e:#}")),
+            },
+        );
     }
     outcomes
 }

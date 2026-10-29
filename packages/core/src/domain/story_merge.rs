@@ -30,8 +30,10 @@ use serde_json::Value;
 
 use crate::domain::actor::assert_human_actor;
 use crate::domain::adr_link::{is_linked, link_adr_in_tx, AdrLinkTarget};
+use crate::domain::review::{
+    close_review_in_tx, open_review_in_tx, read_review_diff, review_for_story, StoryReview,
+};
 use crate::domain::review_decisions::{accepted_epic_adrs, new_adr_paths, stored_adr_decisions};
-use crate::domain::review::{close_review_in_tx, open_review_in_tx, read_review_diff, review_for_story, StoryReview};
 use crate::domain::story::{get_story, set_story_state_in_tx, StoryState};
 use crate::domain::worktree::{record_worktree_removed_in_tx, worktree_for_story, Worktree};
 use crate::domain::{now, record_event, EventScope};
@@ -101,7 +103,10 @@ fn refusal(key: &str, review: &StoryReview, options: MergeOptions) -> Option<Str
     if review.live_session {
         return Some(format!("{key} has a live session. Stop it before merging."));
     }
-    let unaccepted: Vec<String> = review.unaccepted().map(|c| format!("\"{}\"", c.statement)).collect();
+    let unaccepted: Vec<String> = review
+        .unaccepted()
+        .map(|c| format!("\"{}\"", c.statement))
+        .collect();
     if !unaccepted.is_empty() {
         return Some(format!(
             "Accept every criterion before merging. Not accepted yet: {}.",
@@ -130,8 +135,11 @@ fn refusal(key: &str, review: &StoryReview, options: MergeOptions) -> Option<Str
         ));
     }
     if !review.failing_checks.is_empty() && !options.with_failing_checks {
-        let named: Vec<String> =
-            review.failing_checks.iter().map(|k| format!("`{}` ({})", k.command, k.failing_words())).collect();
+        let named: Vec<String> = review
+            .failing_checks
+            .iter()
+            .map(|k| format!("`{}` ({})", k.command, k.failing_words()))
+            .collect();
         return Some(format!(
             "A Check has not passed at the branch's head: {}. Re-run the Checks, or use Merge with failing Check.",
             named.join(", ")
@@ -147,7 +155,9 @@ fn guard_owned(worktree: &Worktree, repo: &Path) -> anyhow::Result<()> {
         return refuse("Merge refused: the Story's worktree is not a Flywheel worktree.");
     }
     let branch = worktree.branch.as_str();
-    if branch == worktree.base_branch || !branch.starts_with(crate::branch::FLYWHEEL_BRANCH_NAMESPACE) {
+    if branch == worktree.base_branch
+        || !branch.starts_with(crate::branch::FLYWHEEL_BRANCH_NAMESPACE)
+    {
         return refuse("Merge refused: the Story's branch is not a Flywheel Story branch.");
     }
     Ok(())
@@ -155,21 +165,37 @@ fn guard_owned(worktree: &Worktree, repo: &Path) -> anyhow::Result<()> {
 
 /// Merge `story_id` into its base branch. See the module documentation for every refusal and for
 /// how the commit is written.
-pub fn merge_story(conn: &mut Connection, actor_id: &str, story_id: &str, options: MergeOptions) -> anyhow::Result<MergeOutcome> {
+pub fn merge_story(
+    conn: &mut Connection,
+    actor_id: &str,
+    story_id: &str,
+    options: MergeOptions,
+) -> anyhow::Result<MergeOutcome> {
     assert_human_actor(conn, actor_id)?;
-    let story = get_story(conn, story_id)?.with_context(|| format!("Story {story_id:?} not found"))?;
+    let story =
+        get_story(conn, story_id)?.with_context(|| format!("Story {story_id:?} not found"))?;
     if story.state != StoryState::InReview.as_str() {
-        return refuse(format!("Only a Story In review merges, and {} is {}.", story.key, story.state.replace('_', " ")));
+        return refuse(format!(
+            "Only a Story In review merges, and {} is {}.",
+            story.key,
+            story.state.replace('_', " ")
+        ));
     }
     let Some(worktree) = worktree_for_story(conn, story_id)? else {
         return refuse(format!("{} has no worktree to merge from.", story.key));
     };
     let worktree_path = Path::new(&worktree.path);
     if !worktree_path.is_dir() {
-        return refuse(format!("{}'s worktree is missing from disk. Recreate it, or drop the Story.", story.key));
+        return refuse(format!(
+            "{}'s worktree is missing from disk. Recreate it, or drop the Story.",
+            story.key
+        ));
     }
-    let repo_path: String =
-        conn.query_row("SELECT repo_path FROM projects WHERE id = ?1", params![story.project_id], |r| r.get(0))?;
+    let repo_path: String = conn.query_row(
+        "SELECT repo_path FROM projects WHERE id = ?1",
+        params![story.project_id],
+        |r| r.get(0),
+    )?;
     let repo = Path::new(&repo_path);
     guard_owned(&worktree, repo)?;
 
@@ -177,12 +203,21 @@ pub fn merge_story(conn: &mut Connection, actor_id: &str, story_id: &str, option
     if let Some(reason) = refusal(&story.key, &review, options) {
         return refuse(reason);
     }
-    let head = review.head_sha.clone().context("could not read the Story branch's head")?;
+    let head = review
+        .head_sha
+        .clone()
+        .context("could not read the Story branch's head")?;
     let base = worktree.base_branch.clone();
     let base_tip = git::rev_parse_commit(repo, &format!("refs/heads/{base}"))
         .with_context(|| format!("could not read the base branch {base:?}"))?;
-    if git::git_output_at(repo, &["merge-base", "--is-ancestor", &head, &base_tip])?.status.success() {
-        return refuse(format!("{}'s branch has nothing that is not already on {base}: there is nothing to merge.", story.key));
+    if git::git_output_at(repo, &["merge-base", "--is-ancestor", &head, &base_tip])?
+        .status
+        .success()
+    {
+        return refuse(format!(
+            "{}'s branch has nothing that is not already on {base}: there is nothing to merge.",
+            story.key
+        ));
     }
     if let MergePrecheck::Conflicts(paths) = git::merge_tree_check(repo, &base_tip, &head)? {
         return refuse(format!(
@@ -201,13 +236,24 @@ pub fn merge_story(conn: &mut Connection, actor_id: &str, story_id: &str, option
             ));
         }
     }
-    let overridden: Vec<Value> = review.failing_checks.iter().map(|k| k.override_record()).collect();
+    let overridden: Vec<Value> = review
+        .failing_checks
+        .iter()
+        .map(|k| k.override_record())
+        .collect();
     // A Story handed off before reviews existed has no open review: open it now, so the decision has
     // a row to land on.
-    let diff = if review.review.is_none() { Some(read_review_diff(worktree_path, &base, &head)?) } else { None };
+    let diff = if review.review.is_none() {
+        Some(read_review_diff(worktree_path, &base, &head)?)
+    } else {
+        None
+    };
     // The ADRs the branch adds, read now: the worktree is gone after the git step. One accepted in
     // shaping keeps its Epic Proposal.
-    let shaped: Vec<String> = accepted_epic_adrs(conn, &story.epic_id)?.into_iter().map(|(_, d)| d.path).collect();
+    let shaped: Vec<String> = accepted_epic_adrs(conn, &story.epic_id)?
+        .into_iter()
+        .map(|(_, d)| d.path)
+        .collect();
     // Relative to the project, as ADR links are, also for a project in a subdirectory of its repository.
     let new_adrs: Vec<String> = new_adr_paths(&git::project_review_files(repo, &base_tip, &head)?)
         .into_iter()
@@ -215,13 +261,22 @@ pub fn merge_story(conn: &mut Connection, actor_id: &str, story_id: &str, option
         .collect();
 
     // The git step. Everything above wrote nothing.
-    let message = format!("Merge {}: {}\n\nMerged in Flywheel from {}.", story.key, story.title, worktree.branch);
+    let message = format!(
+        "Merge {}: {}\n\nMerged in Flywheel from {}.",
+        story.key, story.title, worktree.branch
+    );
     let (merge_commit, method) = match &checkout {
         Some(checkout) => {
             git::merge_no_ff(checkout, &worktree.branch, &message)?;
-            (git::rev_parse_commit(checkout, "HEAD")?, MergeMethod::Checkout)
+            (
+                git::rev_parse_commit(checkout, "HEAD")?,
+                MergeMethod::Checkout,
+            )
         }
-        None => (git::merge_without_checkout(repo, &base, &head, &message)?, MergeMethod::Plumbing),
+        None => (
+            git::merge_without_checkout(repo, &base, &head, &message)?,
+            MergeMethod::Plumbing,
+        ),
     };
 
     // The commit is on the base branch: the Story is Merged from here on.
@@ -240,38 +295,72 @@ pub fn merge_story(conn: &mut Connection, actor_id: &str, story_id: &str, option
             warnings.push("its branch could not be deleted");
         }
     }
-    let cleanup_warning = (!warnings.is_empty())
-        .then(|| format!("{} is merged, but {}. Reclaim it from the worktree inventory.", story.key, warnings.join(" and ")));
+    let cleanup_warning = (!warnings.is_empty()).then(|| {
+        format!(
+            "{} is merged, but {}. Reclaim it from the worktree inventory.",
+            story.key,
+            warnings.join(" and ")
+        )
+    });
 
     let now = now();
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     if let Some(diff) = &diff {
-        open_review_in_tx(&tx, &story.project_id, story_id, None, diff, &Value::Array(Vec::new()), &Value::Array(Vec::new()))?;
+        open_review_in_tx(
+            &tx,
+            &story.project_id,
+            story_id,
+            None,
+            diff,
+            &Value::Array(Vec::new()),
+            &Value::Array(Vec::new()),
+        )?;
     }
     if removed {
         record_worktree_removed_in_tx(&tx, &worktree, story_id, &story.key, actor_id, &now)?;
     }
     set_story_state_in_tx(&tx, actor_id, story_id, StoryState::Merged)?;
     let overridden_json = Value::Array(overridden.clone());
-    close_review_in_tx(&tx, story_id, actor_id, "merged", (!overridden.is_empty()).then_some(&overridden_json), None)?;
+    close_review_in_tx(
+        &tx,
+        story_id,
+        actor_id,
+        "merged",
+        (!overridden.is_empty()).then_some(&overridden_json),
+        None,
+    )?;
     let mut adrs_linked = Vec::new();
     for path in new_adrs {
         if !is_linked(&tx, &story.project_id, &path)? {
-            link_adr_in_tx(&tx, actor_id, &story.project_id, &path, &AdrLinkTarget::Story(story_id.to_string()), &now)?;
+            link_adr_in_tx(
+                &tx,
+                actor_id,
+                &story.project_id,
+                &path,
+                &AdrLinkTarget::Story(story_id.to_string()),
+                &now,
+            )?;
             adrs_linked.push(path);
         }
     }
     let label = if overridden.is_empty() {
         format!("Merged {} into {base}", story.key)
     } else {
-        format!("Merged {} into {base} with {} failing Check(s)", story.key, overridden.len())
+        format!(
+            "Merged {} into {base} with {} failing Check(s)",
+            story.key,
+            overridden.len()
+        )
     };
     record_event(
         &tx,
         &story.project_id,
         "story",
         story_id,
-        EventScope { story_id: Some(story_id), epic_id: Some(&story.epic_id) },
+        EventScope {
+            story_id: Some(story_id),
+            epic_id: Some(&story.epic_id),
+        },
         actor_id,
         "story.merged",
         &serde_json::json!({
@@ -286,7 +375,8 @@ pub fn merge_story(conn: &mut Connection, actor_id: &str, story_id: &str, option
         }),
         &now,
     )?;
-    tx.commit().context("the merge commit is on the base branch, but the board could not record it")?;
+    tx.commit()
+        .context("the merge commit is on the base branch, but the board could not record it")?;
 
     Ok(MergeOutcome {
         project_id: story.project_id,

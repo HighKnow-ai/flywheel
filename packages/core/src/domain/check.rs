@@ -32,7 +32,12 @@ pub struct Check {
 }
 
 fn row_to_check(row: &Row) -> rusqlite::Result<Check> {
-    Ok(Check { id: row.get(0)?, criterion_id: row.get(1)?, command: row.get(2)?, timeout_secs: row.get(3)? })
+    Ok(Check {
+        id: row.get(0)?,
+        criterion_id: row.get(1)?,
+        command: row.get(2)?,
+        timeout_secs: row.get(3)?,
+    })
 }
 
 /// What a Check's latest run said. `TimedOut` is its own result, never shown as failed.
@@ -89,7 +94,8 @@ impl CurrentResult {
             return false;
         }
         let marked = matches!((self.started_at.as_deref(), self.stale_since.as_deref()), (Some(ran), Some(since)) if ran < since);
-        marked || matches!((self.commit_sha.as_deref(), head), (Some(ran), Some(head)) if ran != head)
+        marked
+            || matches!((self.commit_sha.as_deref(), head), (Some(ran), Some(head)) if ran != head)
     }
 }
 
@@ -131,7 +137,11 @@ pub(crate) fn set_check_in_tx(
         )
         .with_context(|| format!("criterion {criterion_id:?} not found"))?;
     let existing: Option<String> = tx
-        .query_row("SELECT id FROM checks WHERE criterion_id = ?1", params![criterion_id], |r| r.get(0))
+        .query_row(
+            "SELECT id FROM checks WHERE criterion_id = ?1",
+            params![criterion_id],
+            |r| r.get(0),
+        )
         .optional()?;
     let id = match existing {
         Some(id) => {
@@ -156,17 +166,29 @@ pub(crate) fn set_check_in_tx(
         &project_id,
         "check",
         &id,
-        EventScope { story_id: Some(&story_id), epic_id: Some(&epic_id) },
+        EventScope {
+            story_id: Some(&story_id),
+            epic_id: Some(&epic_id),
+        },
         actor_id,
         "check.set",
         &serde_json::json!({ "command": command, "label": format!("Set the Check to `{command}`") }),
         &now,
     )?;
-    Ok(Check { id, criterion_id: criterion_id.to_string(), command: command.to_string(), timeout_secs })
+    Ok(Check {
+        id,
+        criterion_id: criterion_id.to_string(),
+        command: command.to_string(),
+        timeout_secs,
+    })
 }
 
 /// Remove the Check from `criterion_id`; the criterion is then judged at review. Human-only.
-pub fn remove_check(conn: &mut Connection, actor_id: &str, criterion_id: &str) -> anyhow::Result<()> {
+pub fn remove_check(
+    conn: &mut Connection,
+    actor_id: &str,
+    criterion_id: &str,
+) -> anyhow::Result<()> {
     let now = now();
     let tx = conn.transaction()?;
     assert_human_actor_in_tx(&tx, actor_id)?;
@@ -188,7 +210,10 @@ pub fn remove_check(conn: &mut Connection, actor_id: &str, criterion_id: &str) -
         &project_id,
         "check",
         &check_id,
-        EventScope { story_id: Some(&story_id), epic_id: Some(&epic_id) },
+        EventScope {
+            story_id: Some(&story_id),
+            epic_id: Some(&epic_id),
+        },
         actor_id,
         "check.removed",
         &serde_json::json!({ "label": "Removed the Check" }),
@@ -221,14 +246,25 @@ pub struct CheckRunRecord<'a> {
 }
 
 /// Record a run of record. `NotRun` is not a run and is refused.
-pub fn record_check_run(conn: &mut Connection, check_id: &str, run: &CheckRunRecord) -> anyhow::Result<String> {
+pub fn record_check_run(
+    conn: &mut Connection,
+    check_id: &str,
+    run: &CheckRunRecord,
+) -> anyhow::Result<String> {
     record_check_run_in_tx(conn, check_id, run)
 }
 
 /// [`record_check_run`] on the caller's connection or transaction: the hand-off records every
 /// result in the one transaction that moves the Story.
-pub(crate) fn record_check_run_in_tx(conn: &Connection, check_id: &str, run: &CheckRunRecord) -> anyhow::Result<String> {
-    anyhow::ensure!(run.result != CheckResult::NotRun, "a recorded run has a result");
+pub(crate) fn record_check_run_in_tx(
+    conn: &Connection,
+    check_id: &str,
+    run: &CheckRunRecord,
+) -> anyhow::Result<String> {
+    anyhow::ensure!(
+        run.result != CheckResult::NotRun,
+        "a recorded run has a result"
+    );
     let id = new_id();
     conn.execute(
         "INSERT INTO check_runs (id, check_id, commit_sha, result, exit_code, output_tail, started_at, ended_at)
@@ -254,7 +290,13 @@ pub fn current_result(conn: &Connection, check_id: &str) -> anyhow::Result<Curre
         )
         .optional()?;
     Ok(match latest {
-        None => CurrentResult { result: CheckResult::NotRun, commit_sha: None, output_tail: None, started_at: None, stale_since: None },
+        None => CurrentResult {
+            result: CheckResult::NotRun,
+            commit_sha: None,
+            output_tail: None,
+            started_at: None,
+            stale_since: None,
+        },
         Some((result, sha, tail, started_at, stale_since)) => CurrentResult {
             result: CheckResult::parse_stored(&result)?,
             commit_sha: Some(sha),
@@ -283,15 +325,23 @@ pub(crate) fn mark_last_run_stale_in_tx(
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
         .optional()?;
-    let Some((check_id, story_id, epic_id, project_id)) = found else { return Ok(None) };
+    let Some((check_id, story_id, epic_id, project_id)) = found else {
+        return Ok(None);
+    };
     let now = now();
-    tx.execute("UPDATE checks SET stale_since = ?1 WHERE id = ?2", params![now, check_id])?;
+    tx.execute(
+        "UPDATE checks SET stale_since = ?1 WHERE id = ?2",
+        params![now, check_id],
+    )?;
     record_event(
         tx,
         &project_id,
         "check",
         &check_id,
-        EventScope { story_id: Some(&story_id), epic_id: Some(&epic_id) },
+        EventScope {
+            story_id: Some(&story_id),
+            epic_id: Some(&epic_id),
+        },
         actor_id,
         "check.marked_stale",
         &serde_json::json!({ "proposal_id": proposal_id, "label": "Marked the Check's last run stale: its criterion changed" }),
@@ -307,7 +357,9 @@ pub fn checks_for_story(conn: &Connection, story_id: &str) -> anyhow::Result<Vec
          JOIN acceptance_criteria c ON c.id = k.criterion_id
          WHERE c.story_id = ?1 ORDER BY c.rank, c.id",
     )?;
-    let rows = stmt.query_map(params![story_id], row_to_check)?.collect::<Result<Vec<_>, _>>();
+    let rows = stmt
+        .query_map(params![story_id], row_to_check)?
+        .collect::<Result<Vec<_>, _>>();
     rows.context("failed to read the Story's Checks")
 }
 

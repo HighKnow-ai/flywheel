@@ -67,9 +67,8 @@ pub fn system_actor(conn: &Connection) -> anyhow::Result<Actor> {
 /// picker renders (BOARD-06). Read-only; Phase 1 seeds actors from migration `0001_actors.sql`
 /// only and exposes no create-actor command from the renderer.
 pub fn list_actors(conn: &Connection) -> anyhow::Result<Vec<Actor>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, type, display_name FROM actors ORDER BY created_at ASC",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT id, type, display_name FROM actors ORDER BY created_at ASC")?;
     let rows = stmt
         .query_map([], |row| {
             Ok(Actor {
@@ -105,12 +104,28 @@ pub fn list_actors(conn: &Connection) -> anyhow::Result<Vec<Actor>> {
 /// One authority transition does not exist yet: accepting an ADR. Its home is Phase 16, and it
 /// must call this helper as its first statement.
 pub fn assert_human_actor_in_tx(tx: &Transaction, actor_id: &str) -> anyhow::Result<()> {
-    check_human(tx.query_row("SELECT type FROM actors WHERE id = ?1", params![actor_id], |row| row.get(0)).optional()?, actor_id)
+    check_human(
+        tx.query_row(
+            "SELECT type FROM actors WHERE id = ?1",
+            params![actor_id],
+            |row| row.get(0),
+        )
+        .optional()?,
+        actor_id,
+    )
 }
 
 /// [`assert_human_actor_in_tx`] for a caller that is not inside a transaction.
 pub fn assert_human_actor(conn: &Connection, actor_id: &str) -> anyhow::Result<()> {
-    check_human(conn.query_row("SELECT type FROM actors WHERE id = ?1", params![actor_id], |row| row.get(0)).optional()?, actor_id)
+    check_human(
+        conn.query_row(
+            "SELECT type FROM actors WHERE id = ?1",
+            params![actor_id],
+            |row| row.get(0),
+        )
+        .optional()?,
+        actor_id,
+    )
 }
 
 fn check_human(actor_type: Option<String>, actor_id: &str) -> anyhow::Result<()> {

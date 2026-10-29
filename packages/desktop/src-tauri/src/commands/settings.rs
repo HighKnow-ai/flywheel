@@ -42,8 +42,8 @@ pub struct SettingsDto {
 pub fn settings_get(state: State<AppState>) -> Result<SettingsDto, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
 
-    let global_credential_mode =
-        flywheel_core::domain::settings::global_credential_mode(&conn).map_err(|e| e.to_string())?;
+    let global_credential_mode = flywheel_core::domain::settings::global_credential_mode(&conn)
+        .map_err(|e| e.to_string())?;
 
     let projects =
         flywheel_core::domain::project::list_projects(&conn).map_err(|e| e.to_string())?;
@@ -77,10 +77,13 @@ pub fn settings_get(state: State<AppState>) -> Result<SettingsDto, String> {
 /// Set the one global OS-notification switch (D-176). Human-only: the actor is resolved
 /// server-side, so the handler accepts none. Returns the stored value re-read.
 #[tauri::command]
-pub fn settings_set_notifications_enabled(state: State<AppState>, value: bool) -> Result<bool, String> {
+pub fn settings_set_notifications_enabled(
+    state: State<AppState>,
+    value: bool,
+) -> Result<bool, String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn)
-        .map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     flywheel_core::domain::settings::set_notifications_enabled(&mut conn, &actor_id, value)
         .map_err(|e| e.to_string())?;
     flywheel_core::domain::settings::notifications_enabled(&conn).map_err(|e| e.to_string())
@@ -115,8 +118,8 @@ pub fn settings_set_credential_mode(
     }
 
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn)
-        .map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
 
     match scope.as_str() {
         "global" => {
@@ -124,8 +127,10 @@ pub fn settings_set_credential_mode(
                 "mode is required for scope \"global\" — the global default cannot be cleared"
                     .to_string()
             })?;
-            flywheel_core::domain::settings::set_global_credential_mode(&mut conn, &actor_id, &mode)
-                .map_err(|e| e.to_string())?;
+            flywheel_core::domain::settings::set_global_credential_mode(
+                &mut conn, &actor_id, &mode,
+            )
+            .map_err(|e| e.to_string())?;
         }
         "project" => {
             let project_id = project_id
@@ -154,8 +159,8 @@ pub fn settings_set_credential_mode(
 #[tauri::command]
 pub fn settings_store_api_key(state: State<AppState>, value: String) -> Result<(), String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn)
-        .map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     flywheel_core::credentials::store_api_key(&mut conn, &actor_id, &value)
         .map_err(|e| e.to_string())?;
     Ok(())
@@ -261,7 +266,10 @@ mod tests {
         assert_eq!(dto.path, std::env::var("PATH").unwrap_or_default());
         assert_eq!(dto.path_warning, None);
         if let Some(err) = dto.claude_error {
-            assert!(err.contains("FLYWHEEL_CLAUDE_BIN") || err.contains(&dto.path), "{err}");
+            assert!(
+                err.contains("FLYWHEEL_CLAUDE_BIN") || err.contains(&dto.path),
+                "{err}"
+            );
         }
     }
 
@@ -271,7 +279,8 @@ mod tests {
     /// `probeClaudeBinary reports unavailable...` test covers the sidecar-level half (pointing
     /// `FLYWHEEL_CLAUDE_BIN` at a non-existent path).
     #[test]
-    fn when_the_sidecar_is_not_running_the_probe_reports_unavailable_but_the_api_key_path_stays_usable() {
+    fn when_the_sidecar_is_not_running_the_probe_reports_unavailable_but_the_api_key_path_stays_usable(
+    ) {
         let dto = capability_dto_when_no_sidecar();
         assert!(!dto.available);
         assert_eq!(dto.version, None);

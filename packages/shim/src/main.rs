@@ -139,7 +139,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Output};
 
 use flywheel_core::destructive::{
-    classify_in, DestructiveCategory, GateContext, Verdict, DEFAULT_BRANCH_ENV, STORY_BRANCH_ENV, WORKTREE_ENV,
+    classify_in, DestructiveCategory, GateContext, Verdict, DEFAULT_BRANCH_ENV, STORY_BRANCH_ENV,
+    WORKTREE_ENV,
 };
 use flywheel_core::git_hooks::PUSH_APPROVAL_ENV;
 
@@ -211,10 +212,14 @@ fn resolve_real_binary_from_env(var_name: &str) -> Result<PathBuf, String> {
     }
     let path = PathBuf::from(&value);
     if !path.is_absolute() {
-        return Err(format!("{var_name} does not name an absolute path: {path:?}"));
+        return Err(format!(
+            "{var_name} does not name an absolute path: {path:?}"
+        ));
     }
     if !path.is_file() {
-        return Err(format!("{var_name} does not name an existing executable: {path:?}"));
+        return Err(format!(
+            "{var_name} does not name an existing executable: {path:?}"
+        ));
     }
     Ok(path)
 }
@@ -275,13 +280,18 @@ fn run_passthrough(name: &str, forwarded_args: &[OsString]) -> ExitCode {
     }
 
     // `arg0(name)` keeps a multiplexing binary (rustup's `cargo` proxy) dispatching as `name`.
-    let err = Command::new(&real_bin).arg0(name).args(forwarded_args).exec();
+    let err = Command::new(&real_bin)
+        .arg0(name)
+        .args(forwarded_args)
+        .exec();
     eprintln!("flywheel-shim: failed to exec real {name} at {real_bin:?}: {err}");
     ExitCode::FAILURE
 }
 
 fn os_args_to_strings(args: &[OsString]) -> Vec<String> {
-    args.iter().map(|a| a.to_string_lossy().into_owned()).collect()
+    args.iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect()
 }
 
 fn reconstruct_command_text(program: &str, args: &[String]) -> String {
@@ -361,7 +371,9 @@ fn request_permission(
     let mut reader = BufReader::new(stream);
     let mut response_line = String::new();
     match reader.read_line(&mut response_line) {
-        Ok(0) => PermissionOutcome::Error("the permission socket closed before answering".to_string()),
+        Ok(0) => {
+            PermissionOutcome::Error("the permission socket closed before answering".to_string())
+        }
         Ok(_) => match serde_json::from_str::<serde_json::Value>(response_line.trim()) {
             Ok(value) => match value.get("decision").and_then(|d| d.as_str()) {
                 Some("allow") => PermissionOutcome::Allow(
@@ -380,7 +392,9 @@ fn request_permission(
                 "the permission socket's answer did not parse as JSON: {err}"
             )),
         },
-        Err(err) => PermissionOutcome::Error(format!("failed to read the permission socket's answer: {err}")),
+        Err(err) => PermissionOutcome::Error(format!(
+            "failed to read the permission socket's answer: {err}"
+        )),
     }
 }
 
@@ -404,7 +418,10 @@ fn send_notice(kind: &str, mut payload: serde_json::Map<String, serde_json::Valu
         return;
     };
 
-    payload.insert("kind".to_string(), serde_json::Value::String(kind.to_string()));
+    payload.insert(
+        "kind".to_string(),
+        serde_json::Value::String(kind.to_string()),
+    );
     payload.insert(
         "runId".to_string(),
         serde_json::Value::String(run_id.to_string_lossy().into_owned()),
@@ -433,7 +450,11 @@ fn destructive_gate(program: &str, string_args: &[String]) -> Option<ExitCode> {
 /// [`destructive_gate`], also asking the server for an approval on a Gated action (issue #81).
 /// `Ok(approval)` means the caller's exec path should run: `approval` is `Some` only when the
 /// developer allowed a Gated action and the server issued one for this invocation.
-fn gate_with_approval(program: &str, string_args: &[String], issue_approval: bool) -> Result<Option<String>, ExitCode> {
+fn gate_with_approval(
+    program: &str,
+    string_args: &[String],
+    issue_approval: bool,
+) -> Result<Option<String>, ExitCode> {
     let verdict = classify_in(program, string_args, &gate_context());
     let Verdict::Destructive(category) = verdict else {
         return Ok(None);
@@ -485,7 +506,9 @@ fn push_approval_round_trip(kind: &str, approval: &str, answer_key: &str) -> boo
 /// covers every ref and every lock retry of that one invocation and nothing after it.
 fn run_check_push_approval() -> ExitCode {
     let approval = env::var(PUSH_APPROVAL_ENV).unwrap_or_default();
-    if !approval.is_empty() && push_approval_round_trip("push_approval_check", &approval, "approved") {
+    if !approval.is_empty()
+        && push_approval_round_trip("push_approval_check", &approval, "approved")
+    {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE
@@ -509,7 +532,9 @@ fn run_gate_push(args: &[OsString]) -> ExitCode {
         return ExitCode::FAILURE;
     };
     let Some(category) = DestructiveCategory::from_str_name(category_name) else {
-        eprintln!("flywheel-shim: --gate-push received an unrecognised category name: {category_name:?}");
+        eprintln!(
+            "flywheel-shim: --gate-push received an unrecognised category name: {category_name:?}"
+        );
         return ExitCode::FAILURE;
     };
 
@@ -607,7 +632,10 @@ fn run_git(forwarded_args: &[OsString]) -> ExitCode {
                 let mut payload = serde_json::Map::new();
                 payload.insert("repository".to_string(), serde_json::json!(repository));
                 payload.insert("command".to_string(), serde_json::json!(command_text));
-                payload.insert("attempts".to_string(), serde_json::json!(exhausted.attempts));
+                payload.insert(
+                    "attempts".to_string(),
+                    serde_json::json!(exhausted.attempts),
+                );
                 send_notice("git_lock_exhausted", payload);
             }
             forward_and_exit(last_output)
@@ -1300,9 +1328,9 @@ fn raw_text_can_shadow_path_resolution(text: &str) -> bool {
     const KEYWORD_TRIGGERS: [&str; 6] = ["function", "alias", "hash", "eval", "source", "builtin"];
     let chars: Vec<char> = text.chars().collect();
     let quote_removed: Vec<char> = shell_quote_removed(text).chars().collect();
-    KEYWORD_TRIGGERS.iter().any(|kw| {
-        raw_text_contains_word(&chars, kw) || raw_text_contains_word(&quote_removed, kw)
-    })
+    KEYWORD_TRIGGERS
+        .iter()
+        .any(|kw| raw_text_contains_word(&chars, kw) || raw_text_contains_word(&quote_removed, kw))
 }
 
 /// **C3 — indeterminate word formation reports "can shadow"**
@@ -1353,7 +1381,8 @@ fn raw_text_word_formation_is_indeterminate(text: &str) -> bool {
             continue;
         }
         let before_is_letter = i > 0 && is_identifier_char(quote_removed[i - 1]);
-        let after_is_letter = i + 1 < quote_removed.len() && is_identifier_char(quote_removed[i + 1]);
+        let after_is_letter =
+            i + 1 < quote_removed.len() && is_identifier_char(quote_removed[i + 1]);
         if before_is_letter || after_is_letter {
             return true;
         }
@@ -1456,9 +1485,7 @@ fn raw_text_names_path_defeating_wrapper(text: &str) -> bool {
                         Some(t) if t.starts_with('-') => {
                             return true;
                         }
-                        Some(t)
-                            if token_word_formation_is_indeterminate(t) && t.contains('-') =>
-                        {
+                        Some(t) if token_word_formation_is_indeterminate(t) && t.contains('-') => {
                             return true;
                         }
                         _ => break,
@@ -1470,9 +1497,7 @@ fn raw_text_names_path_defeating_wrapper(text: &str) -> bool {
                     match tokens.get(j).map(String::as_str) {
                         Some("-v") | Some("-V") => break,
                         Some("-p") => return true,
-                        Some(t)
-                            if token_word_formation_is_indeterminate(t) && t.contains('-') =>
-                        {
+                        Some(t) if token_word_formation_is_indeterminate(t) && t.contains('-') => {
                             return true;
                         }
                         Some(t) if t.starts_with('-') || is_assignment_token(t) => {
@@ -1560,8 +1585,8 @@ fn classify_raw_command_text(text: &str, ctx: &GateContext) -> ClassifiedInvocat
     let quote_removed = shell_quote_removed(trimmed);
     // C4: widened by quote removal (a shadow keyword surviving it genuinely defeats a real `PATH`
     // search), never by C3's indeterminacy — see `ClassifiedInvocation::invoked_bare_name`.
-    let shadowable = text_can_shadow_path_resolution(trimmed)
-        || text_can_shadow_path_resolution(&quote_removed);
+    let shadowable =
+        text_can_shadow_path_resolution(trimmed) || text_can_shadow_path_resolution(&quote_removed);
     // Safe-verdict-only facts (plan 03-24, D-59/D-61) — computed once here so a `Safe` return
     // below and every fail-closed early return above/below can report them without a second scan.
     // C3's indeterminacy predicate is folded in HERE ONLY, never into `shadowable` — see

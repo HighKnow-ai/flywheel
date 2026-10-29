@@ -48,7 +48,10 @@ pub fn validate_key_prefix(prefix: &str) -> anyhow::Result<()> {
         && prefix
             .chars()
             .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit());
-    let starts_with_letter = prefix.chars().next().is_some_and(|c| c.is_ascii_uppercase());
+    let starts_with_letter = prefix
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_uppercase());
 
     if !len_ok || !chars_ok || !starts_with_letter {
         return Err(anyhow!(
@@ -82,7 +85,8 @@ pub fn create_project(
         params![id, key_prefix, name, repo_path, default_branch, actor_id, now],
     )
     .context("failed to insert project")?;
-    tx.commit().context("failed to commit create_project transaction")?;
+    tx.commit()
+        .context("failed to commit create_project transaction")?;
 
     Ok(Project {
         id,
@@ -440,7 +444,10 @@ pub fn reconcile_projects(conn: &mut Connection, actor_id: &str) -> anyhow::Resu
         let label = if reachable {
             format!("{} is reachable again", project.name)
         } else {
-            format!("{} is unreachable — its marker no longer matches", project.name)
+            format!(
+                "{} is unreachable — its marker no longer matches",
+                project.name
+            )
         };
         let payload = serde_json::json!({
             "field": "status",
@@ -511,7 +518,11 @@ fn set_hidden(
         None,
         None,
         actor_id,
-        if hidden { "project.hidden" } else { "project.restored" },
+        if hidden {
+            "project.hidden"
+        } else {
+            "project.restored"
+        },
         &payload,
         now,
     )?;
@@ -523,15 +534,21 @@ fn set_hidden(
 pub fn hide_project(conn: &mut Connection, actor_id: &str, project_id: &str) -> anyhow::Result<()> {
     let tx = conn.transaction()?;
     set_hidden(&tx, project_id, true, actor_id, &Utc::now().to_rfc3339())?;
-    tx.commit().context("failed to commit hide_project transaction")
+    tx.commit()
+        .context("failed to commit hide_project transaction")
 }
 
 /// Undo [`hide_project`]: the project reappears with the same id, prefix, name and repo path.
 /// Idempotent; errors on an unknown project id.
-pub fn restore_project(conn: &mut Connection, actor_id: &str, project_id: &str) -> anyhow::Result<()> {
+pub fn restore_project(
+    conn: &mut Connection,
+    actor_id: &str,
+    project_id: &str,
+) -> anyhow::Result<()> {
     let tx = conn.transaction()?;
     set_hidden(&tx, project_id, false, actor_id, &Utc::now().to_rfc3339())?;
-    tx.commit().context("failed to commit restore_project transaction")
+    tx.commit()
+        .context("failed to commit restore_project transaction")
 }
 
 /// Explicitly relocate a project to `new_repo_path` — the ONLY recovery action offered for an

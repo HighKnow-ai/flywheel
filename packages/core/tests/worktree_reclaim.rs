@@ -16,28 +16,51 @@ use flywheel_core::query::fleet::{finish_worktree_inventory, worktree_inventory_
 use rusqlite::{params, Connection};
 
 fn git(repo: &Path, args: &[&str]) -> String {
-    let out = Command::new("git").arg("-C").arg(repo).args(args).output().expect("spawn git");
-    assert!(out.status.success(), "git {args:?} failed: {}", String::from_utf8_lossy(&out.stderr));
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(args)
+        .output()
+        .expect("spawn git");
+    assert!(
+        out.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     String::from_utf8_lossy(&out.stdout).trim().to_string()
 }
 
 /// A merged Story with a worktree: reclaimable.
-fn merged_worktree(conn: &mut Connection, project: &str, actor: &str, name: &str) -> (String, PathBuf) {
+fn merged_worktree(
+    conn: &mut Connection,
+    project: &str,
+    actor: &str,
+    name: &str,
+) -> (String, PathBuf) {
     let story = common::new_story(conn, project, actor, name);
     let wt = ensure_worktree(conn, &story.id, actor).unwrap();
-    conn.execute("UPDATE stories SET state = 'merged' WHERE id = ?1", params![story.id]).unwrap();
+    conn.execute(
+        "UPDATE stories SET state = 'merged' WHERE id = ?1",
+        params![story.id],
+    )
+    .unwrap();
     (story.id, PathBuf::from(wt.path))
 }
 
 fn outcome<'a>(all: &'a [ReclaimOutcome], id: &str) -> &'a ReclaimOutcome {
-    all.iter().find(|o| o.story_id == id).unwrap_or_else(|| panic!("no outcome for {id}"))
+    all.iter()
+        .find(|o| o.story_id == id)
+        .unwrap_or_else(|| panic!("no outcome for {id}"))
 }
 
 #[test]
 fn three_clean_reclaimable_worktrees_are_all_removed() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor, project, _repo) = common::seeded_git_project();
-        let rows: Vec<_> = ["a", "b", "c"].iter().map(|n| merged_worktree(&mut conn, &project.id, &actor, n)).collect();
+        let rows: Vec<_> = ["a", "b", "c"]
+            .iter()
+            .map(|n| merged_worktree(&mut conn, &project.id, &actor, n))
+            .collect();
         let selection: Vec<String> = rows.iter().map(|(id, _)| id.clone()).collect();
 
         let out = reclaim_worktrees(&mut conn, &selection, &actor);
@@ -64,7 +87,9 @@ fn a_run_inserted_after_the_read_refuses_that_row_and_removes_the_others() {
 
         // The read the user selected from: all three reclaimable.
         let listed = finish_worktree_inventory(worktree_inventory_inputs(&conn, 200).unwrap());
-        assert!(listed.iter().all(|r| r.disposition.as_str() == "reclaimable"));
+        assert!(listed
+            .iter()
+            .all(|r| r.disposition.as_str() == "reclaimable"));
 
         flywheel_core::domain::session::start_session(&mut conn, &b, "default", &actor).unwrap();
 
@@ -91,8 +116,10 @@ fn the_reclaim_removal_refuses_a_worktree_a_run_started_in_after_the_eligibility
         let (a, path) = merged_worktree(&mut conn, &project.id, &actor, "a");
         flywheel_core::domain::session::start_session(&mut conn, &a, "default", &actor).unwrap();
 
-        let err = flywheel_core::domain::worktree::remove_worktree_for_story_refusing_live_run(&mut conn, &a, &actor)
-            .expect_err("a live run must stop the removal");
+        let err = flywheel_core::domain::worktree::remove_worktree_for_story_refusing_live_run(
+            &mut conn, &a, &actor,
+        )
+        .expect_err("a live run must stop the removal");
 
         assert!(format!("{err:#}").contains("agent run is live"), "{err:#}");
         assert!(path.exists(), "the live worktree must be untouched");
@@ -105,8 +132,13 @@ fn a_blocked_run_is_refused_with_the_blocked_reason() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor, project, _repo) = common::seeded_git_project();
         let (a, path) = merged_worktree(&mut conn, &project.id, &actor, "a");
-        let run = flywheel_core::domain::session::start_session(&mut conn, &a, "default", &actor).unwrap();
-        conn.execute("UPDATE sessions SET status = 'blocked' WHERE id = ?1", params![run.id]).unwrap();
+        let run = flywheel_core::domain::session::start_session(&mut conn, &a, "default", &actor)
+            .unwrap();
+        conn.execute(
+            "UPDATE sessions SET status = 'blocked' WHERE id = ?1",
+            params![run.id],
+        )
+        .unwrap();
         let out = reclaim_worktrees(&mut conn, std::slice::from_ref(&a), &actor);
         assert_eq!(outcome(&out, &a).reason, Some(R::Blocked));
         assert!(path.exists());
@@ -145,15 +177,25 @@ fn an_open_story_is_refused_before_any_git_call() {
         let scratch = tempfile::tempdir().unwrap();
         let marker = scratch.path().join("status-runs.txt");
         let script = scratch.path().join("fsmonitor-count.sh");
-        std::fs::write(&script, format!("#!/bin/sh\necho x >> '{}'\nexit 0\n", marker.display())).unwrap();
+        std::fs::write(
+            &script,
+            format!("#!/bin/sh\necho x >> '{}'\nexit 0\n", marker.display()),
+        )
+        .unwrap();
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-        git(repo.path(), &["config", "core.fsmonitor", script.to_str().unwrap()]);
+        git(
+            repo.path(),
+            &["config", "core.fsmonitor", script.to_str().unwrap()],
+        );
 
         let out = reclaim_worktrees(&mut conn, std::slice::from_ref(&open.id), &actor);
 
         assert_eq!(outcome(&out, &open.id).reason, Some(R::StoryOpen));
         assert!(!outcome(&out, &open.id).removed);
-        assert!(!marker.exists(), "no porcelain read for a row that failed the board test");
+        assert!(
+            !marker.exists(),
+            "no porcelain read for a row that failed the board test"
+        );
         assert!(worktree_for_story(&conn, &open.id).unwrap().is_some());
     });
 }
@@ -163,7 +205,11 @@ fn a_row_in_an_unreachable_project_is_refused_without_a_git_call() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor, project, _repo) = common::seeded_git_project();
         let (a, path) = merged_worktree(&mut conn, &project.id, &actor, "a");
-        conn.execute("UPDATE projects SET status = 'unreachable' WHERE id = ?1", params![project.id]).unwrap();
+        conn.execute(
+            "UPDATE projects SET status = 'unreachable' WHERE id = ?1",
+            params![project.id],
+        )
+        .unwrap();
         let out = reclaim_worktrees(&mut conn, std::slice::from_ref(&a), &actor);
         assert_eq!(outcome(&out, &a).reason, Some(R::ProjectUnreachable));
         assert!(path.exists());
@@ -177,12 +223,20 @@ fn an_unknown_id_fails_alone_and_the_valid_ids_are_still_removed() {
         let (a, _) = merged_worktree(&mut conn, &project.id, &actor, "a");
         let (b, _) = merged_worktree(&mut conn, &project.id, &actor, "b");
 
-        let out = reclaim_worktrees(&mut conn, &[a.clone(), "no-such-story".to_string(), b.clone()], &actor);
+        let out = reclaim_worktrees(
+            &mut conn,
+            &[a.clone(), "no-such-story".to_string(), b.clone()],
+            &actor,
+        );
 
         assert_eq!(out.len(), 3);
         let unknown = outcome(&out, "no-such-story");
         assert!(!unknown.removed);
-        assert!(unknown.error.as_deref().unwrap_or("").contains("no worktree"));
+        assert!(unknown
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("no worktree"));
         assert!(outcome(&out, &a).removed && outcome(&out, &b).removed);
     });
 }
@@ -195,7 +249,10 @@ fn a_duplicate_id_is_handled_once() {
         let out = reclaim_worktrees(&mut conn, &[a.clone(), a.clone(), a.clone()], &actor);
         assert_eq!(out.len(), 1);
         assert!(out[0].removed);
-        assert!(out[0].error.is_none(), "a second pass would have reported 'no worktree exists'");
+        assert!(
+            out[0].error.is_none(),
+            "a second pass would have reported 'no worktree exists'"
+        );
     });
 }
 
@@ -225,13 +282,24 @@ fn a_removal_that_fails_is_reported_as_refused_with_its_error_and_the_batch_cont
         let failed = outcome(&out, &a);
         assert!(!failed.removed, "{failed:?}");
         assert!(failed.reason.is_none());
-        assert!(failed.error.as_deref().map(|e| !e.is_empty()).unwrap_or(false));
+        assert!(failed
+            .error
+            .as_deref()
+            .map(|e| !e.is_empty())
+            .unwrap_or(false));
         // WR-05: a failed removal says what is on disk, so it is not read as a clean refusal.
         assert!(
-            failed.error.as_deref().unwrap().contains("directory still exists"),
+            failed
+                .error
+                .as_deref()
+                .unwrap()
+                .contains("directory still exists"),
             "the error must name the on-disk state: {failed:?}"
         );
-        assert!(worktree_for_story(&conn, &a).unwrap().is_some(), "the row must survive a failed removal");
+        assert!(
+            worktree_for_story(&conn, &a).unwrap().is_some(),
+            "the row must survive a failed removal"
+        );
         assert!(outcome(&out, &b).removed);
     });
 }
@@ -243,7 +311,10 @@ fn a_batch_run_on_a_second_connection_is_visible_on_the_first() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor, project, _repo) = common::seeded_git_project();
         let (a, path) = merged_worktree(&mut conn, &project.id, &actor, "a");
-        let db_path = conn.path().map(PathBuf::from).expect("file-backed database");
+        let db_path = conn
+            .path()
+            .map(PathBuf::from)
+            .expect("file-backed database");
 
         let mut second = Connection::open(&db_path).unwrap();
         flywheel_core::db::apply_pragmas(&second).unwrap();
@@ -253,7 +324,11 @@ fn a_batch_run_on_a_second_connection_is_visible_on_the_first() {
         assert!(!path.exists());
         assert!(worktree_for_story(&conn, &a).unwrap().is_none());
         let events: i64 = conn
-            .query_row("SELECT COUNT(*) FROM events WHERE event_type = 'worktree.removed'", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM events WHERE event_type = 'worktree.removed'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(events, 1);
     });

@@ -84,9 +84,15 @@ pub fn seeded_git_project() -> (Connection, String, Project, tempfile::TempDir) 
 /// A Story in `project_id`, created the way a developer would: a Milestone, an Epic inside it,
 /// then the Story inside the Epic. Each call makes its own Milestone and Epic.
 #[allow(dead_code)]
-pub fn new_story(conn: &mut Connection, project_id: &str, actor_id: &str, title: &str) -> story::Story {
+pub fn new_story(
+    conn: &mut Connection,
+    project_id: &str,
+    actor_id: &str,
+    title: &str,
+) -> story::Story {
     let m = milestone::create_milestone(conn, project_id, actor_id, "Fixture milestone", None)
         .expect("create_milestone should succeed");
-    let e = epic::create_epic(conn, actor_id, &m.id, "Fixture epic").expect("create_epic should succeed");
+    let e = epic::create_epic(conn, actor_id, &m.id, "Fixture epic")
+        .expect("create_epic should succeed");
     story::create_story(conn, actor_id, &e.id, title).expect("create_story should succeed")
 }

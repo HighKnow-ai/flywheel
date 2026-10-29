@@ -28,8 +28,8 @@ use serde_json::{json, Value};
 
 use crate::domain::actor::assert_human_actor_in_tx;
 use crate::domain::proposal::{
-    decide_in_tx, file_proposal_in_tx, get_proposal, proposals_in_round, Decision, NewProposal, Proposal, ProposalTarget,
-    ProposalVerb,
+    decide_in_tx, file_proposal_in_tx, get_proposal, proposals_in_round, Decision, NewProposal,
+    Proposal, ProposalTarget, ProposalVerb,
 };
 use crate::domain::proposal_apply::RoadmapChange;
 use crate::domain::round::RoundRelease;
@@ -92,7 +92,11 @@ impl RoadmapTrigger {
             }
             RoadmapTrigger::MilestoneDone(id) => {
                 let title: String = conn
-                    .query_row("SELECT title FROM milestones WHERE id = ?1", params![id], |r| r.get(0))
+                    .query_row(
+                        "SELECT title FROM milestones WHERE id = ?1",
+                        params![id],
+                        |r| r.get(0),
+                    )
                     .with_context(|| format!("Milestone {id:?} not found"))?;
                 format!("The developer confirmed Milestone \"{title}\" Done.")
             }
@@ -104,11 +108,17 @@ impl RoadmapTrigger {
         match self {
             RoadmapTrigger::Revisit => "Revisit roadmap".to_string(),
             RoadmapTrigger::EpicDone(id) => conn
-                .query_row("SELECT key FROM epics WHERE id = ?1", params![id], |r| r.get::<_, String>(0))
+                .query_row("SELECT key FROM epics WHERE id = ?1", params![id], |r| {
+                    r.get::<_, String>(0)
+                })
                 .map(|key| format!("Epic {key} done"))
                 .unwrap_or_else(|_| "Epic done".to_string()),
             RoadmapTrigger::MilestoneDone(id) => conn
-                .query_row("SELECT title FROM milestones WHERE id = ?1", params![id], |r| r.get::<_, String>(0))
+                .query_row(
+                    "SELECT title FROM milestones WHERE id = ?1",
+                    params![id],
+                    |r| r.get::<_, String>(0),
+                )
                 .map(|title| format!("Milestone \"{title}\" done"))
                 .unwrap_or_else(|_| "Milestone done".to_string()),
         }
@@ -146,8 +156,9 @@ const ROADMAP_ROUND_SELECT: &str = concat!(
 
 fn roadmap_round_from_row(row: &rusqlite::Row) -> rusqlite::Result<RoadmapRound> {
     let kind: String = row.get(5)?;
-    let trigger = RoadmapTrigger::parse(&kind, row.get(6)?)
-        .map_err(|e| rusqlite::Error::FromSqlConversionFailure(5, rusqlite::types::Type::Text, e.into()))?;
+    let trigger = RoadmapTrigger::parse(&kind, row.get(6)?).map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(5, rusqlite::types::Type::Text, e.into())
+    })?;
     Ok(RoadmapRound {
         id: row.get(0)?,
         project_id: row.get(1)?,
@@ -165,14 +176,24 @@ fn roadmap_round_from_row(row: &rusqlite::Row) -> rusqlite::Result<RoadmapRound>
 }
 
 /// One roadmap Round by id, or `None` (also for a Stage's Round).
-pub fn get_roadmap_round(conn: &Connection, round_id: &str) -> anyhow::Result<Option<RoadmapRound>> {
-    conn.query_row(&format!("{ROADMAP_ROUND_SELECT} AND r.id = ?1"), params![round_id], roadmap_round_from_row)
-        .optional()
-        .context("failed to read the roadmap Round")
+pub fn get_roadmap_round(
+    conn: &Connection,
+    round_id: &str,
+) -> anyhow::Result<Option<RoadmapRound>> {
+    conn.query_row(
+        &format!("{ROADMAP_ROUND_SELECT} AND r.id = ?1"),
+        params![round_id],
+        roadmap_round_from_row,
+    )
+    .optional()
+    .context("failed to read the roadmap Round")
 }
 
 /// The project's open roadmap Round, or `None`.
-pub fn open_roadmap_round(conn: &Connection, project_id: &str) -> anyhow::Result<Option<RoadmapRound>> {
+pub fn open_roadmap_round(
+    conn: &Connection,
+    project_id: &str,
+) -> anyhow::Result<Option<RoadmapRound>> {
     conn.query_row(
         &format!("{ROADMAP_ROUND_SELECT} AND r.project_id = ?1 AND r.state = 'open'"),
         params![project_id],
@@ -183,7 +204,10 @@ pub fn open_roadmap_round(conn: &Connection, project_id: &str) -> anyhow::Result
 }
 
 /// The project's latest roadmap Round, whatever its state, or `None`.
-pub fn latest_roadmap_round(conn: &Connection, project_id: &str) -> anyhow::Result<Option<RoadmapRound>> {
+pub fn latest_roadmap_round(
+    conn: &Connection,
+    project_id: &str,
+) -> anyhow::Result<Option<RoadmapRound>> {
     conn.query_row(
         &format!("{ROADMAP_ROUND_SELECT} AND r.project_id = ?1 ORDER BY r.number DESC LIMIT 1"),
         params![project_id],
@@ -196,7 +220,12 @@ pub fn latest_roadmap_round(conn: &Connection, project_id: &str) -> anyhow::Resu
 /// Open a roadmap Round on `project_id` for `trigger`, with no session yet, as `actor_id`: what
 /// confirming an Epic or a Milestone Done does (#134) before it starts the Round's session. Refused
 /// while the project has an open roadmap Round.
-pub fn open_roadmap_round_for(conn: &mut Connection, project_id: &str, trigger: RoadmapTrigger, actor_id: &str) -> anyhow::Result<RoadmapRound> {
+pub fn open_roadmap_round_for(
+    conn: &mut Connection,
+    project_id: &str,
+    trigger: RoadmapTrigger,
+    actor_id: &str,
+) -> anyhow::Result<RoadmapRound> {
     let tx = conn.transaction()?;
     anyhow::ensure!(
         open_roadmap_round(&tx, project_id)?.is_none(),
@@ -289,7 +318,12 @@ pub(crate) fn note_trigger_in_tx(
     actor_id: &str,
     at: &str,
 ) -> anyhow::Result<()> {
-    anyhow::ensure!(round.state == "open", "roadmap Round {} is {}; a trigger is noted only on an open Round", round.number, round.state);
+    anyhow::ensure!(
+        round.state == "open",
+        "roadmap Round {} is {}; a trigger is noted only on an open Round",
+        round.number,
+        round.state
+    );
     record_event(
         tx,
         &round.project_id,
@@ -316,15 +350,23 @@ pub fn noted_triggers(conn: &Connection, round_id: &str) -> anyhow::Result<Vec<R
          ORDER BY sequence",
     )?;
     let rows = stmt
-        .query_map(params![round_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?)))?
+        .query_map(params![round_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?))
+        })?
         .collect::<Result<Vec<_>, _>>()
         .context("failed to read the triggers noted on the roadmap Round")?;
-    rows.into_iter().map(|(kind, id)| RoadmapTrigger::parse(&kind, id)).collect()
+    rows.into_iter()
+        .map(|(kind, id)| RoadmapTrigger::parse(&kind, id))
+        .collect()
 }
 
 /// The live roadmap session `session_id`'s open Round, inside the caller's transaction. Refused for an
 /// unknown, ended, Story or Epic/Milestone session, and when the project has no open roadmap Round.
-fn live_roadmap_round(tx: &Transaction, session_id: &str, tool: &str) -> anyhow::Result<RoadmapRound> {
+fn live_roadmap_round(
+    tx: &Transaction,
+    session_id: &str,
+    tool: &str,
+) -> anyhow::Result<RoadmapRound> {
     /// `(kind, status, project_id, epic_id, milestone_id)` of the session.
     type SessionRow = (String, String, String, Option<String>, Option<String>);
     let row: Option<SessionRow> = tx
@@ -334,13 +376,21 @@ fn live_roadmap_round(tx: &Transaction, session_id: &str, tool: &str) -> anyhow:
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
         )
         .optional()?;
-    let Some((kind, status, project_id, epic_id, milestone_id)) = row else { bail!("session {session_id:?} not found") };
-    anyhow::ensure!(kind == "shaping", "{tool} belongs to a roadmap session; session {session_id:?} is a Story session");
+    let Some((kind, status, project_id, epic_id, milestone_id)) = row else {
+        bail!("session {session_id:?} not found")
+    };
+    anyhow::ensure!(
+        kind == "shaping",
+        "{tool} belongs to a roadmap session; session {session_id:?} is a Story session"
+    );
     anyhow::ensure!(
         epic_id.is_none() && milestone_id.is_none(),
         "{tool} belongs to a roadmap Round; this session shapes an Epic or a Milestone"
     );
-    anyhow::ensure!(status == "running" || status == "blocked", "this session has ended ({status}); it can no longer use {tool}");
+    anyhow::ensure!(
+        status == "running" || status == "blocked",
+        "this session has ended ({status}); it can no longer use {tool}"
+    );
     let round = open_roadmap_round(tx, &project_id)?
         .context("the roadmap Round is closed: the developer dismissed it or it was settled. End the session")?;
     anyhow::ensure!(
@@ -353,7 +403,10 @@ fn live_roadmap_round(tx: &Transaction, session_id: &str, tool: &str) -> anyhow:
 
 /// The Milestone after the Current one: where a new Epic lands unless the agent names another
 /// (docs/mvp-spec.md §5 "New Epic: created in Shaping, after the Current Milestone").
-pub fn milestone_after_current(conn: &Connection, project_id: &str) -> anyhow::Result<Option<String>> {
+pub fn milestone_after_current(
+    conn: &Connection,
+    project_id: &str,
+) -> anyhow::Result<Option<String>> {
     conn.query_row(
         "SELECT id FROM milestones WHERE project_id = ?1 AND state NOT IN ('done', 'dropped') ORDER BY rank, id LIMIT 1 OFFSET 1",
         params![project_id],
@@ -365,15 +418,26 @@ pub fn milestone_after_current(conn: &Connection, project_id: &str) -> anyhow::R
 
 /// Check a change against the board before it is filed: every record it names is on this Roadmap and
 /// still open to the change.
-fn check_targets(conn: &Connection, project_id: &str, change: &RoadmapChange) -> anyhow::Result<()> {
+fn check_targets(
+    conn: &Connection,
+    project_id: &str,
+    change: &RoadmapChange,
+) -> anyhow::Result<()> {
     let open_milestone = |id: &str, act: &str| -> anyhow::Result<()> {
         let row: Option<(String, String, String)> = conn
-            .query_row("SELECT project_id, state, title FROM milestones WHERE id = ?1", params![id], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-            })
+            .query_row(
+                "SELECT project_id, state, title FROM milestones WHERE id = ?1",
+                params![id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
             .optional()?;
-        let Some((project, state, title)) = row else { bail!("Milestone {id:?} is not on this Roadmap: use an id from the packet") };
-        anyhow::ensure!(project == project_id, "Milestone {id:?} is not on this Roadmap: use an id from the packet");
+        let Some((project, state, title)) = row else {
+            bail!("Milestone {id:?} is not on this Roadmap: use an id from the packet")
+        };
+        anyhow::ensure!(
+            project == project_id,
+            "Milestone {id:?} is not on this Roadmap: use an id from the packet"
+        );
         anyhow::ensure!(
             state != "done" && state != "dropped",
             "Milestone \"{title}\" is {state}, so it cannot {act}: a Done Milestone is frozen (put later changes in a new Milestone), a Dropped one stays dropped"
@@ -382,31 +446,56 @@ fn check_targets(conn: &Connection, project_id: &str, change: &RoadmapChange) ->
     };
     match change {
         RoadmapChange::CreateMilestone { .. } => Ok(()),
-        RoadmapChange::AmendMilestone { milestone_id, .. } => open_milestone(milestone_id, "be amended"),
-        RoadmapChange::ReorderMilestone { milestone_id, before_milestone_id } => {
+        RoadmapChange::AmendMilestone { milestone_id, .. } => {
+            open_milestone(milestone_id, "be amended")
+        }
+        RoadmapChange::ReorderMilestone {
+            milestone_id,
+            before_milestone_id,
+        } => {
             open_milestone(milestone_id, "move")?;
             if let Some(before) = before_milestone_id {
-                anyhow::ensure!(before != milestone_id, "a Milestone cannot move before itself");
+                anyhow::ensure!(
+                    before != milestone_id,
+                    "a Milestone cannot move before itself"
+                );
                 let on_roadmap: bool = conn.query_row(
                     "SELECT EXISTS (SELECT 1 FROM milestones WHERE id = ?1 AND project_id = ?2)",
                     params![before, project_id],
                     |r| r.get(0),
                 )?;
-                anyhow::ensure!(on_roadmap, "Milestone {before:?} is not on this Roadmap: use an id from the packet");
+                anyhow::ensure!(
+                    on_roadmap,
+                    "Milestone {before:?} is not on this Roadmap: use an id from the packet"
+                );
             }
             Ok(())
         }
-        RoadmapChange::RetireMilestone { milestone_id } => open_milestone(milestone_id, "be retired"),
-        RoadmapChange::AddEpic { milestone_id, .. } => open_milestone(milestone_id, "take a new Epic"),
+        RoadmapChange::RetireMilestone { milestone_id } => {
+            open_milestone(milestone_id, "be retired")
+        }
+        RoadmapChange::AddEpic { milestone_id, .. } => {
+            open_milestone(milestone_id, "take a new Epic")
+        }
         RoadmapChange::DropEpic { epic_id } => {
             let row: Option<(String, String, String)> = conn
-                .query_row("SELECT project_id, state, key FROM epics WHERE id = ?1", params![epic_id], |r| {
-                    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-                })
+                .query_row(
+                    "SELECT project_id, state, key FROM epics WHERE id = ?1",
+                    params![epic_id],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )
                 .optional()?;
-            let Some((project, state, key)) = row else { bail!("Epic {epic_id:?} is not on this Roadmap: use an id from the packet") };
-            anyhow::ensure!(project == project_id, "Epic {epic_id:?} is not on this Roadmap: use an id from the packet");
-            anyhow::ensure!(state != "done" && state != "dropped", "Epic {key} is {state}; only an open Epic is dropped");
+            let Some((project, state, key)) = row else {
+                bail!("Epic {epic_id:?} is not on this Roadmap: use an id from the packet")
+            };
+            anyhow::ensure!(
+                project == project_id,
+                "Epic {epic_id:?} is not on this Roadmap: use an id from the packet"
+            );
+            anyhow::ensure!(
+                state != "done" && state != "dropped",
+                "Epic {key} is {state}; only an open Epic is dropped"
+            );
             Ok(())
         }
     }
@@ -416,7 +505,12 @@ fn check_targets(conn: &Connection, project_id: &str, change: &RoadmapChange) ->
 /// its one-line reason (issue #133). A new Epic with no Milestone named goes after the Current
 /// Milestone; with no such Milestone the change is refused and names the alternatives. Answered at
 /// once: the developer decides it on the Roadmap strip.
-pub fn propose_roadmap_change(conn: &mut Connection, session_id: &str, change: &RoadmapChange, why: &str) -> anyhow::Result<Proposal> {
+pub fn propose_roadmap_change(
+    conn: &mut Connection,
+    session_id: &str,
+    change: &RoadmapChange,
+    why: &str,
+) -> anyhow::Result<Proposal> {
     let agent = agent_actor_id(conn)?;
     let at = now();
     let tx = conn.transaction()?;
@@ -455,18 +549,33 @@ pub fn propose_roadmap_change(conn: &mut Connection, session_id: &str, change: &
 /// "Roadmap still holds" (issue #133): close the live roadmap session `session_id`'s open Round with
 /// no change, as the agent, appending `round.closed` labelled "Roadmap still holds" with the agent's
 /// reason. Refused once the Round holds a Proposal: then the Round closes once each is decided.
-pub fn roadmap_holds(conn: &mut Connection, session_id: &str, why: &str) -> anyhow::Result<RoadmapRound> {
+pub fn roadmap_holds(
+    conn: &mut Connection,
+    session_id: &str,
+    why: &str,
+) -> anyhow::Result<RoadmapRound> {
     let agent = agent_actor_id(conn)?;
     let at = now();
     let tx = conn.transaction()?;
     let round = live_roadmap_round(&tx, session_id, "roadmap_holds")?;
-    let filed: i64 = tx.query_row("SELECT COUNT(*) FROM proposals WHERE round_id = ?1", params![round.id], |r| r.get(0))?;
+    let filed: i64 = tx.query_row(
+        "SELECT COUNT(*) FROM proposals WHERE round_id = ?1",
+        params![round.id],
+        |r| r.get(0),
+    )?;
     anyhow::ensure!(
         filed == 0,
         "you proposed {filed} change{} in this Round, so the Roadmap does not hold as it is: call round_wait for the developer's decisions",
         if filed == 1 { "" } else { "s" }
     );
-    close_in_tx(&tx, &round, &agent, &at, "closed", json!({ "outcome": "holds", "why": why, "label": "Roadmap still holds" }))?;
+    close_in_tx(
+        &tx,
+        &round,
+        &agent,
+        &at,
+        "closed",
+        json!({ "outcome": "holds", "why": why, "label": "Roadmap still holds" }),
+    )?;
     let closed = get_roadmap_round(&tx, &round.id)?.context("the roadmap Round just closed")?;
     tx.commit()?;
     Ok(closed)
@@ -485,7 +594,11 @@ pub enum RoadmapWait {
 /// `round_wait` in a roadmap session (issue #133): hold the call until every Proposal the Round holds
 /// is decided. When none is undecided any more, the Round closes now and the call is answered at once
 /// with every decision. Refused while the Round holds no Proposal: propose or say it holds.
-pub fn wait_roadmap_round(conn: &mut Connection, session_id: &str, request_id: &str) -> anyhow::Result<RoadmapWait> {
+pub fn wait_roadmap_round(
+    conn: &mut Connection,
+    session_id: &str,
+    request_id: &str,
+) -> anyhow::Result<RoadmapWait> {
     let agent = agent_actor_id(conn)?;
     let at = now();
     let tx = conn.transaction()?;
@@ -501,13 +614,23 @@ pub fn wait_roadmap_round(conn: &mut Connection, session_id: &str, request_id: &
          propose_roadmap_change, or say the Roadmap still holds with roadmap_holds"
     );
     if pending == 0 {
-        close_in_tx(&tx, &round, &agent, &at, "closed", json!({ "outcome": "decided" }))?;
+        close_in_tx(
+            &tx,
+            &round,
+            &agent,
+            &at,
+            "closed",
+            json!({ "outcome": "decided" }),
+        )?;
         let result = decisions_result(&tx, &round)?;
         tx.commit()?;
         return Ok(RoadmapWait::Answered(result));
     }
-    tx.execute("UPDATE rounds SET held_request_id = ?1 WHERE id = ?2 AND state = 'open'", params![request_id, round.id])
-        .context("failed to hold the roadmap Round")?;
+    tx.execute(
+        "UPDATE rounds SET held_request_id = ?1 WHERE id = ?2 AND state = 'open'",
+        params![request_id, round.id],
+    )
+    .context("failed to hold the roadmap Round")?;
     let held = get_roadmap_round(&tx, &round.id)?.context("the roadmap Round just held")?;
     tx.commit()?;
     Ok(RoadmapWait::Held(Box::new(held)))
@@ -517,23 +640,46 @@ pub fn wait_roadmap_round(conn: &mut Connection, session_id: &str, request_id: &
 /// Round left with nothing undecided, when its session waits on it (and hand back that held call) or
 /// has died. While its live session is still working the Round stays open: the agent may file more,
 /// and its `round_wait` closes it. A Stage's Round is never touched.
-pub(crate) fn settle_in_tx(tx: &Transaction, round_id: &str, actor_id: &str, at: &str) -> anyhow::Result<Option<RoundRelease>> {
-    let Some(round) = get_roadmap_round(tx, round_id)? else { return Ok(None) };
+pub(crate) fn settle_in_tx(
+    tx: &Transaction,
+    round_id: &str,
+    actor_id: &str,
+    at: &str,
+) -> anyhow::Result<Option<RoundRelease>> {
+    let Some(round) = get_roadmap_round(tx, round_id)? else {
+        return Ok(None);
+    };
     if round.state != "open" {
         return Ok(None);
     }
-    let pending: i64 =
-        tx.query_row("SELECT COUNT(*) FROM proposals WHERE round_id = ?1 AND state = 'pending'", params![round.id], |r| r.get(0))?;
+    let pending: i64 = tx.query_row(
+        "SELECT COUNT(*) FROM proposals WHERE round_id = ?1 AND state = 'pending'",
+        params![round.id],
+        |r| r.get(0),
+    )?;
     if pending > 0 || (round.session_live && !round.waiting_on_you) {
         return Ok(None);
     }
-    let release = match (&round.session_id, &round.held_request_id, round.waiting_on_you) {
-        (Some(session_id), Some(request_id), true) => {
-            Some(RoundRelease { session_id: session_id.clone(), request_id: request_id.clone(), result: decisions_result(tx, &round)? })
-        }
+    let release = match (
+        &round.session_id,
+        &round.held_request_id,
+        round.waiting_on_you,
+    ) {
+        (Some(session_id), Some(request_id), true) => Some(RoundRelease {
+            session_id: session_id.clone(),
+            request_id: request_id.clone(),
+            result: decisions_result(tx, &round)?,
+        }),
         _ => None,
     };
-    close_in_tx(tx, &round, actor_id, at, "closed", json!({ "outcome": "decided" }))?;
+    close_in_tx(
+        tx,
+        &round,
+        actor_id,
+        at,
+        "closed",
+        json!({ "outcome": "decided" }),
+    )?;
     Ok(release)
 }
 
@@ -551,21 +697,45 @@ pub const DISMISSED_REASON: &str = "Dismissed with the roadmap Round";
 /// with no change, until the next trigger"). One transaction: refuse any actor but a human, reject every
 /// Proposal still undecided in it with [`DISMISSED_REASON`], mark it `dismissed` and append
 /// `round.dismissed`. The held call, if its session is live, is handed back to be told to end.
-pub fn dismiss_roadmap_round(conn: &mut Connection, actor_id: &str, round_id: &str) -> anyhow::Result<DismissOutcome> {
+pub fn dismiss_roadmap_round(
+    conn: &mut Connection,
+    actor_id: &str,
+    round_id: &str,
+) -> anyhow::Result<DismissOutcome> {
     let at = now();
     let tx = conn.transaction()?;
     assert_human_actor_in_tx(&tx, actor_id)?;
-    let round = get_roadmap_round(&tx, round_id)?.with_context(|| format!("roadmap Round {round_id:?} not found"))?;
-    anyhow::ensure!(round.state == "open", "roadmap Round {} is already {}", round.number, round.state);
+    let round = get_roadmap_round(&tx, round_id)?
+        .with_context(|| format!("roadmap Round {round_id:?} not found"))?;
+    anyhow::ensure!(
+        round.state == "open",
+        "roadmap Round {} is already {}",
+        round.number,
+        round.state
+    );
     let pending: Vec<String> = {
         let mut stmt = tx.prepare("SELECT id FROM proposals WHERE round_id = ?1 AND state = 'pending' ORDER BY created_at, id")?;
-        let ids = stmt.query_map(params![round.id], |r| r.get(0))?.collect::<Result<Vec<String>, _>>()?;
+        let ids = stmt
+            .query_map(params![round.id], |r| r.get(0))?
+            .collect::<Result<Vec<String>, _>>()?;
         ids
     };
     for id in &pending {
-        decide_in_tx(&tx, actor_id, id, Decision::Reject { reason: Some(DISMISSED_REASON) }, &at)?;
+        decide_in_tx(
+            &tx,
+            actor_id,
+            id,
+            Decision::Reject {
+                reason: Some(DISMISSED_REASON),
+            },
+            &at,
+        )?;
     }
-    let release = match (&round.session_id, &round.held_request_id, round.waiting_on_you) {
+    let release = match (
+        &round.session_id,
+        &round.held_request_id,
+        round.waiting_on_you,
+    ) {
         (Some(session_id), Some(request_id), true) => Some(RoundRelease {
             session_id: session_id.clone(),
             request_id: request_id.clone(),
@@ -587,32 +757,63 @@ pub fn dismiss_roadmap_round(conn: &mut Connection, actor_id: &str, round_id: &s
         json!({ "outcome": "dismissed", "rejected": pending.len(), "label": format!("Dismissed roadmap Round {}: no change", round.number) }),
     )?;
     tx.commit()?;
-    Ok(DismissOutcome { project_id: round.project_id, release })
+    Ok(DismissOutcome {
+        project_id: round.project_id,
+        release,
+    })
 }
 
 /// Close an open roadmap Round as `to` (`closed` or `dismissed`), clearing its held call, and append
 /// `round.closed` or `round.dismissed` with `detail` (its `label` defaults to a count of decisions).
-fn close_in_tx(tx: &Transaction, round: &RoadmapRound, actor_id: &str, at: &str, to: &str, mut detail: Value) -> anyhow::Result<()> {
+fn close_in_tx(
+    tx: &Transaction,
+    round: &RoadmapRound,
+    actor_id: &str,
+    at: &str,
+    to: &str,
+    mut detail: Value,
+) -> anyhow::Result<()> {
     let changed = tx
         .execute(
             "UPDATE rounds SET state = ?1, closed_at = ?2, closed_by = ?3, held_request_id = NULL WHERE id = ?4 AND state = 'open'",
             params![to, at, actor_id, round.id],
         )
         .context("failed to close the roadmap Round")?;
-    anyhow::ensure!(changed == 1, "roadmap Round {} is no longer open", round.number);
+    anyhow::ensure!(
+        changed == 1,
+        "roadmap Round {} is no longer open",
+        round.number
+    );
     if detail.get("label").is_none() {
         let (accepted, rejected): (i64, i64) = tx.query_row(
             "SELECT COUNT(*) FILTER (WHERE state = 'accepted'), COUNT(*) FILTER (WHERE state = 'rejected') FROM proposals WHERE round_id = ?1",
             params![round.id],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
-        detail["label"] = json!(format!("Closed roadmap Round {}: {accepted} accepted, {rejected} rejected", round.number));
+        detail["label"] = json!(format!(
+            "Closed roadmap Round {}: {accepted} accepted, {rejected} rejected",
+            round.number
+        ));
     }
     detail["field"] = json!("state");
     detail["before"] = json!("open");
     detail["after"] = json!(to);
-    let event = if to == "dismissed" { "round.dismissed" } else { "round.closed" };
-    record_event(tx, &round.project_id, "round", &round.id, EventScope::default(), actor_id, event, &detail, at)?;
+    let event = if to == "dismissed" {
+        "round.dismissed"
+    } else {
+        "round.closed"
+    };
+    record_event(
+        tx,
+        &round.project_id,
+        "round",
+        &round.id,
+        EventScope::default(),
+        actor_id,
+        event,
+        &detail,
+        at,
+    )?;
     Ok(())
 }
 
@@ -638,7 +839,9 @@ fn decisions_result(conn: &Connection, round: &RoadmapRound) -> anyhow::Result<V
 pub fn describe_proposal(conn: &Connection, p: &Proposal) -> String {
     let parsed = ProposalVerb::parse(&p.verb)
         .and_then(|verb| Ok((verb, ProposalTarget::parse(&p.target_type)?)))
-        .and_then(|(verb, target)| RoadmapChange::from_proposal(verb, target, p.target_id.as_deref(), &p.payload));
+        .and_then(|(verb, target)| {
+            RoadmapChange::from_proposal(verb, target, p.target_id.as_deref(), &p.payload)
+        });
     match parsed {
         Ok(change) => change.describe(conn),
         Err(_) => format!("{} a {}", p.verb, p.target_type.replace('_', " ")),
@@ -647,18 +850,29 @@ pub fn describe_proposal(conn: &Connection, p: &Proposal) -> String {
 
 /// The Roadmap Proposals the developer rejected on this project, oldest first, each as one line with
 /// its reason: what the roadmap packet lists so the agent does not propose them again.
-pub fn rejected_roadmap_proposals(conn: &Connection, project_id: &str) -> anyhow::Result<Vec<String>> {
+pub fn rejected_roadmap_proposals(
+    conn: &Connection,
+    project_id: &str,
+) -> anyhow::Result<Vec<String>> {
     let mut stmt = conn.prepare(
         "SELECT id FROM proposals WHERE project_id = ?1 AND state = 'rejected'
            AND (target_type = 'milestone' OR (target_type = 'epic' AND verb IN ('create', 'retire')))
          ORDER BY created_at, id",
     )?;
-    let ids = stmt.query_map(params![project_id], |r| r.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?;
+    let ids = stmt
+        .query_map(params![project_id], |r| r.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
     let mut out = Vec::with_capacity(ids.len());
     for id in ids {
         let p = get_proposal(conn, &id)?.context("a rejected Roadmap Proposal")?;
-        let reason = p.rejection_reason.clone().unwrap_or_else(|| "no reason given".to_string());
-        out.push(format!("{}; rejected: {reason}", describe_proposal(conn, &p)));
+        let reason = p
+            .rejection_reason
+            .clone()
+            .unwrap_or_else(|| "no reason given".to_string());
+        out.push(format!(
+            "{}; rejected: {reason}",
+            describe_proposal(conn, &p)
+        ));
     }
     Ok(out)
 }

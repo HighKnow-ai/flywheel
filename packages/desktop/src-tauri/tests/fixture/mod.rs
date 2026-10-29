@@ -21,12 +21,24 @@ pub const PARK_DEADLINE: Duration = Duration::from_secs(30);
 static PATH_LOCK: Mutex<()> = Mutex::new(());
 
 pub fn git(dir: &Path, args: &[&str]) {
-    let out = Command::new("git").arg("-C").arg(dir).args(args).output().expect("spawn git");
-    assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .expect("spawn git");
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 fn real_git() -> PathBuf {
-    let out = Command::new("sh").args(["-c", "command -v git"]).output().expect("find git");
+    let out = Command::new("sh")
+        .args(["-c", "command -v git"])
+        .output()
+        .expect("find git");
     PathBuf::from(String::from_utf8_lossy(&out.stdout).trim())
 }
 
@@ -62,7 +74,11 @@ impl SlowGit {
         Command::new("chmod").arg("+x").arg(&bin).status().unwrap();
         let old_path = std::env::var("PATH").unwrap_or_default();
         std::env::set_var("PATH", format!("{}:{old_path}", dir.path().display()));
-        SlowGit { dir, old_path, _turn: turn }
+        SlowGit {
+            dir,
+            old_path,
+            _turn: turn,
+        }
     }
 
     /// Whether a call has reached the parked subcommand.
@@ -75,8 +91,14 @@ impl SlowGit {
     pub fn wait_until_parked(&self, finished: impl Fn() -> bool) {
         let start = Instant::now();
         while !self.parked() {
-            assert!(!finished(), "the call finished without ever reaching the parked git call");
-            assert!(start.elapsed() < PARK_DEADLINE, "the call never reached the parked git call");
+            assert!(
+                !finished(),
+                "the call finished without ever reaching the parked git call"
+            );
+            assert!(
+                start.elapsed() < PARK_DEADLINE,
+                "the call never reached the parked git call"
+            );
             std::thread::sleep(Duration::from_millis(10));
         }
     }
@@ -112,7 +134,10 @@ impl Board {
         self.db
             .lock()
             .unwrap()
-            .execute("UPDATE stories SET state = ?1 WHERE id = ?2", params![state, story_id])
+            .execute(
+                "UPDATE stories SET state = ?1 WHERE id = ?2",
+                params![state, story_id],
+            )
             .unwrap();
     }
 }
@@ -121,22 +146,45 @@ pub fn board(stories: usize) -> Board {
     let root = tempfile::tempdir().unwrap();
     let origin = root.path().join("origin.git");
     let repo = root.path().join("repo");
-    git(root.path(), &["init", "--bare", "--initial-branch", "main", origin.to_str().unwrap()]);
+    git(
+        root.path(),
+        &[
+            "init",
+            "--bare",
+            "--initial-branch",
+            "main",
+            origin.to_str().unwrap(),
+        ],
+    );
     std::fs::create_dir_all(&repo).unwrap();
     git(&repo, &["init", "--initial-branch", "main"]);
-    git(&repo, &["config", "user.email", "scheduler-lock@flywheel.invalid"]);
+    git(
+        &repo,
+        &["config", "user.email", "scheduler-lock@flywheel.invalid"],
+    );
     git(&repo, &["config", "user.name", "Scheduler Lock Test"]);
     std::fs::write(repo.join("README.md"), "scheduler lock\n").unwrap();
     git(&repo, &["add", "README.md"]);
     git(&repo, &["commit", "-m", "initial commit"]);
-    git(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    git(
+        &repo,
+        &["remote", "add", "origin", origin.to_str().unwrap()],
+    );
     git(&repo, &["push", "-u", "origin", "main"]);
 
     let db_path = root.path().join("flywheel.db");
-    let mut conn = flywheel_core::db::open_and_migrate(&db_path, &root.path().join("backups")).unwrap();
+    let mut conn =
+        flywheel_core::db::open_and_migrate(&db_path, &root.path().join("backups")).unwrap();
     let actor_id = local_human_actor_id(&conn).unwrap();
-    let project =
-        project::create_project(&mut conn, &actor_id, "Lock", &repo.to_string_lossy(), "LCK", "main").unwrap();
+    let project = project::create_project(
+        &mut conn,
+        &actor_id,
+        "Lock",
+        &repo.to_string_lossy(),
+        "LCK",
+        "main",
+    )
+    .unwrap();
     let m = milestone::create_milestone(&mut conn, &project.id, &actor_id, "M", None).unwrap();
     let e = epic::create_epic(&mut conn, &actor_id, &m.id, "E").unwrap();
 
@@ -145,7 +193,17 @@ pub fn board(stories: usize) -> Board {
         let s = story::create_story(&mut conn, &actor_id, &e.id, &format!("Story {n}")).unwrap();
         let branch = format!("flywheel/lck-{n}");
         let path = root.path().join(format!("wt-{n}"));
-        git(&repo, &["worktree", "add", path.to_str().unwrap(), "-b", &branch, "main"]);
+        git(
+            &repo,
+            &[
+                "worktree",
+                "add",
+                path.to_str().unwrap(),
+                "-b",
+                &branch,
+                "main",
+            ],
+        );
         std::fs::write(path.join(format!("hand-{n}.txt")), "by hand\n").unwrap();
         git(&path, &["add", "."]);
         git(&path, &["commit", "-m", "by hand"]);
