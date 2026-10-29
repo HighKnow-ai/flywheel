@@ -78,8 +78,12 @@ jobs:
       - name: Format
         run: cargo fmt --all --check
 
+      # Its own target directory: tauri-build copies the externalBin stand-ins into the target
+      # directory, where the sidecar's shim tests would find an empty file instead of the shim.
       - name: Clippy
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
+        env:
+          CARGO_TARGET_DIR: target/clippy
 
       # packages/sidecar/dist: the session tests spawn the real sidecar under node.
       - run: npm --prefix packages/sidecar ci
