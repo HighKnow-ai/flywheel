@@ -1,0 +1,71 @@
+name: Scorecard
+# OpenSSF Scorecard: this repository's supply-chain practices (pinned dependencies, token
+# permissions, branch protection, signed releases, dangerous workflows and the rest), scored by the
+# OpenSSF's own action and reported in two places:
+#
+#   - this repository's code scanning (Security > Code scanning), as SARIF. A public repository has
+#     code scanning on the free plan; a private one would need GitHub Advanced Security.
+#   - the public Scorecard API and its badge (`publish_results`), which is what a reader outside
+#     the repository sees. Publishing is why the job is shaped as it is: the Scorecard API accepts
+#     results only from a workflow on the default branch whose job has no `env`, `defaults`,
+#     container or services and runs only approved actions, verified through the OIDC token
+#     (`id-token: write`).
+#
+# ON `main` AND WEEKLY. `main` moves only by a fast-forward to a commit CI passed on `next`, and a
+# score is about what the repository is, so a push there and a weekly run are enough; a pull
+# request is not scored. A public repository's standard-runner minutes are free.
+#
+# The default GITHUB_TOKEN cannot read branch protection settings, so the Branch-Protection check
+# scores what it can see; a fine-grained token with administration read would complete it, and is
+# deliberately not stored here.
+#
+# Every action is pinned to a full commit SHA with its version beside it: a tag is a pointer its
+# owner can move, and this file is edited in a private repository whose checks refuse a tag pin.
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Mondays 05:37 UTC, off the hour: GitHub delays cron runs that land on a popular minute.
+    - cron: "37 5 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: scorecard
+  cancel-in-progress: true
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    # Bounded: the action takes about a minute.
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      # The SARIF upload to code scanning.
+      security-events: write
+      # The OIDC token the Scorecard API verifies before it accepts published results.
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e # v2.5.0
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+
+      # The raw result beside the code-scanning view, for five days.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: scorecard-sarif
+          path: results.sarif
+          retention-days: 5
+
+      - uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          sarif_file: results.sarif
