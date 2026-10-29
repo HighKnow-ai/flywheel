@@ -27,7 +27,7 @@ fn story_branch_name_covers_every_behavior_case() {
 
 #[test]
 fn story_branch_name_truncates_a_long_title_to_at_most_200_bytes_ending_alphanumeric() {
-    let long_title: String = std::iter::repeat("word ").take(80).collect(); // 400 chars
+    let long_title: String = "word ".repeat(80); // 400 chars
     let name = story_branch_name("THRE-9", &long_title);
     assert!(name.len() <= 200, "expected at most 200 bytes, got {}", name.len());
     let last_char = name.chars().last().expect("name should not be empty");

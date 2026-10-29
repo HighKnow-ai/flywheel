@@ -325,7 +325,9 @@ pub fn noted_triggers(conn: &Connection, round_id: &str) -> anyhow::Result<Vec<R
 /// The live roadmap session `session_id`'s open Round, inside the caller's transaction. Refused for an
 /// unknown, ended, Story or Epic/Milestone session, and when the project has no open roadmap Round.
 fn live_roadmap_round(tx: &Transaction, session_id: &str, tool: &str) -> anyhow::Result<RoadmapRound> {
-    let row: Option<(String, String, String, Option<String>, Option<String>)> = tx
+    /// `(kind, status, project_id, epic_id, milestone_id)` of the session.
+    type SessionRow = (String, String, String, Option<String>, Option<String>);
+    let row: Option<SessionRow> = tx
         .query_row(
             "SELECT kind, status, project_id, epic_id, milestone_id FROM sessions WHERE id = ?1",
             params![session_id],
@@ -473,8 +475,9 @@ pub fn roadmap_holds(conn: &mut Connection, session_id: &str, why: &str) -> anyh
 /// What a roadmap `round_wait` left behind.
 #[derive(Debug, Clone, PartialEq)]
 pub enum RoadmapWait {
-    /// Held until the developer has decided every Proposal of the Round.
-    Held(RoadmapRound),
+    /// Held until the developer has decided every Proposal of the Round. Boxed: a `RoadmapRound` is
+    /// 240 bytes against `Value`'s 32, and every `Answered` would otherwise carry that size.
+    Held(Box<RoadmapRound>),
     /// Every Proposal was already decided: the Round is closed and the call answered with this.
     Answered(Value),
 }
@@ -507,7 +510,7 @@ pub fn wait_roadmap_round(conn: &mut Connection, session_id: &str, request_id: &
         .context("failed to hold the roadmap Round")?;
     let held = get_roadmap_round(&tx, &round.id)?.context("the roadmap Round just held")?;
     tx.commit()?;
-    Ok(RoadmapWait::Held(held))
+    Ok(RoadmapWait::Held(Box::new(held)))
 }
 
 /// After a decision on a Proposal of Round `round_id`, inside the deciding transaction: close a roadmap

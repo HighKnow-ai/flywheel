@@ -37,7 +37,7 @@ fn matches_the_real_55724_wording_without_the_literal_lock_file_name_appearing_i
 #[test]
 fn matches_another_git_process_seems_to_be_running_wording() {
     let text = "fatal: Unable to create '/repo/.git/index.lock': Another git process seems to be running in this repository.";
-    assert!(is_lock_contention(&text));
+    assert!(is_lock_contention(text));
 }
 
 #[test]

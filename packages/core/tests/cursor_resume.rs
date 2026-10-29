@@ -144,7 +144,7 @@ fn a_second_origin_has_its_own_cursor() {
     // Merging both origins' batches by event id (a ULID, clock-ordered across writers) yields a
     // single chronological order matching write order — the cross-origin merge step D-17/Flag 1
     // names, proven here since nothing in this phase produces a second origin on its own.
-    let mut merged: Vec<EventRow> = local_batch.into_iter().chain(other_batch.into_iter()).collect();
+    let mut merged: Vec<EventRow> = local_batch.into_iter().chain(other_batch).collect();
     merged.sort_by(|a, b| a.id.cmp(&b.id));
     let merged_types: Vec<&str> = merged.iter().map(|e| e.event_type.as_str()).collect();
     assert_eq!(merged_types, vec!["milestone.created", "milestone.updated"], "merged order must match write order");

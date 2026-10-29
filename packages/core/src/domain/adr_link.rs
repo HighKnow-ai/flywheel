@@ -84,7 +84,7 @@ pub(crate) fn link_adr_in_tx(
     )
     .context("failed to link the ADR")?;
     record_event(
-        &tx,
+        tx,
         project_id,
         "adr_link",
         &id,

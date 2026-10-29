@@ -112,7 +112,9 @@ pub fn answer_question(
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
 
-    let row: Option<(String, String, String, String, Option<String>, String, Option<String>)> = tx
+    /// `(session_id, story_id, project_id, tool_name, input_payload, status, expired_at)` of the request.
+    type RequestRow = (String, String, String, String, Option<String>, String, Option<String>);
+    let row: Option<RequestRow> = tx
         .query_row(
             "SELECT session_id, story_id, project_id, tool_name, input_payload, status, expired_at \
              FROM permission_requests WHERE id = ?1",

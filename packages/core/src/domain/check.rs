@@ -241,7 +241,9 @@ pub(crate) fn record_check_run_in_tx(conn: &Connection, check_id: &str, run: &Ch
 
 /// A Check's current result: its latest run that started after the Check's last edit, or not run.
 pub fn current_result(conn: &Connection, check_id: &str) -> anyhow::Result<CurrentResult> {
-    let latest: Option<(String, String, Option<String>, String, Option<String>)> = conn
+    /// `(result, commit_sha, output_tail, started_at, stale_since)` of the latest run.
+    type LatestRun = (String, String, Option<String>, String, Option<String>);
+    let latest: Option<LatestRun> = conn
         .query_row(
             "SELECT r.result, r.commit_sha, r.output_tail, r.started_at, k.stale_since FROM check_runs r
              JOIN checks k ON k.id = r.check_id

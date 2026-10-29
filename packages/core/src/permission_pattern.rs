@@ -206,7 +206,7 @@ pub fn covers_gated_action(tool: &str, pattern: &str, default_branch: Option<&st
 pub fn call_is_gated(tool: &str, input: &serde_json::Value, default_branch: Option<&str>) -> bool {
     let Some(command) = bash_command(tool, input) else { return false };
     command
-        .split(|c| matches!(c, ';' | '&' | '|' | '\n'))
+        .split([';', '&', '|', '\n'])
         .filter(|segment| !segment.trim().is_empty())
         .any(|segment| match shell_words(segment) {
             Some(words) => words_are_gated(&words, default_branch),

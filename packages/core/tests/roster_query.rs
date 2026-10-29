@@ -33,8 +33,18 @@ fn running(conn: &mut Connection, actor: &str, story_id: &str) {
     set_story_state(conn, actor, story_id, StoryState::Running).unwrap();
 }
 
+/// One review of a Story: when it opened, at which head, its `(files, added, removed)` and how it
+/// closed, if it did.
+struct Review<'a> {
+    opened_at: &'a str,
+    head: &'a str,
+    size: (i64, i64, i64),
+    outcome: Option<&'a str>,
+}
+
 /// A review row as the hand-off writes it (`domain::review`), closed with `outcome` when given.
-fn review(conn: &Connection, actor: &str, project: &str, story: &str, opened_at: &str, head: &str, size: (i64, i64, i64), outcome: Option<&str>) {
+fn review(conn: &Connection, actor: &str, project: &str, story: &str, review: Review) {
+    let Review { opened_at, head, size, outcome } = review;
     conn.execute(
         "INSERT INTO reviews (id, project_id, story_id, opened_at, base_sha, head_sha, files, added, removed, open_tasks, \
             outcome, decided_by, decided_at) \
@@ -117,8 +127,8 @@ fn one_read_returns_every_rows_attention_doing_task_counts_and_diff_size() {
         // In review: an earlier review sent back at head `aaa`, the open one at head `bbb`.
         let in_review = story(&mut conn, &a.id, "In review");
         conn.execute("UPDATE stories SET state = 'in_review' WHERE id = ?1", params![in_review]).unwrap();
-        review(&conn, &actor, &project.id, &in_review, "2026-10-01T00:00:00Z", "aaa", (9, 900, 90), Some("changes_requested"));
-        review(&conn, &actor, &project.id, &in_review, "2026-10-02T00:00:00Z", "bbb", (3, 40, 7), None);
+        review(&conn, &actor, &project.id, &in_review, Review { opened_at: "2026-10-01T00:00:00Z", head: "aaa", size: (9, 900, 90), outcome: Some("changes_requested") });
+        review(&conn, &actor, &project.id, &in_review, Review { opened_at: "2026-10-02T00:00:00Z", head: "bbb", size: (3, 40, 7), outcome: None });
         let accepted = create_criterion(&mut conn, &actor, &in_review, "Accepted by hand").unwrap();
         accept_criterion(&mut conn, &actor, &accepted.id).unwrap();
         criterion_with_run(&mut conn, &actor, &in_review, "Passed at the head", CheckResult::Passed, "bbb");
@@ -212,7 +222,7 @@ fn a_passed_check_counts_until_a_hand_off_moves_the_head_past_it() {
     assert_eq!(roster_rows(&conn, &milestone).unwrap()[0].criteria_met, 1);
 
     // Handed off at `bbb`: the run at `aaa` is stale.
-    review(&conn, &actor, &project.id, &s.id, "2026-10-02T00:00:00Z", "bbb", (1, 1, 0), None);
+    review(&conn, &actor, &project.id, &s.id, Review { opened_at: "2026-10-02T00:00:00Z", head: "bbb", size: (1, 1, 0), outcome: None });
     let r = &roster_rows(&conn, &milestone).unwrap()[0];
     assert_eq!((r.criteria_met, r.criteria_total), (0, 1));
 }

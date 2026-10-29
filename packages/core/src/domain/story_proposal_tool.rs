@@ -192,12 +192,11 @@ fn story_of_epic(conn: &Connection, epic_id: &str, reference: &str, tool: &str) 
         .with_context(|| format!("{tool}: {reference:?} is not a Story of this Epic; name one by its key, such as FLY-12"))
 }
 
+/// `(verb, target, target_id, epic_id, payload)`: the parts of a [`NewProposal`] a kind decides.
+type ProposalParts<'a> = (ProposalVerb, ProposalTarget, Option<String>, Option<&'a str>, Value);
+
 /// The Proposal a kind files, its references resolved against the session's own Epic.
-fn to_new_proposal<'a>(
-    conn: &Connection,
-    epic_id: &'a str,
-    proposal: &StoryProposal,
-) -> anyhow::Result<(ProposalVerb, ProposalTarget, Option<String>, Option<&'a str>, Value)> {
+fn to_new_proposal<'a>(conn: &Connection, epic_id: &'a str, proposal: &StoryProposal) -> anyhow::Result<ProposalParts<'a>> {
     let tool = "propose";
     Ok(match proposal {
         StoryProposal::NewStory { title, description, criteria } => {

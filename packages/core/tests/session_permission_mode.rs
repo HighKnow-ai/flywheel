@@ -40,7 +40,7 @@ fn a_shaping_session_is_read_only_plus_the_proposal_tools_and_never_raises_a_req
         assert!(policy.allowed_tools.iter().any(|t| t == read_only), "{read_only} must be allowed");
     }
     for proposal in proposal_tools() {
-        assert!(policy.allowed_tools.iter().any(|t| *t == proposal), "{proposal} must be allowed");
+        assert!(policy.allowed_tools.contains(&proposal), "{proposal} must be allowed");
     }
     for writes in ["Bash", "Edit", "Write", "NotebookEdit"] {
         assert!(!policy.allowed_tools.iter().any(|t| t == writes), "{writes} must not be allowed");

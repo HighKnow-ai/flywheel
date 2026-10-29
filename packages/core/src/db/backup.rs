@@ -102,7 +102,7 @@ pub fn prune_backups(backups_dir: &Path, keep: usize) -> anyhow::Result<usize> {
 
     // Newest first, so `.skip(keep)` leaves the `keep` most recent files behind and removes the
     // rest — the oldest.
-    candidates.sort_by(|a, b| b.1.cmp(&a.1));
+    candidates.sort_by_key(|(_, modified)| std::cmp::Reverse(*modified));
 
     let mut removed = 0usize;
     for (path, _modified) in candidates.into_iter().skip(keep) {

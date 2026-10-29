@@ -21,7 +21,9 @@ use flywheel_core::query::events::events_since_last_look;
 use rusqlite::{params, Connection};
 
 /// Append one raw event to the project's stream, for kinds whose own writers need a whole session.
-fn append(conn: &mut Connection, project_id: &str, actor_id: &str, stream_type: &str, stream_id: &str, story_id: Option<&str>, epic_id: Option<&str>, event_type: &str, label: &str) {
+/// `stream` is `(stream_type, stream_id)`, `scope` is `(story_id, epic_id)`.
+fn append(conn: &mut Connection, project_id: &str, actor_id: &str, stream: (&str, &str), scope: (Option<&str>, Option<&str>), event_type: &str, label: &str) {
+    let ((stream_type, stream_id), (story_id, epic_id)) = (stream, scope);
     let tx = conn.transaction().unwrap();
     let seq = next_sequence(&tx, project_id, "local").unwrap();
     append_event(
@@ -81,20 +83,20 @@ fn the_next_visit_lists_exactly_the_meaningful_events_in_order_then_starts_after
     add_task(&mut conn, &actor, &story.id, "Read the click handlers").unwrap();
     update_story(&mut conn, &actor, &story.id, "Make every click predictable", None).unwrap();
     set_story_state(&mut conn, &actor, &story.id, StoryState::Running).unwrap();
-    append(&mut conn, &project.id, &actor, "task", "01JTASK0000000000000000000", Some(&story.id), None, "task.state_changed", "Started a Task");
-    append(&mut conn, &project.id, &actor, "story", &story.id, Some(&story.id), None, "story.handed_off", "Handed off for review");
-    append(&mut conn, &project.id, &actor, "proposal", "01JPROP0000000000000000000", None, Some(&epic_id), "proposal.filed", "Proposed to create a story");
-    append(&mut conn, &project.id, &actor, "proposal", "01JPROP0000000000000000000", None, Some(&epic_id), "proposal.accepted", "Accepted a Proposal");
-    append(&mut conn, &project.id, &actor, "proposal", "01JPROP0000000000000000001", None, Some(&epic_id), "proposal.rejected", "Rejected a Proposal");
-    append(&mut conn, &project.id, &actor, "round", "01JROUN0000000000000000000", None, Some(&epic_id), "round.posted", "Posted Round 1");
-    append(&mut conn, &project.id, &actor, "round", "01JROUN0000000000000000000", None, Some(&epic_id), "round.answered", "Answered Round 1");
-    append(&mut conn, &project.id, &actor, "round", "01JROUN0000000000000000001", None, None, "round.opened", "Opened roadmap Round 1");
-    append(&mut conn, &project.id, &actor, "round", "01JROUN0000000000000000001", None, None, "round.closed", "Closed roadmap Round 1");
-    append(&mut conn, &project.id, &actor, "round", "01JROUN0000000000000000002", None, None, "round.dismissed", "Dismissed roadmap Round 2");
-    append(&mut conn, &project.id, &actor, "story", &story.id, Some(&story.id), None, "story.state_changed", "Moved Story from in_review to merged");
-    append(&mut conn, &project.id, &actor, "epic", &epic_id, None, Some(&epic_id), "epic.state_changed", "Confirmed the Epic done");
+    append(&mut conn, &project.id, &actor, ("task", "01JTASK0000000000000000000"), (Some(&story.id), None), "task.state_changed", "Started a Task");
+    append(&mut conn, &project.id, &actor, ("story", &story.id), (Some(&story.id), None), "story.handed_off", "Handed off for review");
+    append(&mut conn, &project.id, &actor, ("proposal", "01JPROP0000000000000000000"), (None, Some(&epic_id)), "proposal.filed", "Proposed to create a story");
+    append(&mut conn, &project.id, &actor, ("proposal", "01JPROP0000000000000000000"), (None, Some(&epic_id)), "proposal.accepted", "Accepted a Proposal");
+    append(&mut conn, &project.id, &actor, ("proposal", "01JPROP0000000000000000001"), (None, Some(&epic_id)), "proposal.rejected", "Rejected a Proposal");
+    append(&mut conn, &project.id, &actor, ("round", "01JROUN0000000000000000000"), (None, Some(&epic_id)), "round.posted", "Posted Round 1");
+    append(&mut conn, &project.id, &actor, ("round", "01JROUN0000000000000000000"), (None, Some(&epic_id)), "round.answered", "Answered Round 1");
+    append(&mut conn, &project.id, &actor, ("round", "01JROUN0000000000000000001"), (None, None), "round.opened", "Opened roadmap Round 1");
+    append(&mut conn, &project.id, &actor, ("round", "01JROUN0000000000000000001"), (None, None), "round.closed", "Closed roadmap Round 1");
+    append(&mut conn, &project.id, &actor, ("round", "01JROUN0000000000000000002"), (None, None), "round.dismissed", "Dismissed roadmap Round 2");
+    append(&mut conn, &project.id, &actor, ("story", &story.id), (Some(&story.id), None), "story.state_changed", "Moved Story from in_review to merged");
+    append(&mut conn, &project.id, &actor, ("epic", &epic_id), (None, Some(&epic_id)), "epic.state_changed", "Confirmed the Epic done");
     // Churn at the tail: passed over, but the cursor still moves past it.
-    append(&mut conn, &project.id, &actor, "session", "01JSESS0000000000000000000", Some(&story.id), None, "session.started", "Started a session");
+    append(&mut conn, &project.id, &actor, ("session", "01JSESS0000000000000000000"), (Some(&story.id), None), "session.started", "Started a session");
 
     let seen = board_visit(&mut conn, &actor, &project.id, 200).unwrap();
 
@@ -163,9 +165,9 @@ fn each_event_names_its_record() {
     board_visit(&mut conn, &actor, &project.id, 200).unwrap();
 
     set_story_state(&mut conn, &actor, &story.id, StoryState::Ready).unwrap();
-    append(&mut conn, &project.id, &actor, "epic", &epic_id, None, Some(&epic_id), "epic.state_changed", "Moved Epic");
-    append(&mut conn, &project.id, &actor, "milestone", &milestone_id, None, None, "milestone.state_changed", "Moved Milestone");
-    append(&mut conn, &project.id, &actor, "round", "01JROUN0000000000000000001", None, None, "round.opened", "Opened roadmap Round 1");
+    append(&mut conn, &project.id, &actor, ("epic", &epic_id), (None, Some(&epic_id)), "epic.state_changed", "Moved Epic");
+    append(&mut conn, &project.id, &actor, ("milestone", &milestone_id), (None, None), "milestone.state_changed", "Moved Milestone");
+    append(&mut conn, &project.id, &actor, ("round", "01JROUN0000000000000000001"), (None, None), "round.opened", "Opened roadmap Round 1");
 
     let seen = board_visit(&mut conn, &actor, &project.id, 200).unwrap();
     let subjects: Vec<(Option<&str>, Option<&str>)> =
@@ -187,7 +189,7 @@ fn the_list_keeps_the_newest_events_and_the_total_counts_them_all() {
     let story = new_story(&mut conn, &project.id, &actor, "Busy");
     board_visit(&mut conn, &actor, &project.id, 200).unwrap();
     for n in 0..5 {
-        append(&mut conn, &project.id, &actor, "story", &story.id, Some(&story.id), None, "story.state_changed", &format!("Move {n}"));
+        append(&mut conn, &project.id, &actor, ("story", &story.id), (Some(&story.id), None), "story.state_changed", &format!("Move {n}"));
     }
 
     let seen = board_visit(&mut conn, &actor, &project.id, 3).unwrap();

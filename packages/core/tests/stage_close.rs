@@ -262,7 +262,7 @@ fn closing_slice_opens_criteria() {
 
 impl Fixture {
     /// Close Challenge the spec and Slice into Stories; the Criteria Stage's id.
-    fn to_criteria(&mut self) -> String {
+    fn advance_to_criteria(&mut self) -> String {
         for _ in 0..2 {
             let id = self.open_stage_id();
             close_stage(&mut self.conn, &self.human, &id).unwrap();
@@ -278,7 +278,7 @@ impl Fixture {
 #[test]
 fn the_criteria_stage_stays_open_while_an_accepted_story_has_no_criterion() {
     let mut f = shaping();
-    let criteria = f.to_criteria();
+    let criteria = f.advance_to_criteria();
     // No Story at all: nothing to make Ready.
     let status = stage_status(&f.conn, &criteria).unwrap();
     let labels: Vec<String> = status.open_items.iter().map(OpenItem::label).collect();
@@ -319,7 +319,7 @@ fn closing_criteria_moves_every_shaping_story_and_the_epic_to_ready_and_ends_sha
     for s in [&parser, &feed] {
         create_criterion(&mut f.conn, &f.human, &s.id, "It ships").unwrap();
     }
-    let criteria = f.to_criteria();
+    let criteria = f.advance_to_criteria();
     let session = start_session_on(&mut f.conn, &f.human, &f.epic_id);
 
     let closed = close_stage(&mut f.conn, &f.human, &criteria).unwrap();
@@ -365,7 +365,7 @@ fn closing_criteria_is_all_or_nothing() {
     let mut f = shaping();
     let parser = story::create_story(&mut f.conn, &f.human, &f.epic_id, "Parser").unwrap();
     create_criterion(&mut f.conn, &f.human, &parser.id, "It ships").unwrap();
-    let criteria = f.to_criteria();
+    let criteria = f.advance_to_criteria();
     // The Epic cannot be made Ready (dropped under the close, by hand): the Stories' moves roll back too.
     f.conn.execute("UPDATE epics SET state = 'dropped' WHERE id = ?1", [&f.epic_id]).unwrap();
     let before = f.stage_rows();

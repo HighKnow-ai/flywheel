@@ -107,7 +107,7 @@ fn a_blocked_run_is_refused_with_the_blocked_reason() {
         let (a, path) = merged_worktree(&mut conn, &project.id, &actor, "a");
         let run = flywheel_core::domain::session::start_session(&mut conn, &a, "default", &actor).unwrap();
         conn.execute("UPDATE sessions SET status = 'blocked' WHERE id = ?1", params![run.id]).unwrap();
-        let out = reclaim_worktrees(&mut conn, &[a.clone()], &actor);
+        let out = reclaim_worktrees(&mut conn, std::slice::from_ref(&a), &actor);
         assert_eq!(outcome(&out, &a).reason, Some(R::Blocked));
         assert!(path.exists());
     });
@@ -149,7 +149,7 @@ fn an_open_story_is_refused_before_any_git_call() {
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
         git(repo.path(), &["config", "core.fsmonitor", script.to_str().unwrap()]);
 
-        let out = reclaim_worktrees(&mut conn, &[open.id.clone()], &actor);
+        let out = reclaim_worktrees(&mut conn, std::slice::from_ref(&open.id), &actor);
 
         assert_eq!(outcome(&out, &open.id).reason, Some(R::StoryOpen));
         assert!(!outcome(&out, &open.id).removed);
@@ -164,7 +164,7 @@ fn a_row_in_an_unreachable_project_is_refused_without_a_git_call() {
         let (mut conn, actor, project, _repo) = common::seeded_git_project();
         let (a, path) = merged_worktree(&mut conn, &project.id, &actor, "a");
         conn.execute("UPDATE projects SET status = 'unreachable' WHERE id = ?1", params![project.id]).unwrap();
-        let out = reclaim_worktrees(&mut conn, &[a.clone()], &actor);
+        let out = reclaim_worktrees(&mut conn, std::slice::from_ref(&a), &actor);
         assert_eq!(outcome(&out, &a).reason, Some(R::ProjectUnreachable));
         assert!(path.exists());
     });
@@ -247,7 +247,7 @@ fn a_batch_run_on_a_second_connection_is_visible_on_the_first() {
 
         let mut second = Connection::open(&db_path).unwrap();
         flywheel_core::db::apply_pragmas(&second).unwrap();
-        let out = reclaim_worktrees(&mut second, &[a.clone()], &actor);
+        let out = reclaim_worktrees(&mut second, std::slice::from_ref(&a), &actor);
 
         assert!(out[0].removed, "{out:?}");
         assert!(!path.exists());

@@ -77,7 +77,9 @@ fn a_shaping_session_starts_on_its_epic_with_no_story_and_no_worktree() {
     let (mut conn, actor_id, project_id, epic) = shaping_epic();
     let id = start_on(&mut conn, &actor_id, &epic.id);
 
-    let row: (String, Option<String>, Option<String>, Option<String>, Option<String>, String, String) = conn
+    /// `(kind, story_id, epic_id, milestone_id, worktree_id, project_id, permission_mode)`.
+    type SessionRow = (String, Option<String>, Option<String>, Option<String>, Option<String>, String, String);
+    let row: SessionRow = conn
         .query_row(
             "SELECT kind, story_id, epic_id, milestone_id, worktree_id, project_id, permission_mode FROM sessions WHERE id = ?1",
             [&id],

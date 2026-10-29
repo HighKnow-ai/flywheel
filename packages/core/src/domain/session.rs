@@ -584,7 +584,9 @@ pub fn apply_session_closed(conn: &mut Connection, event: &serde_json::Value) ->
     let tokens_in = result.and_then(|r| r.get("inputTokens")).and_then(serde_json::Value::as_i64);
     let tokens_out = result.and_then(|r| r.get("outputTokens")).and_then(serde_json::Value::as_i64);
 
-    let existing: Option<(String, Option<f64>, Option<i64>, Option<i64>)> = conn
+    /// `(status, cost_usd, tokens_in, tokens_out)` of the sessions row.
+    type SessionTotals = (String, Option<f64>, Option<i64>, Option<i64>);
+    let existing: Option<SessionTotals> = conn
         .query_row(
             "SELECT status, cost_usd, tokens_in, tokens_out FROM sessions WHERE id = ?1",
             params![run_id],

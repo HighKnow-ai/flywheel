@@ -97,7 +97,7 @@ fn a_running_story_files_a_new_story_with_criteria_and_the_developer_makes_it_re
         .unwrap();
     assert_eq!(label, "Moved Story from shaping to ready");
     assert!(!roster_offers(&f, &story_id), "a Ready Story offers Start, not Make Ready");
-    assert_eq!(make_ready_offer(&f.conn, &story_id).unwrap().offered, false);
+    assert!(!make_ready_offer(&f.conn, &story_id).unwrap().offered);
 
     // It is now an ordinary Ready Story: the developer starts it.
     story::set_story_state(&mut f.conn, &f.human, &story_id, StoryState::Running).unwrap();

@@ -18,7 +18,7 @@ fn write_raw(conn: &Connection, actor: &str, value: &str) {
 #[test]
 fn with_nothing_stored_notifications_are_on() {
     let (conn, _actor, _project) = common::seeded_project();
-    assert!(DEFAULT_NOTIFICATIONS_ENABLED);
+    const { assert!(DEFAULT_NOTIFICATIONS_ENABLED) };
     assert!(notifications_enabled(&conn).unwrap());
 }
 

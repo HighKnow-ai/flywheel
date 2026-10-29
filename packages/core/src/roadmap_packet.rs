@@ -111,9 +111,12 @@ fn state_words(state: &str) -> &str {
     }
 }
 
-/// `(id, key, title, state, exit_test)` of every Epic in `milestone_id`, by rank then id, In progress
-/// derived as the board derives it (query/progress.rs).
-fn epics_of(conn: &Connection, milestone_id: &str) -> anyhow::Result<Vec<(String, String, String, String, Option<String>)>> {
+/// `(id, key, title, state, exit_test)` of an Epic.
+type EpicRow = (String, String, String, String, Option<String>);
+
+/// Every Epic in `milestone_id`, by rank then id, In progress derived as the board derives it
+/// (query/progress.rs).
+fn epics_of(conn: &Connection, milestone_id: &str) -> anyhow::Result<Vec<EpicRow>> {
     let mut stmt = conn.prepare(
         "SELECT e.id, e.key, e.title,
             CASE WHEN e.state = 'ready' AND EXISTS (SELECT 1 FROM stories s WHERE s.epic_id = e.id

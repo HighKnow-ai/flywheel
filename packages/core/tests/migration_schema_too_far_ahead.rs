@@ -130,8 +130,7 @@ fn a_genuine_mid_migration_failure_still_takes_a_backup_and_restores_it() {
     let bad = Migrations::new(sources.into_iter().map(M::up).collect());
 
     let err = open_and_migrate_with(&db_path, &backups_dir, &bad)
-        .err()
-        .expect("a malformed migration must fail");
+        .expect_err("a malformed migration must fail");
 
     assert!(format!("{err:#}").contains("restored the pre-migration backup"), "{err:#}");
     assert!(
