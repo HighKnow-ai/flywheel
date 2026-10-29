@@ -41,7 +41,7 @@ tauri-plugin-dialog = "2.8.3"
 # D-181 (Phase 10 plan 10-07): OS notifications, emitted by the Rust core only. Pinned to 2.4.0, which
 # requires `tauri ^2.10` and so runs on the 2.12 line; it has no JS half, so Tauri's JS/Rust minor
 # check does not pair it. The window is granted nothing from this plugin (D-175).
-tauri-plugin-notification = "=2.4.0"
+tauri-plugin-notification = "=2.7.0"
 # D-113: the Rust core's periodic git-truth tick needs a tokio runtime and `app.emit`, which
 # `packages/core` (sync, no `AppHandle`) does not have — so the desktop crate, which already owns
 # the tokio runtime, starts the scheduler, and is the one crate that depends on it: `packages/core`
