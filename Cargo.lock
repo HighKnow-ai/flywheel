@@ -1249,7 +1249,6 @@ dependencies = [
  "serde_json",
  "sysinfo",
  "tempfile",
- "tokio-cron-scheduler",
  "ulid",
 ]
 

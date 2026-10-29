@@ -44,8 +44,8 @@ tauri-plugin-dialog = "2.8.3"
 tauri-plugin-notification = "=2.4.0"
 # D-113: the Rust core's periodic git-truth tick needs a tokio runtime and `app.emit`, which
 # `packages/core` (sync, no `AppHandle`) does not have — so the desktop crate, which already owns
-# the tokio runtime, starts the scheduler. This adds no new package to the dependency tree:
-# `tokio-cron-scheduler` 0.15.1 is already resolved in Cargo.lock via `packages/core`.
+# the tokio runtime, starts the scheduler, and is the one crate that depends on it: `packages/core`
+# declared it unused ("vendored now, wired later") until cargo-machete found it.
 tokio-cron-scheduler = "0.15"
 
 # [profile.release] lives at the workspace root (Cargo.toml) — Cargo ignores

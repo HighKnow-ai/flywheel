@@ -49,10 +49,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
-# Vendored now, wired later (.claude/CLAUDE.md "vendor now, wire later"; STATE.md open blocker):
-# the automations milestone's scheduled-trigger source needs a cron primitive; no code in this
-# crate starts a scheduler yet (the desktop crate runs the git-truth ticks on it).
-tokio-cron-scheduler = "0.15"
 keyring = { version = "4.2.0", features = ["apple-native-keyring-store"] }
 # Pid-reuse-safe liveness for the launch reconciler (plan 03-06, PROC-05): pid alone is never
 # enough to identify "the same process" across a restart, since the OS recycles pids. Pinned to
