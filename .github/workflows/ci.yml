@@ -6,12 +6,14 @@ name: CI
 # sum of them, sets the wall-clock time.
 
 # `next` is where every change arrives: the private monorepo's flywheel/ is this repository's
-# source of truth, and its export pushes each change there, never to `main`. A green run on `next`
-# fast-forwards `main` to the commit it tested (the `promote` job at the end), so `main` only ever
-# holds commits this workflow passed. A pull request runs once, on pull_request; it is not merged
-# here but imported into the source of truth, which is why there is no merge_group trigger any more.
-# `main` is not a push trigger: every commit reaching it was tested on `next` minutes before, so a
-# second run there would spend 25 macOS minutes and the five-job macOS concurrency on a repeat.
+# source of truth, and its export pushes each change there. `main` moves only when a release is
+# cut: the export fast-forwards it to the commit being released, and the ruleset on `main` refuses
+# that push unless the `build` job below passed on that very commit, so `main` only ever holds
+# commits this workflow passed. Nothing here pushes, and this workflow holds no write credential.
+# A pull request runs once, on pull_request; it is not merged here but imported into the source of
+# truth, which is why there is no merge_group trigger any more. `main` is not a push trigger: every
+# commit reaching it was tested on `next` first, so a second run there would spend 25 macOS minutes
+# and the five-job macOS concurrency on a repeat.
 on:
   push:
     branches: [next]
@@ -316,7 +318,8 @@ jobs:
           path: target/release/bundle/dmg/*.dmg
           retention-days: 7
 
-  # The one check the ruleset on main requires. It runs whatever happened above (`always()`), and
+  # The one check the ruleset on main requires, of the commit the export fast-forwards `main` to.
+  # It runs whatever happened above (`always()`), and
   # passes only when every job succeeded; the dmg job may instead be skipped, on every run but a push
   # to next. A failed, cancelled or wrongly skipped job fails `build`.
   build:
@@ -341,57 +344,3 @@ jobs:
             echo "::error::not passed: ${failed//$'\n'/ }"
             exit 1
           fi
-
-  # `next` -> `main`, the tested commit and nothing else. Fast-forward only: `main` is never
-  # rewritten, and a `next` that does not descend from `main` fails here rather than replacing it.
-  #
-  # WITH A DEPLOY KEY, AND NEITHER OF THE TWO OBVIOUS TOKENS:
-  #   - GITHUB_TOKEN cannot hold the `workflows` permission, and GitHub refuses any push from it
-  #     that brings a change under .github/workflows/ onto a branch, a fast-forward included. The
-  #     very first promotion carries one (this file), so it would fail exactly when it matters.
-  #   - The export App's key is installed on the private repository too; stored here, it would be
-  #     one leaked secret away from that repository.
-  #   A deploy key is write access to THIS repository and nothing else, SSH, with no workflow-file
-  #   restriction. PROMOTE_DEPLOY_KEY is its private half, a secret no pull_request run receives.
-  #
-  # What makes the push safe is the two rulesets on `main`, held in the private repository's
-  # Terraform (infra/terraform/github.tf, #550), not who pushes:
-  #   - `main` binds everybody, this key and admins included, with no bypass: it requires `build`
-  #     to have passed on the pushed commit, which this run just established, and forbids
-  #     non-fast-forward pushes and deletion.
-  #   - `main-writers` holds only the `update` rule, which refuses every push to `main` except from
-  #     a deploy key (bypass `always`) or an admin (bypass by pull request). It is a separate
-  #     ruleset because a bypass actor skips every rule of the ruleset it is listed in, and this
-  #     key must never skip `build`.
-  # A pull request rule on `main` would refuse this push, and none is needed: pull requests are
-  # imported into the source of truth, not merged here.
-  promote:
-    name: Fast-forward main
-    needs: [build]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/next'
-    runs-on: ubuntu-latest
-    # Bounded: one fast-forward push: observed 0.2 min.
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0 # zizmor: ignore[artipacked] the deploy key is for the promote push below
-        with:
-          fetch-depth: 0
-          ssh-key: ${{ secrets.PROMOTE_DEPLOY_KEY }}
-
-      - name: Fast-forward main to the tested commit
-        env:
-          TESTED: ${{ github.sha }}
-        run: |
-          git fetch --quiet origin main
-          if git merge-base --is-ancestor "$TESTED" origin/main; then
-            echo "main already contains $TESTED"
-            exit 0
-          fi
-          if ! git merge-base --is-ancestor origin/main "$TESTED"; then
-            echo "::error::$TESTED does not descend from main ($(git rev-parse origin/main)); refusing to rewrite main"
-            exit 1
-          fi
-          git push origin "$TESTED:refs/heads/main"
-          echo "main -> $TESTED"

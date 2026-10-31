@@ -29,8 +29,8 @@ jobs:
           fetch-depth: 0
 
       # A release is built only from a commit ci.yml passed. `main` holds nothing else (it moves
-      # only by ci.yml's fast-forward after a green run, and its ruleset requires `build`), so
-      # "the tag is on main" is that statement, read from git rather than from a status API. It
+      # only by the export's fast-forward just before this tag, and its ruleset requires `build` on
+      # the pushed commit), so "the tag is on main" is that statement, read from git rather than from a status API. It
       # replaces re-running the sidecar and workspace tests here: they passed on this very commit.
       - name: The tagged commit passed CI (it is on main)
         run: |
