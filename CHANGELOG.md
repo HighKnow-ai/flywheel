@@ -6,6 +6,12 @@ user would recognise. Releases up to v0.1.2 are described on their release pages
 
 ## Unreleased
 
+- Each file attached to a release now carries a GitHub artifact attestation, and the release
+  carries a CycloneDX SBOM listing what the app is built from. To check that a download came from
+  this repository's release workflow, run
+  `gh attestation verify <file> --repo HighKnow-ai/flywheel`. The README's "Verifying a download"
+  section has the details.
+
 ## 0.1.3 — 2026-10-29
 
 - If you installed 0.1.1, download this release by hand. 0.1.1 looks for updates in a file that

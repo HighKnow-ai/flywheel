@@ -21,6 +21,27 @@ packages/
 
 Download the `.dmg` from the [releases page](https://github.com/HighKnow-ai/flywheel/releases). Releases are Apple Silicon (arm64) macOS only. To build from source instead, see the next section.
 
+### Verifying a download
+
+Every release after 0.1.3 is built by this repository's release workflow, and each file attached to it (not GitHub's automatic "Source code" archives) carries a GitHub artifact attestation: a signed record of the workflow run, commit and tag that built it. The release also carries a CycloneDX SBOM, `Flywheel_<version>.cdx.json`, which lists the Rust crates, npm packages and Node runtime the app is built from. The SBOM is attested as describing the app's files.
+
+With the [GitHub CLI](https://cli.github.com/) (2.49 or newer), check a download before you open it:
+
+```bash
+gh attestation verify Flywheel_0.1.4_aarch64.dmg --repo HighKnow-ai/flywheel
+```
+
+It prints `Verification succeeded!` when the file is byte for byte what the release workflow built. Any other result means the file did not come from this repository's release: do not open it. The same command checks the SBOM file. To check that an SBOM was attested for the `.dmg` you downloaded:
+
+```bash
+gh attestation verify Flywheel_0.1.4_aarch64.dmg --repo HighKnow-ai/flywheel \
+  --predicate-type https://cyclonedx.org/bom
+```
+
+To also require that the file was built from a particular release tag, add `--source-ref refs/tags/v0.1.4`.
+
+An attestation proves where a file was built. It is not an Apple signature, so macOS still blocks the app the first time you open it, as the next section explains.
+
 ### Opening a downloaded release (it is not signed)
 
 Flywheel is not signed with an Apple Developer ID and is not notarized, so macOS blocks the app the first time you open it. The first two releases, `v0.1.0` and `v0.1.1`, are marked **Pre-release** on GitHub for that reason.

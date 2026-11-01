@@ -7,18 +7,31 @@ name: Release
 #
 # The `v*` tag is pushed by the private monorepo's export (a `flywheel-v*` tag there becomes `v*`
 # here, at the commit exported from it), never by hand, and only once that commit is on `main`.
-# Same runner and same pinned actions as ci.yml: macOS 15, every action at a full commit SHA.
+# The build job has the same runner and pinned actions as ci.yml: macOS 15, every action at a full
+# commit SHA.
+#
+# TWO JOBS, SO THE ONE THAT SIGNS RUNS NOTHING IT DID NOT HAVE TO. `release` builds the bundle and
+# the SBOM and leaves them on a draft release; it runs npm's and cargo's whole dependency trees and
+# tauri-action, and holds only `contents: write`. `attest` downloads the draft's assets, attests
+# them with GitHub artifact attestations (SLSA build provenance for every asset, the SBOM for the
+# app's), checks those attestations verify, and only then publishes. It runs GitHub's own actions
+# and `gh`, with no checkout, so the OIDC token that signs (`id-token: write`) is never in a job
+# where third-party code runs. README.md's "Verifying a download" is how a user checks the result.
 
 on:
   push:
     tags: ['v*']
 
-permissions:
-  contents: write
+permissions: {}
 
 jobs:
   release:
     runs-on: macos-15
+    permissions:
+      # tauri-action creates the draft and uploads the bundle to it; the SBOM is uploaded beside it.
+      contents: write
+    outputs:
+      release-id: ${{ steps.tauri.outputs.releaseId }}
     # Bounded: observed 8.9 min (one run).
     timeout-minutes: 25
     steps:
@@ -66,6 +79,40 @@ jobs:
             echo 'NOTES_EOF'
           } >> "$GITHUB_OUTPUT"
 
+      # THE SBOM, CycloneDX, before anything is installed, so it reads the committed lockfiles (the
+      # version just stamped included) and nothing a build step wrote. Two catalogers and no others:
+      # Cargo.lock (the app, the core crate and flywheel-shim) and the two package-lock.json files
+      # (the sidecar and the bundled frontend; syft leaves dev dependencies out of a lockfile by
+      # default). The default set would also list this repository's workflow actions, which build
+      # the release and are not in it; the build is described by the provenance attestation.
+      # The Node runtime the bundle carries is in no lockfile, so sbom-add-runtime.mjs adds it from
+      # stage-runtime.mjs's pin. syft is installed by install-action, which checks its checksum.
+      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
+        with:
+          tool: syft@1.55.0
+
+      - name: SBOM (CycloneDX) from the lockfiles
+        id: sbom
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#v}"
+          sbom="$RUNNER_TEMP/sbom/Flywheel_${version}.cdx.json"
+          mkdir -p "$RUNNER_TEMP/sbom"
+          syft scan dir:. --source-name Flywheel --source-version "$version" \
+            --override-default-catalogers rust-cargo-lock-cataloger \
+            --override-default-catalogers javascript-lock-cataloger \
+            --output "cyclonedx-json=$sbom"
+          node scripts/release/sbom-add-runtime.mjs "$sbom"
+          n=$(jq '.components | length' "$sbom")
+          echo "SBOM: $n components"
+          # A cataloger that silently read nothing would still write a valid, near-empty BOM.
+          for purl in 'pkg:cargo/' 'pkg:npm/' 'pkg:generic/node@'; do
+            jq -e --arg p "$purl" 'any(.components[]; (.purl // "") | startswith($p))' "$sbom" >/dev/null ||
+              { echo "::error::the SBOM has no component whose purl starts $purl"; exit 1; }
+          done
+          echo "path=$sbom" >> "$GITHUB_OUTPUT"
+
       # CACHES ON A RELEASE, AND WHY zizmor's cache-poisoning FINDING IS IGNORED ON BOTH. A tag run
       # restores only entries its own ref or the default branch wrote; a fork's pull request writes
       # to its own merge ref, which no tag run can read. So every entry here was written by a run
@@ -99,9 +146,9 @@ jobs:
       # for immutable releases is to create the release as a draft, attach every asset, then
       # publish. With `releaseDraft: true`, tauri-action v0.6.2 creates the release as a draft (or
       # reuses the draft a failed run left for this tag), uploads the bundles to it, and outputs
-      # its `releaseId`; it never publishes. The "Publish the release" step below does. A new
-      # asset (an SBOM, an attestation) is uploaded to the same draft, by that id, before the
-      # draft's assets are asserted.
+      # its `releaseId`; it never publishes. The `attest` job's "Publish the release" step does.
+      # Every other asset (the SBOM) is uploaded to the same draft, by that id, before the
+      # draft's assets are asserted. Attestations are not assets: GitHub stores them by digest.
       #
       # Not Apple-signed on purpose (D-185): nothing but criterion 1 waits on an Apple account.
       # Env group added later, NOT here:
@@ -119,13 +166,48 @@ jobs:
           prerelease: false
           args: --target aarch64-apple-darwin
 
-      # Before publishing, so a missing asset leaves an unpublished draft and nothing public. Read
-      # by id: GET .../releases/tags/{tag} does not answer for a draft. Only assets in state
-      # "uploaded" count; an interrupted upload leaves one in state "starter".
-      - name: Assert the draft's assets
+      # A failed run leaves its draft and the next run reuses it (see above), so an SBOM of this
+      # name may already be on it: it is replaced, not refused as a duplicate. Uploaded to GitHub's
+      # uploads host, by the draft's id.
+      - name: Attach the SBOM to the draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_ID: ${{ steps.tauri.outputs.releaseId }}
+          SBOM: ${{ steps.sbom.outputs.path }}
+        run: |
+          name=$(basename "$SBOM")
+          while read -r id; do
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$id"
+          done < <(gh api --paginate "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets" |
+            jq -r --arg n "$name" '.[] | select(.name == $n) | .id')
+          gh api --method POST -H 'Content-Type: application/json' --input "$SBOM" --silent \
+            "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=$name"
+
+  attest:
+    needs: release
+    runs-on: ubuntu-latest
+    # Bounded: two bundle downloads, two attestation calls and their verification, about a
+    # minute in all; not yet observed on a release.
+    timeout-minutes: 15
+    permissions:
+      # Reading the draft's assets, and publishing it.
+      contents: write
+      # The OIDC token Sigstore exchanges for the short-lived certificate that signs.
+      id-token: write
+      # Storing the attestations in this repository's attestations API.
+      attestations: write
+    steps:
+      # WHAT IS ATTESTED IS WHAT IS ON THE DRAFT, downloaded from it rather than handed over by the
+      # build job, so the digests are those of the files a user downloads. First, before
+      # downloading anything: the release is still a draft, and every asset it must carry is there
+      # in state "uploaded" (an interrupted upload leaves one in state "starter"). Read by id:
+      # GET .../releases/tags/{tag} does not answer for a draft. The SBOM goes to its own
+      # directory, so the SBOM attestation's subjects are the app's assets and not the SBOM itself.
+      - name: Assert and download the draft's assets
+        id: assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ needs.release.outputs.release-id }}
         run: |
           RELEASE=$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID")
           if [ "$(jq -r .draft <<<"$RELEASE")" != true ]; then
@@ -136,13 +218,64 @@ jobs:
           echo "$NAMES"
           need() { echo "$NAMES" | grep -Eq "$1" || { echo "MISSING release asset matching: $1" >&2; exit 1; }; }
           need '\.dmg$'
+          need '\.cdx\.json$'
+          if [ "$(grep -Ec '\.cdx\.json$' <<<"$NAMES")" -ne 1 ]; then
+            echo "::error::the draft carries more than one SBOM."
+            exit 1
+          fi
+          mkdir -p assets sbom
+          while read -r id name; do
+            # An asset's name becomes a path here. GitHub's asset names have no slash; this holds it.
+            [[ "$name" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "::error::unexpected asset name: $name"; exit 1; }
+            case "$name" in
+              *.cdx.json) dir=sbom; echo "sbom=sbom/$name" >> "$GITHUB_OUTPUT" ;;
+              *) dir=assets ;;
+            esac
+            gh api -H 'Accept: application/octet-stream' "repos/$GITHUB_REPOSITORY/releases/assets/$id" > "$dir/$name"
+          done < <(jq -r '.assets[] | select(.state == "uploaded") | "\(.id) \(.name)"' <<<"$RELEASE")
+          sha256sum assets/* sbom/*
+
+      # SLSA build provenance for every asset, the SBOM included, so `gh attestation verify <file>`
+      # answers for any file on the release page.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            assets/*
+            sbom/*
+
+      # The SBOM, attested as describing the app's assets (predicate type
+      # https://cyclonedx.org/bom). actions/attest rather than actions/attest-sbom: attest-sbom v4 is
+      # deprecated, a wrapper that passes these same inputs to actions/attest and warns on every run.
+      - name: Attest the SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: assets/*
+          sbom-path: ${{ steps.assets.outputs.sbom }}
+
+      # Nothing is public until the attestations verify, read back from GitHub with the command
+      # README.md gives a user, and held tighter: signed by this workflow, from this tag.
+      - name: Verify the attestations
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          signer="$GITHUB_REPOSITORY/.github/workflows/release.yml"
+          for f in assets/* sbom/*; do
+            gh attestation verify "$f" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$signer" --source-ref "$GITHUB_REF"
+          done
+          for f in assets/*; do
+            gh attestation verify "$f" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$signer" --source-ref "$GITHUB_REF" \
+              --predicate-type https://cyclonedx.org/bom
+          done
 
       # The one step that publishes. `make_latest` is stated rather than left to the default, so
       # the repository's latest-release link points at this release.
       - name: Publish the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_ID: ${{ steps.tauri.outputs.releaseId }}
+          RELEASE_ID: ${{ needs.release.outputs.release-id }}
         run: gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" -F draft=false -f make_latest=true --silent
 
       # Do not trust the API's own success: read back what was actually published, by its tag,
@@ -163,4 +296,5 @@ jobs:
           echo "$NAMES"
           need() { echo "$NAMES" | grep -Eq "$1" || { echo "MISSING release asset matching: $1" >&2; exit 1; }; }
           need '\.dmg$'
+          need '\.cdx\.json$'
           echo "immutable: $(jq -r .immutable <<<"$RELEASE")"
