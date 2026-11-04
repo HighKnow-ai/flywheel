@@ -312,6 +312,11 @@ jobs:
       # tauri.conf.json's beforeBuildCommand runs the sidecar's build:dist and the desktop build.
       - run: npm --prefix packages/desktop run tauri build
 
+      # Issue #786: the release build holds no non-production Environment and no picker, as
+      # release.yml checks before it publishes (scripts/release/check-release-bundle.mjs).
+      - name: The bundle is locked to production
+        run: node scripts/release/check-release-bundle.mjs target/release/bundle/macos/Flywheel.app packages/desktop/dist
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: flywheel-dmg

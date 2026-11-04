@@ -169,3 +169,9 @@ _Avoid_: Destructive action, dangerous command
 **Developer**:
 The single human using Flywheel, who acts as product owner, architect and developer in turn; these are activities, not separate people.
 _Avoid_: User (ambiguous with end users of the product being built), architect (as a role)
+
+## Hosted side
+
+**Environment**:
+One whole copy of HighKnow's hosted platform that Flywheel's hosted side talks to: production, staging, or a temporary one named `env-<name>`. A release build talks to production only; a development build talks to the one chosen in its hidden picker, persisted per install.
+_Avoid_: Launch environment (the PATH Flywheel reads at startup), stage, server

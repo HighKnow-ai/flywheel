@@ -305,6 +305,9 @@ function stubShellReads() {
     // The shell's launch-environment notice (issue #88): a healthy environment shows nothing.
     if (command === "launch_environment")
       return Promise.resolve({ path: "/usr/bin", pathWarning: null, claudeError: null });
+    // A development build's Environment indicator (issue #786): production shows nothing.
+    if (command === "dev_environment_get")
+      return Promise.resolve({ name: "production", apiOrigin: "https://api.highknow.ai", production: true });
     unhandled.add(command);
     return Promise.resolve(undefined);
   });

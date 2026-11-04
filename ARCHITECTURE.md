@@ -79,3 +79,9 @@ can check, not intentions.
   relay client reads the event-log cursor from `packages/core` (§4) and posts batches to a configured
   relay URL, off by default.
 - No feature of the open-source application is gated behind an account or a network service.
+- Where the hosted side is reached is one function, `packages/core/src/environment.rs`'s
+  `current`: production (`api.highknow.ai`) in a release build, which compiles nothing else, and
+  in a development build the Environment chosen in its hidden picker (⌘⌥⇧E), persisted per install.
+  `scripts/release/check-release-bundle.mjs` fails a release whose bundle names a non-production
+  Environment or carries the picker; `npm run build` and the release workflow run it. Nothing
+  calls `current` for a request yet.

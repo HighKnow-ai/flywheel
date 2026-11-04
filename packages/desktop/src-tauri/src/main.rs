@@ -262,6 +262,13 @@ fn main() {
             commands::fleet::worktree_inventory,
             commands::fleet::worktree_measure,
             commands::fleet::worktree_reclaim,
+            // Issue #786: the hidden Environment picker, in development builds only. The module is
+            // itself `#[cfg(debug_assertions)]`, so these two lines without the attribute would
+            // not compile in a release build; `tests/handler_roster.rs` also requires it.
+            #[cfg(debug_assertions)]
+            commands::dev_environment::dev_environment_get,
+            #[cfg(debug_assertions)]
+            commands::dev_environment::dev_environment_choose,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

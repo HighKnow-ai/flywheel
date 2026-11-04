@@ -13,3 +13,7 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
+# LOAD-BEARING, and Cargo's default, stated so it is not changed by accident: a release build is
+# locked to the production Environment because everything that can choose another is compiled only
+# under `debug_assertions` (packages/core/src/environment.rs, issue #786).
+debug-assertions = false

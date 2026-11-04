@@ -33,6 +33,8 @@ const ROSTER: &[&str] = &[
     "criterion::criterion_delete",
     "criterion::criterion_list",
     "criterion::criterion_unaccept",
+    "dev_environment::dev_environment_choose",
+    "dev_environment::dev_environment_get",
     "epic::epic_create",
     "epic::epic_list",
     "epic::epic_set_state",
@@ -210,33 +212,64 @@ fn collect_commands(module: &str, body: &str) -> BTreeSet<Command> {
 /// is not `commands::<module>::<function>` comes back as `("?", entry)` so it is reported rather
 /// than silently skipped.
 fn parse_roster(main_src: &str) -> BTreeSet<Command> {
+    roster_entries(main_src)
+        .into_iter()
+        .map(|(_, command)| command)
+        .collect()
+}
+
+/// The attribute that keeps a roster entry out of a release build (issue #786).
+const DEBUG_ONLY: &str = "#[cfg(debug_assertions)]";
+
+/// The roster entries registered only in development builds: those under [`DEBUG_ONLY`].
+fn debug_only_entries(main_src: &str) -> BTreeSet<Command> {
+    roster_entries(main_src)
+        .into_iter()
+        .filter(|(attrs, _)| attrs.iter().any(|a| a == DEBUG_ONLY))
+        .map(|(_, command)| command)
+        .collect()
+}
+
+/// Each roster entry with the outer attributes written before it (`generate_handler!` accepts a
+/// `#[cfg(..)]` per entry). The roster ends at the `]` that closes `generate_handler![`, not at
+/// an attribute's own `]`.
+fn roster_entries(main_src: &str) -> Vec<(Vec<String>, Command)> {
     let start = main_src
         .find("generate_handler![")
         .expect("main.rs has no generate_handler![")
         + "generate_handler![".len();
     let mut text = String::new();
+    let mut depth = 0usize;
     'lines: for line in main_src[start..].lines() {
         let code = line.split("//").next().unwrap_or("");
-        match code.find(']') {
-            Some(end) => {
-                text.push_str(&code[..end]);
-                break 'lines;
+        for c in code.chars() {
+            match c {
+                '[' => depth += 1,
+                ']' if depth == 0 => break 'lines,
+                ']' => depth -= 1,
+                _ => {}
             }
-            None => {
-                text.push_str(code);
-                text.push('\n');
-            }
+            text.push(c);
         }
+        text.push('\n');
     }
     text.split(',')
         .map(str::trim)
         .filter(|e| !e.is_empty())
         .map(|entry| {
-            let parts: Vec<&str> = entry.split("::").collect();
-            match parts.as_slice() {
+            let mut attrs = Vec::new();
+            let mut rest = entry;
+            while rest.starts_with("#[") {
+                let Some(end) = rest.find(']') else { break };
+                attrs.push(rest[..=end].split_whitespace().collect::<String>());
+                rest = rest[end + 1..].trim_start();
+            }
+            let parts: Vec<&str> = rest.split("::").collect();
+            let command = match parts.as_slice() {
                 ["commands", module, name] => (module.to_string(), name.to_string()),
                 _ => ("?".to_string(), entry.to_string()),
-            }
+            };
+            (attrs, command)
         })
         .collect()
 }
@@ -299,6 +332,48 @@ fn every_tauri_command_is_registered_in_generate_handler() {
          `capabilities/default.json`'s roster string is documentation and is not checked here.\n\
          declared with #[tauri::command] but missing from the roster: {missing:?}\n\
          in the roster but naming no #[tauri::command] function: {orphaned:?}"
+    );
+}
+
+/// Issue #786: the Environment picker's commands, and nothing else, are registered only in
+/// development builds. Their module is `#[cfg(debug_assertions)]` too, so an entry without the
+/// attribute would break only the release build; this fails it in every `cargo test` instead.
+#[test]
+fn only_the_environment_picker_is_registered_for_development_builds_alone() {
+    let main_src = fs::read_to_string(manifest_dir().join("src/main.rs")).expect("read main.rs");
+    let debug_only: Vec<String> = debug_only_entries(&main_src)
+        .into_iter()
+        .map(|(m, f)| format!("{m}::{f}"))
+        .collect();
+    assert_eq!(
+        debug_only,
+        [
+            "dev_environment::dev_environment_choose",
+            "dev_environment::dev_environment_get"
+        ]
+    );
+    let mod_src =
+        fs::read_to_string(manifest_dir().join("src/commands/mod.rs")).expect("read mod.rs");
+    assert!(
+        mod_src.contains("#[cfg(debug_assertions)]\npub mod dev_environment;"),
+        "commands/mod.rs must declare dev_environment under #[cfg(debug_assertions)]"
+    );
+}
+
+#[test]
+fn an_attribute_on_a_roster_entry_is_read_and_does_not_end_the_roster() {
+    let src = "generate_handler![\n    commands::a::one,\n    #[cfg(debug_assertions)]\n    commands::b::two,\n    commands::c::three,\n]";
+    assert_eq!(
+        parse_roster(src),
+        BTreeSet::from([
+            ("a".to_string(), "one".to_string()),
+            ("b".to_string(), "two".to_string()),
+            ("c".to_string(), "three".to_string()),
+        ])
+    );
+    assert_eq!(
+        debug_only_entries(src),
+        BTreeSet::from([("b".to_string(), "two".to_string())])
     );
 }
 

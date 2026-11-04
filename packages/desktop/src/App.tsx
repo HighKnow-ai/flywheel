@@ -42,6 +42,12 @@ const FleetSurface = React.lazy(() => import("./fleet/FleetSurface").then((m) =>
 const WorktreeInventory = React.lazy(() =>
   import("./fleet/WorktreeInventory").then((m) => ({ default: m.WorktreeInventory })),
 );
+// Issue #786: the hidden Environment picker, in a development build only. `vite build` replaces
+// `import.meta.env.DEV` with `false`, so a release bundle holds neither this import nor its module;
+// `npm run build` checks that (scripts/release/check-release-bundle.mjs).
+const DevEnvironment = import.meta.env.DEV
+  ? React.lazy(() => import("./dev-environment/DevEnvironment").then((m) => ({ default: m.DevEnvironment })))
+  : null;
 import { useColorScheme } from "./theme/colorScheme";
 import "./styles/globals.css";
 
@@ -330,6 +336,11 @@ function App() {
         {/* After-action feedback (DESIGN.md § Feedback): the one Toaster, bottom-right, clear of the andon
             strip. Screens fire toasts through `lib/notify.ts`. */}
         <Toaster />
+        {DevEnvironment ? (
+          <Suspense fallback={null}>
+            <DevEnvironment />
+          </Suspense>
+        ) : null}
       </TooltipProvider>
     </QueryClientProvider>
   );

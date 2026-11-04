@@ -166,6 +166,17 @@ jobs:
           prerelease: false
           args: --target aarch64-apple-darwin
 
+      # LOCKED TO PRODUCTION (issue #786). The built app must hold no non-production Environment
+      # (`highknow.dev`) and no Environment picker; both are compiled out of a release build, and
+      # this reads the bytes that ship. The renderer is embedded compressed in the binary, so it is
+      # checked as `dist`, which the beforeBuildCommand's `npm run build` already scanned and which
+      # is scanned again here beside the app. A failure stops this job, so `attest` never runs and
+      # the draft is never published.
+      - name: The bundle is locked to production
+        run: |
+          node scripts/release/check-release-bundle.mjs \
+            target/aarch64-apple-darwin/release/bundle/macos/Flywheel.app packages/desktop/dist
+
       # A failed run leaves its draft and the next run reuses it (see above), so an SBOM of this
       # name may already be on it: it is replaced, not refused as a duplicate. Uploaded to GitHub's
       # uploads host, by the draft's id.

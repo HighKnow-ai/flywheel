@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && tsc -p tsconfig.browser-tests.json && vite build",
+    "build": "tsc && tsc -p tsconfig.browser-tests.json && vite build && node ../../scripts/release/check-release-bundle.mjs dist",
     "preview": "vite preview",
     "test": "vitest run",
     "tauri": "tauri",

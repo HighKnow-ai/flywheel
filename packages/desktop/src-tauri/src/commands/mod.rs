@@ -10,6 +10,9 @@
 
 pub mod actor;
 pub mod criterion;
+// Development builds only (issue #786): a release build compiles no Environment picker.
+#[cfg(debug_assertions)]
+pub mod dev_environment;
 pub mod epic;
 pub mod events;
 pub mod fleet;
