@@ -591,6 +591,9 @@ describe("StoryBoard: the roster reads at a glance (issue #202)", () => {
     const renderedAt = Date.now();
     renderBoard();
     await screen.findByLabelText("Loading the roster");
+    // THE FRAME THAT DRAWS IT. The hold is for a skeleton somebody saw: the next @highknow/design
+    // drops one no frame has painted when its read lands, so without this the test measures that.
+    await new Promise((resolve) => requestAnimationFrame(resolve));
     land([story("s1", "FLY-2", "One", "ready")]);
     await waitFor(() => expect(screen.queryByLabelText("Loading the roster")).toBeNull());
     expect(Date.now() - renderedAt).toBeGreaterThanOrEqual(150 + 350 - 2);
