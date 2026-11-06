@@ -11,7 +11,19 @@
  * - A blank frame is a frame in which the subtree's visible text is less than half of the smaller of
  *   what it held at the start and at the end: a list swapped for a loading line, or an empty container
  *   between two renders. Measured against both ends so data that legitimately shrinks is not blank.
+ *
+ * The screen is sampled once per animation frame, and a timer stands in whenever frames stop arriving. The
+ * browser's rendering loop can stop for seconds while the page's timers keep running: WebKit's loop is driven
+ * from its UI process, and a hosted runner stalled it for a whole burst, leaving one frame where about sixty were
+ * due. Freezing only that process reproduces it. A sample does not need a paint: `innerText` and
+ * `getBoundingClientRect` force style and layout, so they read what the next paint would draw. Without the stand-in
+ * a stalled run watched nothing, so its blank-frame and shift checks passed without having looked.
  */
+
+/** How often the stand-in looks. Slower than a frame, so it stays out of the way while frames arrive. */
+const STAND_IN_INTERVAL_MS = 50;
+/** How long `stop` waits for one last frame, since the rendering loop may have stopped. */
+const LAST_FRAME_WAIT_MS = 100;
 
 export interface FlickerReport {
   removed: string[];
@@ -24,11 +36,14 @@ export interface FlickerReport {
   /** Text nodes whose value changed, as `before -> after`. */
   textChanged: string[];
   blankFrames: number;
-  /** Elements whose rect moved, one entry per element, with the first frame it moved in. */
+  /** Elements whose rect moved, one entry per element, with the first sample it moved in. */
   shifted: string[];
   /** The sum of `layout-shift` entry values, or `null` where the engine has no such entry type. */
   layoutShiftScore: number | null;
+  /** The animation frames the browser delivered. How many is up to the browser, so assert on `samples`. */
   frames: number;
+  /** How many times the screen was read: every frame, the stand-in's ticks, and one when stopping. */
+  samples: number;
 }
 
 export interface FlickerRecorder {
@@ -118,27 +133,43 @@ export function recordFlicker(root: HTMLElement): FlickerRecorder {
   const shifted = new Map<Element, string>();
   const textPerFrame: number[] = [];
   let frames = 0;
+  let samples = 0;
+  let frameSinceLastTick = false;
   let running = true;
 
   const sample = () => {
-    if (!running) return;
-    frames += 1;
+    samples += 1;
     textPerFrame.push(visibleTextLength(root));
     for (const [el, before] of startRects) {
       if (shifted.has(el) || !el.isConnected) continue;
       const now = rectKey(el.getBoundingClientRect());
-      if (now !== before) shifted.set(el, `${describe(el)} ${before} -> ${now} (frame ${frames})`);
+      if (now !== before) shifted.set(el, `${describe(el)} ${before} -> ${now} (sample ${samples})`);
     }
-    requestAnimationFrame(sample);
   };
-  requestAnimationFrame(sample);
+  const onFrame = () => {
+    if (!running) return;
+    frames += 1;
+    frameSinceLastTick = true;
+    sample();
+    requestAnimationFrame(onFrame);
+  };
+  requestAnimationFrame(onFrame);
+  const standIn = setInterval(() => {
+    if (!frameSinceLastTick) sample();
+    frameSinceLastTick = false;
+  }, STAND_IN_INTERVAL_MS);
 
   return {
     baseline,
     async stop() {
-      // One more frame so the last commit is sampled, then drain the observer.
-      await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+      // One more frame if one comes, then read the last commit directly and drain the observer.
+      await new Promise((r) => {
+        requestAnimationFrame(() => r(undefined));
+        setTimeout(() => r(undefined), LAST_FRAME_WAIT_MS);
+      });
       running = false;
+      clearInterval(standIn);
+      sample();
       for (const record of observer.takeRecords()) {
         for (const node of record.removedNodes) {
           const d = describe(node);
@@ -177,6 +208,7 @@ export function recordFlicker(root: HTMLElement): FlickerRecorder {
         shifted: [...shifted.values()],
         layoutShiftScore,
         frames,
+        samples,
       };
     },
   };

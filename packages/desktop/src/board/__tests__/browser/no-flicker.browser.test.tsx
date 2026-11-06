@@ -158,8 +158,8 @@ function expectNoFlicker(report: FlickerReport) {
     shifted: [],
   });
   if (report.layoutShiftScore !== null) expect(report.layoutShiftScore).toBe(0);
-  // The recorder really sampled frames during the burst.
-  expect(report.frames).toBeGreaterThan(5);
+  // The recorder really read the screen during the burst, or the blank-frame and shift checks above saw nothing.
+  expect(report.samples).toBeGreaterThan(5);
 }
 
 describe("no-flicker: a refetch with unchanged data leaves the screen untouched", () => {
