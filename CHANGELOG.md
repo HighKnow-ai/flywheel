@@ -6,6 +6,8 @@ user would recognise. Releases up to v0.1.2 are described on their release pages
 
 ## Unreleased
 
+## 0.2.0 — 2026-11-06
+
 - Each file attached to a release now carries a GitHub artifact attestation, and the release
   carries a CycloneDX SBOM listing what the app is built from. To check that a download came from
   this repository's release workflow, run
