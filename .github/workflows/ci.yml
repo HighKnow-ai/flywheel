@@ -52,8 +52,10 @@ jobs:
           cache-dependency-path: packages/sidecar/package-lock.json
 
       # The action installs the minimal profile, which has no clippy.
+      # The version is rust-toolchain.toml's, which says why it is pinned; a test holds these together.
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # 2026-10-16, the stable branch (it has no release tags)
         with:
+          toolchain: 1.99.1
           components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
@@ -129,7 +131,10 @@ jobs:
           cache: npm
           cache-dependency-path: packages/sidecar/package-lock.json
 
+      # The version is rust-toolchain.toml's, which says why it is pinned; a test holds these together.
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # 2026-10-16, the stable branch (it has no release tags)
+        with:
+          toolchain: 1.99.1
 
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
@@ -165,7 +170,10 @@ jobs:
       - name: Release script tests
         run: node --test scripts/release/test/*.test.mjs
 
+      # The version is rust-toolchain.toml's, which says why it is pinned; a test holds these together.
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # 2026-10-16, the stable branch (it has no release tags)
+        with:
+          toolchain: 1.99.1
 
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
@@ -301,7 +309,10 @@ jobs:
             packages/desktop/package-lock.json
             packages/sidecar/package-lock.json
 
+      # The version is rust-toolchain.toml's, which says why it is pinned; a test holds these together.
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # 2026-10-16, the stable branch (it has no release tags)
+        with:
+          toolchain: 1.99.1
 
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
@@ -316,6 +327,17 @@ jobs:
       # release.yml checks before it publishes (scripts/release/check-release-bundle.mjs).
       - name: The bundle is locked to production
         run: node scripts/release/check-release-bundle.mjs target/release/bundle/macos/Flywheel.app packages/desktop/dist
+
+      # `tauri build` above already ran scripts/release/before-bundle.mjs, so a binary
+      # dyld could refuse fails on `next`, before `main` moves and before a tag is spent. This is
+      # release.yml's check of the bundle's own copies, as it runs there, on this runner's tools.
+      - name: Every Mach-O in the bundle would load
+        run: |
+          bundle=target/release/bundle
+          mnt=$(mktemp -d)
+          hdiutil attach "$bundle"/dmg/*.dmg -nobrowse -readonly -mountpoint "$mnt" -quiet
+          trap 'hdiutil detach "$mnt" -quiet' EXIT
+          node scripts/release/check-macho.mjs "$bundle/macos/Flywheel.app" "$mnt/Flywheel.app"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

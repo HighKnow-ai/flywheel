@@ -127,7 +127,10 @@ jobs:
             packages/desktop/package-lock.json
             packages/sidecar/package-lock.json
 
+      # The version is rust-toolchain.toml's, which says why it is pinned; a test holds these together.
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # 2026-10-16, the stable branch (it has no release tags)
+        with:
+          toolchain: 1.99.1
 
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3 # zizmor: ignore[cache-poisoning] see "CACHES ON A RELEASE" above
 
@@ -153,6 +156,12 @@ jobs:
       # Not Apple-signed on purpose (D-185): nothing but criterion 1 waits on an Apple account.
       # Env group added later, NOT here:
       #   the Apple signing and notarization set  -> plan 11-07
+      #
+      # A BINARY DYLD COULD REFUSE STOPS HERE, WITH NO DRAFT. tauri-action runs `tauri
+      # build` to its end and only then creates the draft, and `tauri build` runs tauri.conf.json's
+      # beforeBundleCommand between compiling and bundling. That hook, scripts/release/before-bundle.mjs,
+      # strips with Apple's tool and refuses what scripts/release/check-macho.mjs refuses, so a refusal
+      # fails this step before there is a bundle, a draft or, once it exists, a signature.
       - id: tauri
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
         env:
@@ -176,6 +185,18 @@ jobs:
         run: |
           node scripts/release/check-release-bundle.mjs \
             target/aarch64-apple-darwin/release/bundle/macos/Flywheel.app packages/desktop/dist
+
+      # THE SAME CHECK ON THE COPIES THAT SHIP, the .app and the one inside the .dmg, walking every
+      # Mach-O in them, whatever a dependency added. tauri-action has already put these on the draft,
+      # so this cannot stop a draft existing; what it stops is the release: a failure ends this job,
+      # `attest` never runs, and the draft is never published. The next run reuses it.
+      - name: Every Mach-O in the bundle would load
+        run: |
+          bundle=target/aarch64-apple-darwin/release/bundle
+          mnt=$(mktemp -d)
+          hdiutil attach "$bundle"/dmg/*.dmg -nobrowse -readonly -mountpoint "$mnt" -quiet
+          trap 'hdiutil detach "$mnt" -quiet' EXIT
+          node scripts/release/check-macho.mjs "$bundle/macos/Flywheel.app" "$mnt/Flywheel.app"
 
       # A failed run leaves its draft and the next run reuses it (see above), so an SBOM of this
       # name may already be on it: it is replaced, not refused as a duplicate. Uploaded to GitHub's

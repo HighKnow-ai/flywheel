@@ -12,7 +12,13 @@ codegen-units = 1
 lto = true
 opt-level = 3
 panic = "abort"
-strip = true
+# LOAD-BEARING: rustc's strip stays off, and scripts/release/before-bundle.mjs strips what ships with
+# Apple's tool instead. rustc strips with its bundled `rust-objcopy`, which at some versions writes
+# the string table straight after the indirect symbol table with no padding, so an odd entry count
+# misaligns it. `build-override` inherits this: `strip = true` passes `-C strip=symbols` to
+# proc-macros and build scripts as well (measured), and macOS 27's dyld refuses a misaligned dylib,
+# which rustc then reports as a crate it cannot find.
+strip = false
 # LOAD-BEARING, and Cargo's default, stated so it is not changed by accident: a release build is
 # locked to the production Environment because everything that can choose another is compiled only
 # under `debug_assertions` (packages/core/src/environment.rs, issue #786).

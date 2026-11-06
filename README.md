@@ -67,11 +67,11 @@ This was observed on one Mac (macOS 26). Other macOS versions may word the dialo
 
 | Tool | Minimum version |
 |---|---|
-| Rust toolchain (`rustc`/`cargo`) | 1.96.x or newer |
+| Rust toolchain (`rustc`/`cargo`) | the version in `rust-toolchain.toml`, which `rustup` installs by itself |
 | Node.js | 22.x (LTS) |
 | npm | 10.x |
 | git | ≥ 2.44 |
-| Xcode Command Line Tools (macOS) | present, for compiling bundled SQLite + native deps |
+| Xcode Command Line Tools (macOS) | present, for compiling bundled SQLite + native deps, and for `strip` and `dyld_info`, which `tauri build` runs on the release binaries |
 | `rustc` host triple | `aarch64-apple-darwin` (Flywheel ships arm64 macOS only; check with `rustc -vV`) |
 
 `build:dist` (below) downloads a pinned Node runtime on first run and verifies it against the

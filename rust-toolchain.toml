@@ -1,0 +1,9 @@
+# THE TOOLCHAIN EVERY BUILD USES, AND THE BYTES OF A RELEASE DEPEND ON IT. Floating `stable` is how a
+# strip or linker change arrives unannounced in a release: rustc 1.97.1's `rust-objcopy` misaligned
+# the string table at an odd indirect symbol count and 1.99.1's does not, and nobody chose either.
+# Bump deliberately, in a change of its own, as with NODE_VERSION in
+# packages/sidecar/scripts/stage-runtime.mjs. ci.yml and release.yml name the same version, because
+# their setup action installs what it is told; scripts/release/test/release-wiring.test.mjs fails if
+# they drift.
+[toolchain]
+channel = "1.99.1"
