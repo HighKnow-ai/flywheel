@@ -11,6 +11,8 @@ user would recognise. Releases up to v0.1.2 are described on their release pages
   this repository's release workflow, run
   `gh attestation verify <file> --repo HighKnow-ai/flywheel`. The README's "Verifying a download"
   section has the details.
+- The Roadmap and a Story's Acceptance criteria no longer jump when a slow first load finishes.
+  Their rows used to appear below the loading placeholder and move up when it left.
 
 ## 0.1.3 — 2026-10-29
 

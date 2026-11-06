@@ -260,6 +260,29 @@ const REJECTED = proposal("p-no", "create", "milestone", 'New Milestone "Teams"'
 });
 
 describe("RoadmapStrip: one row per Milestone", () => {
+  it("keeps the rows off the screen until the skeleton leaves, so nothing jumps by the skeleton's height", async () => {
+    let land: (rows: MilestoneDto[]) => void = () => {};
+    milestoneList.mockReturnValue(
+      new Promise<MilestoneDto[]>((resolve) => {
+        land = resolve;
+      }),
+    );
+    renderBoard();
+    const skeleton = await screen.findByLabelText("Loading the Roadmap");
+
+    // The read lands inside the skeleton's hold: the header's count says so, and the skeleton is still up.
+    land(ROADMAP);
+    const region = await strip();
+    await within(region).findByRole("button", { name: /Revisit roadmap/i });
+    expect(skeleton).toBeInTheDocument();
+    expect(within(region).queryByRole("list", { name: "Milestones in Roadmap order" })).toBeNull();
+
+    // The skeleton leaves and the rows take its place in the same commit.
+    const list = await within(region).findByRole("list", { name: "Milestones in Roadmap order" });
+    expect(screen.queryByLabelText("Loading the Roadmap")).toBeNull();
+    expect(within(list).getAllByRole("listitem")).toHaveLength(5);
+  });
+
   it("lists every Milestone in Roadmap order with its state and one-line Exit test", async () => {
     renderBoard();
     const list = await within(await strip()).findByRole("list", { name: "Milestones in Roadmap order" });

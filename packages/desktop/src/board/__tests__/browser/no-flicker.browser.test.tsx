@@ -27,6 +27,30 @@ type Args = Record<string, unknown> | undefined;
 type Override = (cmd: string, args: Args, base: unknown) => unknown;
 
 let override: Override | undefined;
+/** While this says so, a read answers past the 150 ms loading threshold, as a loaded machine's first reads do. */
+let readsAreSlow: () => boolean = () => false;
+
+function slowFirstReads(whileTrue: () => boolean) {
+  readsAreSlow = whileTrue;
+}
+
+/**
+ * Stops frames, not timers, as a stalled rendering loop does, for `forMs` from the moment the board's skeletons are up.
+ * Freezing WebKit's UI process does the same from outside, and fails the same way; this holds it still in a test.
+ */
+function holdFramesOnceSkeletonsRise(forMs: number): () => void {
+  const real = window.requestAnimationFrame.bind(window);
+  let risenAt: number | null = null;
+  window.requestAnimationFrame = (callback) =>
+    real(function retry(now) {
+      if (risenAt === null && document.querySelector('[aria-label="Loading the Roadmap"]')) risenAt = performance.now();
+      if (risenAt !== null && performance.now() - risenAt < forMs) real(retry);
+      else callback(now);
+    });
+  return () => {
+    window.requestAnimationFrame = real;
+  };
+}
 
 const GIT_BACKED = new Set([
   "story_review",
@@ -43,6 +67,7 @@ const GIT_BACKED = new Set([
  */
 function installBackend() {
   override = undefined;
+  readsAreSlow = () => false;
   let n = 0;
   mockIPC(
     (cmd, payload) => {
@@ -50,7 +75,7 @@ function installBackend() {
       const value = override ? override(cmd, payload as Args, base) : base;
       n += 1;
       // A command that shells out to git answers in hundreds of milliseconds, a SQLite read in a few.
-      const delay = GIT_BACKED.has(cmd) ? 150 + ((n * 37) % 200) : 4 + ((n * 7) % 30);
+      const delay = readsAreSlow() ? 200 : GIT_BACKED.has(cmd) ? 150 + ((n * 37) % 200) : 4 + ((n * 7) % 30);
       // Through JSON, as the real IPC is: every answer is a fresh object, never the fixture's own.
       const wire = value === undefined ? null : JSON.parse(JSON.stringify(value));
       return new Promise((resolve) => setTimeout(() => resolve(wire), delay));
@@ -73,11 +98,25 @@ function changeBackend(next: Override) {
 
 const settle = (ms = 400) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Wait until no query is fetching, then a little more, so the screen is at rest. */
+/** No read in flight and no loading treatment on screen. */
+function expectAtRest() {
+  expect(queryClient.isFetching()).toBe(0);
+  expect(document.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(0);
+}
+
+/**
+ * Wait until the screen is at rest, then a little more.
+ *
+ * A QUERY THAT LANDED IS NOT A SCREEN AT REST: a first read that crossed the 150 ms threshold keeps its skeleton for
+ * 350 ms from the frame that paints it, and the board's reads start when the boot skeleton's hold ends. A stopped
+ * rendering loop (see `flicker-recorder.ts`) puts that frame seconds away with no query fetching, so a fixed wait let
+ * the recorder start on a first load's skeletons and report their handover as the refetch's flicker. Not a looser
+ * check: a skeleton a refetch raises is still `added`, and one that never leaves times this wait out.
+ */
 async function quiet() {
-  await waitFor(() => expect(queryClient.isFetching()).toBe(0), { timeout: 5000 });
+  await waitFor(expectAtRest, { timeout: 5000 });
   await settle(600);
-  await waitFor(() => expect(queryClient.isFetching()).toBe(0), { timeout: 5000 });
+  await waitFor(expectAtRest, { timeout: 5000 });
 }
 
 function root(): HTMLElement {
@@ -181,6 +220,37 @@ describe("no-flicker: a refetch with unchanged data leaves the screen untouched"
     const needsYou = await screen.findByRole("region", { name: /^Needs you/ });
     expect(needsYou).toBeInTheDocument();
     expectNoFlicker(await measure(root(), () => burst()));
+  });
+
+  // The two things a loaded runner does to the test above, held still: first reads past the threshold, so the
+  // skeletons rise, and a rendering loop that stops as they do, so their hold has not started when the reads land.
+  it("the board, measured from rest after a slow first read while frames stopped", async () => {
+    const started = performance.now();
+    slowFirstReads(() => performance.now() - started < 2000);
+    const resume = holdFramesOnceSkeletonsRise(1000);
+    try {
+      render(<App />, { container: root() });
+      await screen.findAllByText("Make clicking and navigation predictable", {}, { timeout: 5000 });
+      await quiet();
+      expectNoFlicker(await measure(root(), () => burst()));
+    } finally {
+      resume();
+    }
+  });
+
+  // What `quiet` must not do: wait a skeleton out so that the recorder never sees it.
+  it("the wait for rest still reports a skeleton raised while recording", async () => {
+    await renderBoard();
+    const recorder = recordFlicker(root());
+    const raised = document.createElement("div");
+    raised.setAttribute("data-slot", "skeleton");
+    at(Array.from(root().querySelectorAll("section")), 0).append(raised);
+    setTimeout(() => raised.remove(), 200);
+    await quiet();
+    expect(raised.isConnected).toBe(false);
+    const report = await recorder.stop();
+    expect(report.added).toContain('<div> ""');
+    expect(report.removed).toContain('<div> ""');
   });
 
   it("the Story view with its live feed", async () => {

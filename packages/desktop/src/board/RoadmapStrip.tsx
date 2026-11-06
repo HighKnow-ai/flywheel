@@ -285,7 +285,9 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
           <Skeleton aria-label="Loading the Roadmap" className="mx-4 my-2 h-5 rounded-sm" />
         )}
         {roadmap.isError && <ReadError title="Couldn't load the Roadmap" query={roadmap} className="m-3 w-auto" />}
-        {roadmap.isSuccess && milestones.length === 0 && !adding && (
+        {/* THE ROWS WAIT FOR THE SKELETON TO LEAVE. A read that lands inside the hold has data while the skeleton is
+            still up; drawn under it, every row dropped by the skeleton's 36 px and jumped back when it left. */}
+        {roadmapPhase !== "skeleton" && roadmap.isSuccess && milestones.length === 0 && !adding && (
           <Empty className="gap-3 p-5">
             <EmptyHeader>
               <EmptyMedia variant="icon">
@@ -309,7 +311,7 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
           </Empty>
         )}
 
-        {milestones.length > 0 && (
+        {roadmapPhase !== "skeleton" && milestones.length > 0 && (
           <ol ref={listRef} id={listId} aria-label="Milestones in Roadmap order" className="m-0 list-none p-0">
             {milestones.map((milestone, index) => {
               // Folded, every row but the one the board shows shrinks to nothing and leaves the tab order.

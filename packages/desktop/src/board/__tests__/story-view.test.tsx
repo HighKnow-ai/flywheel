@@ -118,6 +118,30 @@ beforeEach(() => {
   sessionSummariesForStory.mockReset().mockResolvedValue([]);
 });
 
+describe("The Acceptance criteria while their first read is slow", () => {
+  it("keeps the rows off the screen until the skeleton leaves, so nothing jumps by the skeleton's height", async () => {
+    let land: (rows: AcceptanceCriterionDto[]) => void = () => {};
+    criterionList.mockReturnValue(
+      new Promise<AcceptanceCriterionDto[]>((resolve) => {
+        land = resolve;
+      }),
+    );
+    storyGet.mockResolvedValue(story("running"));
+    renderView();
+    const skeleton = await screen.findByLabelText("Loading the Acceptance criteria");
+
+    // The read lands inside the skeleton's hold, which outlasts this wait by far.
+    land([CRITERION]);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(skeleton).toBeInTheDocument();
+    expect(screen.queryByText(CRITERION.statement)).toBeNull();
+
+    // The skeleton leaves and the rows take its place in the same commit.
+    await screen.findByText(CRITERION.statement);
+    expect(screen.queryByLabelText("Loading the Acceptance criteria")).toBeNull();
+  });
+});
+
 describe("A Story whose reads fail (issue #204)", () => {
   const dead = () => Promise.reject(new Error("the core did not answer"));
 

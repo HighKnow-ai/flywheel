@@ -56,6 +56,11 @@ describe("Milestone 4's exit test in WebKit: roster, Needs you, the triage drawe
     backend.reset();
   });
 
+  // THE WHOLE WALK'S BUDGET, NOT ANY STEP'S. It is a couple of dozen real clicks and two typed sentences, and a click
+  // waits for frames (Playwright's "stable" check). It took 9 to 13 s on hosted runners until one stalled its rendering
+  // loop; freezing WebKit's UI process takes it to 20 to 23 s, on design 0.2.0 and 0.3.0 alike. Vitest's default 15 s
+  // then ran out mid-click, as `locator.click: Timeout 575ms exceeded`: what was left of the 15 s, not a control failing
+  // to answer. Every `findBy` and `waitFor` keeps its own bound, so a control that never answers still fails.
   it("decides what waits in Needs you and the drawer, then accepts, keeps the ADR and merges FLY-3", async () => {
     renderApp();
 
@@ -185,5 +190,5 @@ describe("Milestone 4's exit test in WebKit: roster, Needs you, the triage drawe
     await within(column).findByRole("button", { name: "Triage 2 Proposals" });
     expect(within(column).queryByRole("button", { name: /^Open review of FLY-3 / })).toBeNull();
     expect(screen.queryByRole("button", { name: "Open review of FLY-3" })).toBeNull();
-  });
+  }, 30_000);
 });

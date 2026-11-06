@@ -88,11 +88,14 @@ export function CriteriaList({
   const criteriaQuery = useCriteria(projectId, storyId);
   const criteriaPhase = useLoadingPhase(criteriaQuery.isPending);
   const criteria = criteriaQuery.data ?? [];
+  // THE ROWS WAIT FOR THE SKELETON TO LEAVE. A read that lands inside the hold has data while the skeleton is still up;
+  // drawn under it, every row dropped by the skeleton's height and jumped back when it left.
+  const skeleton = criteriaPhase === "skeleton" && !compact;
 
   return (
     <div className="flex flex-col">
       {criteriaQuery.isError && <ReadError title="Couldn't load the Acceptance criteria" query={criteriaQuery} />}
-      {criteriaPhase === "skeleton" && !compact && (
+      {skeleton && (
         <div role="status" aria-label="Loading the Acceptance criteria" className="flex flex-col gap-2.5 py-1">
           <Skeleton className="h-4 w-3/4" />
           <Skeleton className="h-4 w-1/2" />
@@ -101,7 +104,7 @@ export function CriteriaList({
       {criteriaQuery.isSuccess && criteria.length === 0 && emptyText && compact && (
         <p className="m-0 text-small text-muted-foreground">{emptyText}</p>
       )}
-      {criteriaQuery.isSuccess && criteria.length === 0 && emptyText && !compact && (
+      {!skeleton && criteriaQuery.isSuccess && criteria.length === 0 && emptyText && !compact && (
         <Empty className="p-4">
           <EmptyHeader>
             <EmptyTitle className="text-body font-semibold">{emptyText}</EmptyTitle>
@@ -112,15 +115,16 @@ export function CriteriaList({
         </Empty>
       )}
       <ol aria-label={`${storyKey} Acceptance criteria`} className="m-0 list-none p-0 empty:hidden">
-        {criteria.map((criterion, index) => (
-          <CriterionRow
-            key={criterion.id}
-            projectId={projectId}
-            criterion={criterion}
-            number={index + 1}
-            compact={compact}
-          />
-        ))}
+        {!skeleton &&
+          criteria.map((criterion, index) => (
+            <CriterionRow
+              key={criterion.id}
+              projectId={projectId}
+              criterion={criterion}
+              number={index + 1}
+              compact={compact}
+            />
+          ))}
       </ol>
     </div>
   );
