@@ -1,6 +1,9 @@
 // The desktop workspace deliberately carries no `@types/node` (it is a DOM program), but the asset
-// tests need three Node built-ins that vitest resolves at runtime. Typed here to the exact surface
+// tests need four Node built-ins that vitest resolves at runtime. Typed here to the exact surface
 // used rather than pulling the whole Node global scope into the renderer's program.
+declare module "node:timers/promises" {
+  export function setTimeout(ms: number): Promise<void>;
+}
 declare module "node:fs" {
   export function readFileSync(path: string): Uint8Array;
 }

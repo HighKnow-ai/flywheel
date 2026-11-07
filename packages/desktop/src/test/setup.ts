@@ -1,3 +1,4 @@
+import "./settle-react";
 import { afterEach } from "vitest";
 import { cleanup, configure } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
