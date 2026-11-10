@@ -6,7 +6,8 @@
  * disables the project's own instructions and skills the agent needs (02-RESEARCH.md "The
  * sidecar-shape decision"). The local-credential path works by NOT setting `--bare` and inheriting
  * the environment the user's own `claude login` session lives in; Flywheel never reads, replays or
- * stores that OAuth token itself.
+ * stores that OAuth token itself. (The sandbox check in `sandbox-policy.ts` runs bare, and it is not a
+ * session: it talks to a loopback stub and holds no credential.)
  */
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
@@ -34,6 +35,7 @@ import {
   type PermissionServerHandle,
   type QuestionAnswers,
 } from "./mcp-permission-server.js";
+import { probeSandbox, readSandboxPolicy, sessionSandboxBlock } from "./sandbox-policy.js";
 
 /** The binary name/path this adapter spawns — overridable via `FLYWHEEL_CLAUDE_BIN` so tests can
  * point it at `test/fake-claude.mjs` instead of the real CLI. Never a credential. */
@@ -136,13 +138,20 @@ function shimBinFromEnv(env: NodeJS.ProcessEnv): string | undefined {
  *
  * A write failure here degrades to "no hook injected for this session" (logged, never thrown) —
  * the shim (D-51/D-58) is that path's load-bearing guarantee, so a settings-write failure must not
- * refuse an entire task-execution session over this defense-in-depth layer. */
-export function writeHookSettings(runtimeDir: string, runId: string): string | undefined {
+ * refuse an entire task-execution session over this defense-in-depth layer. A session with a sandbox
+ * policy is the exception: `sandbox` is that policy's block, the file is the only way it reaches the
+ * session, and `startSession` refuses one whose file was not written (ADR 0040). */
+export function writeHookSettings(
+  runtimeDir: string,
+  runId: string,
+  sandbox?: Record<string, unknown>,
+): string | undefined {
   try {
     const settingsPath = permissionSettingsPath(runtimeDir, runId);
     fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
     const preToolUse: Array<{ matcher: string; hooks: Array<{ type: string; command: string }> }> = [];
     const settings = {
+      ...(sandbox ? { sandbox } : {}),
       hooks: {
         PreToolUse: preToolUse,
         // Phase 12 plan 12-03: writes the shim's shadow directory onto CLAUDE_ENV_FILE
@@ -228,6 +237,9 @@ function writeRunDescriptor(runtimeDir: string, runId: string, wrapperPid: numbe
  * "The hook mechanism verified working this session"). Appended on its own, never paired with
  * anything else, so a caller that has a permission-prompt-tool pair but no settings file (or vice
  * versa) still gets a valid argv.
+ *
+ * `strictMcpConfig` goes on for a session under a sandbox policy (ADR 0040): only the servers named in
+ * `mcpConfig` connect, and a repository's own `.mcp.json` does not.
  */
 /** Push the board's MCP server flags onto `argv` — the ONE place they are constructed. The
  * `--mcp-config` naming the session's one server goes on whenever it is given, so every session
@@ -252,6 +264,7 @@ export function buildClaudeArgv(options: {
   permissionPromptToolName?: string | undefined;
   mcpConfig?: string | undefined;
   settingsPath?: string | undefined;
+  strictMcpConfig?: boolean | undefined;
 }): string[] {
   const argv = [
     "-p",
@@ -277,6 +290,9 @@ export function buildClaudeArgv(options: {
   }
   if (options.mcpConfig) {
     pushBoardServerFlags(argv, options.mcpConfig, options.permissionPromptToolName);
+  }
+  if (options.strictMcpConfig) {
+    argv.push("--strict-mcp-config");
   }
   if (options.settingsPath) {
     argv.push("--settings", options.settingsPath);
@@ -1162,12 +1178,57 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       env.FLYWHEEL_SHIM_BIN = shimBin;
     }
 
+    // ADR 0040: a project's sandbox policy reaches the session through the run's `--settings` file, and
+    // a session it does not reach is refused below. A project with none is not touched by any of this.
+    const policy = readSandboxPolicy(options.worktreePath);
+    const sandbox = policy.kind === "declared" ? sessionSandboxBlock(policy.sandbox) : undefined;
+
     // plan 03-07 (D-55): write this run's `--settings` file BEFORE building argv, so the hook can
     // be wired into the very first invocation — a write failure degrades to "no hook injected for
-    // this session" (writeHookSettings's own doc comment), never a refused spawn.
+    // this session" (writeHookSettings's own doc comment), never a refused spawn, unless the file
+    // also carries a sandbox policy.
     const settingsPath = env.FLYWHEEL_RUNTIME_DIR
-      ? writeHookSettings(env.FLYWHEEL_RUNTIME_DIR, options.runId)
+      ? writeHookSettings(env.FLYWHEEL_RUNTIME_DIR, options.runId, sandbox)
       : undefined;
+
+    let refusal: string | undefined;
+    if (policy.kind === "broken") {
+      refusal = `the sandbox is not on: ${policy.reason}`;
+    } else if (sandbox && !settingsPath) {
+      refusal = "the sandbox is not on: the session's settings file, which carries the project's sandbox policy, could not be written";
+    } else if (sandbox && settingsPath) {
+      const probed = await probeSandbox({
+        bin,
+        worktreePath: options.worktreePath,
+        settingsPath,
+        env,
+      });
+      if (!probed.ok) refusal = probed.reason;
+    }
+    if (refusal !== undefined) {
+      // No process exists, so no event can have come before this one. The same two signals as a backend
+      // that failed to spawn: the terminal event carries the reason, and the promise rejects.
+      permissionServer.close();
+      const message = `session refused before its first turn: ${refusal}`;
+      options.onEvent({
+        runId: options.runId,
+        seq: 0,
+        at: new Date().toISOString(),
+        raw: "session_closed: failed",
+        type: "session_closed",
+        reason: "failed",
+        result: undefined,
+        exitCode: null,
+        exitSignal: null,
+        closeOrigin: resolveCloseOrigin({
+          interruptionRequested: false,
+          runtimeDir: env.FLYWHEEL_RUNTIME_DIR,
+          runId: options.runId,
+        }),
+        detail: message,
+      });
+      throw new Error(message);
+    }
 
     const mcpConfig = JSON.stringify({
       mcpServers: {
@@ -1189,6 +1250,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       permissionPromptToolName: raisesRequests ? PERMISSION_TOOL_NAME : undefined,
       mcpConfig,
       settingsPath,
+      strictMcpConfig: sandbox !== undefined,
     });
 
     // plan 03-02 (D-47/PROC-03): spawn the watchdog wrapper, never the backend directly — the

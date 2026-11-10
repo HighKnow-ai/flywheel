@@ -164,6 +164,10 @@ _Avoid_: Handoff note, recap
 An action an agent may take only with the developer's explicit, one-off approval, because it leaves the Story's worktree or can't be undone; never covered by a standing rule.
 _Avoid_: Destructive action, dangerous command
 
+**Sandbox policy**:
+The `sandbox` block of a project's own `.claude/settings.json`, turned on. Flywheel passes it to every session in that project with a strict network allow-list, and refuses a session whose sandbox isn't on before its first turn (ADR 0040).
+_Avoid_: Sandbox config, permissions
+
 ## People
 
 **Developer**:

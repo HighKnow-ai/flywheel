@@ -51,6 +51,15 @@
  * #169), interleaved with board calls as an agent works. The old `FLYWHEEL_FAKE_COMMIT_FILE` mode, which
  * matched the fan-out dispatcher's commit instruction, went with that instruction and is retired.
  *
+ * **Sandbox check** (ADR 0040): a start whose prompt is `the sandbox probe` plays the backend's half of
+ * `sandbox-policy.ts`'s check: it asks the stub API at `ANTHROPIC_BASE_URL` as the real backend does,
+ * runs the `touch` it is handed, and exits. `FLYWHEEL_FAKE_SANDBOX` says what a sandbox would have done:
+ * `on` (the default; only the inside file lands), `off` (both land), `never-ran` (exits 3 having run
+ * nothing, with a line on stderr) or `hang`.
+ *
+ * **Argv and environment record** (`FLYWHEEL_FAKE_ARGV_FILE=<path>`): every start appends one JSON line,
+ * `{ argv, env }`, where `env` names which of the variables the sandbox check concerns are set.
+ *
  * **Usage block** (G-02-4, plan 02-18): both of this script's `result` lines carry a `usage`
  * object in the real CLI's own field shape (`input_tokens`, `cache_creation_input_tokens`,
  * `cache_read_input_tokens`, `output_tokens`) — the same shape measured live against claude
@@ -62,6 +71,42 @@ import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { createInterface } from "node:readline";
+
+if (process.env.FLYWHEEL_FAKE_ARGV_FILE) {
+  const concerned = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK"];
+  fs.appendFileSync(
+    process.env.FLYWHEEL_FAKE_ARGV_FILE,
+    `${JSON.stringify({ argv: process.argv.slice(2), env: concerned.filter((name) => process.env[name] !== undefined) })}\n`,
+  );
+}
+
+if (process.argv[3] === "the sandbox probe") {
+  const world = process.env.FLYWHEEL_FAKE_SANDBOX ?? "on";
+  if (world === "hang") await new Promise(() => setInterval(() => {}, 1000));
+  if (world === "never-ran") {
+    process.stderr.write("the fake backend broke before its first request\n");
+    process.exit(3);
+  }
+  const ask = async (messages) => {
+    const response = await fetch(`${process.env.ANTHROPIC_BASE_URL}/v1/messages`, {
+      method: "POST",
+      body: JSON.stringify({ stream: true, tools: [{ name: "Bash" }], messages }),
+    });
+    return response.text();
+  };
+  const said = await ask([{ role: "user", content: process.argv[3] }]);
+  const call = said
+    .split("\n")
+    .filter((line) => line.startsWith("data: ") && line.includes("input_json_delta"))
+    .map((line) => JSON.parse(line.slice("data: ".length)).delta.partial_json)
+    .join("");
+  // `touch '<inside>' '<outside>'`, each a single-quoted word.
+  const [, inside, outside] = JSON.parse(call).command.match(/^touch '(.+)' '(.+)'$/);
+  fs.writeFileSync(inside, "");
+  if (world === "off") fs.writeFileSync(outside, "");
+  await ask([{ role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_probe", content: "" }] }]);
+  process.exit(0);
+}
 
 const SESSION_ID = "fake-session-0001";
 const STUBBORN = process.env.FLYWHEEL_FAKE_STUBBORN === "1";

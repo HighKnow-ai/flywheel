@@ -183,9 +183,14 @@ test("no module under packages/sidecar/src names ANTHROPIC_API_KEY or branches o
   for (const entry of entries) {
     if (!entry.endsWith(".ts")) continue;
     const contents = await fs.readFile(path.join(srcDir, entry), "utf8");
+    // ONE LINE IS ADMITTED, EXACTLY THIS ONE (ADR 0040): the sandbox check overwrites the variable with
+    // a made-up value for a backend that talks only to a loopback stub. It reads no credential and
+    // branches on none, so the rule this test holds still holds, and any other use of the name fails.
+    const madeUpKey = entry === "sandbox-policy.ts" ? 'ANTHROPIC_API_KEY: "flywheel-probe-not-a-key",' : undefined;
     const codeOnly = contents
       .split("\n")
       .filter((line) => !/^\s*(\/\/|\/\*|\*)/.test(line))
+      .filter((line) => line.trim() !== madeUpKey)
       .join("\n");
     assert.ok(
       !codeOnly.includes("ANTHROPIC_API_KEY"),

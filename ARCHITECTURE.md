@@ -57,7 +57,9 @@ and the Checks inherit it, and Start is refused, naming that `PATH`, when `claud
 `flywheel-shim` (`packages/core/src/shim.rs` installs it) under the names `git`, `rm`, and `npm`,
 `cargo`, `gh` where found, so the session's own `git` calls retry lock collisions and its Gated
 actions (`packages/core/src/destructive.rs`, a deny-list) are asked about. The gate catches a cooperative
-agent's accidents, not a hostile agent; review is the safety boundary (ADR 0001).
+agent's accidents, not a hostile agent; review is the safety boundary (ADR 0001). A project can ask
+for more: with a sandbox policy in its own `.claude/settings.json`, every session runs under it, and a
+session whose sandbox is not on is refused before its first turn (ADR 0040).
 
 ## 7. Packaging layout
 
