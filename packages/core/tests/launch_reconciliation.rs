@@ -70,7 +70,7 @@ fn spawn_long_lived_child() -> Child {
 /// whole-seconds `start_time()`, multiplied by 1000), so this fixture proves the real conversion
 /// round-trips rather than asserting against a value nothing else in the system would ever write.
 fn real_start_time_ms(pid: u32) -> u64 {
-    let mut system = sysinfo::System::new();
+    let mut system = sysinfo::System::new().expect("sysinfo system");
     let sys_pid = sysinfo::Pid::from_u32(pid);
     system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[sys_pid]), true);
     system

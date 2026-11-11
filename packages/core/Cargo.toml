@@ -39,8 +39,8 @@ name = "uat_review_ops"
 path = "tests/bin/uat_review_ops.rs"
 
 [dependencies]
-rusqlite = { version = "0.40", features = ["bundled", "serde_json", "chrono"] }
-rusqlite_migration = "2.6"
+rusqlite = { version = "0.41", features = ["bundled", "serde_json", "chrono"] }
+rusqlite_migration = "2.7"
 ulid = { version = "3.0", features = ["serde"] }
 fractional_index = { version = "2.0", features = ["serde"] }
 once_cell = "1"
@@ -56,7 +56,7 @@ keyring = { version = "4.2.0", features = ["apple-native-keyring-store"] }
 # a human-approved crates.io identity/API-shape/license check, not floated deliberately.
 # RESEARCH.md's own "Don't Hand-Roll" table names this exact crate over a hand-rolled per-platform
 # pid-plus-start-time read.
-sysinfo = "=0.39.6"
+sysinfo = "=0.40.1"
 # `kill_orphan` (plan 03-06) signals a process GROUP via a negative pid (`libc::kill(-pid, ...)`),
 # mirroring `packages/sidecar/src/watchdog.ts`'s own `process.kill(-process.pid, "SIGKILL")` force
 # step on the Rust side. Already resolved transitively (via sysinfo); declared directly here

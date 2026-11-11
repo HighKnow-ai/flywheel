@@ -339,7 +339,10 @@ pub fn process_is_alive(pid: i32, start_time: u64) -> bool {
         return false;
     }
     let sys_pid = Pid::from_u32(pid as u32);
-    let mut system = System::new();
+    // sysinfo 0.40 made construction fallible; failing to build the table is "assume it is dead".
+    let Ok(mut system) = System::new() else {
+        return false;
+    };
     system.refresh_processes(ProcessesToUpdate::Some(&[sys_pid]), true);
     match system.process(sys_pid) {
         Some(process) => process.start_time().saturating_mul(1000) == start_time,
