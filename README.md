@@ -5,8 +5,8 @@ supervise many AI coding agents at once, across many projects, by multiplexing g
 lives as epics, tasks and issues on a project board that agents read from *and* write to — the
 board is the store of record, not a planning folder.
 
-Product context lives in `CLAUDE.md`. The plan of record is the MVP wayfinder map in this
-repository's GitHub issues; the earlier `.planning/` history is archived at the git tag `planning-archive`.
+Product context lives in `CLAUDE.md`. The plan of record is the Flywheel milestones (label
+`product:flywheel`) in the HighKnow monorepo; the earlier `.planning/` history is archived at the git tag `planning-archive`.
 
 ## Repository layout
 
@@ -14,7 +14,12 @@ repository's GitHub issues; the earlier `.planning/` history is archived at the 
 packages/
 ├── core/            (OSS)  — Rust domain crate: SQLite schema, migrations, the event-log
 │                             outbox write path, ULIDs, fractional ranking.
-├── desktop/         (OSS)  — Tauri v2 shell + React renderer.
+├── desktop/         (OSS)  — React renderer (Vite) and the Tauri v2 shell.
+│   └── src-tauri/          — The Tauri application: Rust supervisor, window, database owner.
+├── sidecar/         (OSS)  — Bundled Node.js sidecar: drives Claude Code sessions through
+│                             the developer's own `claude` binary.
+└── shim/            (OSS)  — `flywheel-shim`: the PATH shim for `git`, `rm`, `npm`, `cargo`
+                              and `gh` that stops Gated actions.
 ```
 
 ## Installing a release

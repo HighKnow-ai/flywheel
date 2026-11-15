@@ -10,7 +10,8 @@ document records what is true in the tree today and stays short on purpose.
 
 Three processes cooperate. The Tauri Rust core (`packages/desktop/src-tauri`) is the supervisor and
 owns the window, the database and every spawn. A bundled Node.js sidecar (`packages/sidecar`)
-drives individual Claude Code sessions through the Agent SDK. A React renderer
+drives individual Claude Code sessions. It spawns the developer's own `claude` binary
+(`packages/sidecar/src/claude-code-adapter.ts`); the Agent SDK is not a dependency. A React renderer
 (`packages/desktop`) runs in the OS WebView and can reach only the Rust core.
 
 ## 2. Workspace members

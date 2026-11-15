@@ -1,6 +1,15 @@
 # Issue tracker: GitHub
 
-Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
+Issues and specs for Flywheel live as GitHub issues in the HighKnow monorepo. Use the `gh` CLI for all operations.
+
+## Where issues live
+
+- Every Flywheel issue carries the label `product:flywheel`.
+- Flywheel milestones are named `Flywheel M<n>: <name>`.
+- The public repository `HighKnow-ai/flywheel` only receives exports and outside reports. Do not file or track work there.
+- Move an outside report into the monorepo with its content. Then comment on the public issue with the new issue number.
+- Dependabot runs in the monorepo. Do not merge dependency pull requests in the public repository.
+- Issue numbers in older docs, ADRs and code comments (for example `#176`, `#196`) point to the public repository.
 
 ## Conventions
 
@@ -12,7 +21,7 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 - **Apply / remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
 - **Close**: `gh issue close <number> --comment "..."`
 
-Infer the repo from `git remote -v`; `gh` does this automatically when run inside a clone.
+Without `-R`, `gh` infers the repository from `git remote -v`. Inside the monorepo this gives the right repository.
 
 ## Pull requests as a triage surface
 

@@ -22,6 +22,10 @@
  * its worktrees: those `git worktree list` still knows, and those Flywheel's DB recorded. A session is
  * in the dates when any of its records is.
  *
+ * A project may sit in a subdirectory of its repository (Flywheel is `<monorepo>/flywheel`). Pass
+ * that subdirectory as `--project`. A worktree then counts only at the same subdirectory, so a
+ * session in another part of the monorepo is not a drop-back.
+ *
  * A removed worktree outside the repo leaves nothing that ties it to its project. So an interactive
  * session in the dates that was started in a directory that no longer exists, and that matches no
  * counted project, is listed apart as unattributed, for Cyril to check by hand, rather than dropped.
@@ -79,14 +83,27 @@ function isWithin(cwd, root) {
   return cwd === root || cwd.startsWith(root + path.sep);
 }
 
+/**
+ * Where `repo` sits inside its git repository: '' for the root, `flywheel` for `<monorepo>/flywheel`.
+ * A project inside a larger repository has worktrees of the WHOLE repository, so only the same
+ * subdirectory of each worktree belongs to the project (migration 0015, `worktrees.subdir`).
+ */
+function gitSubdir(repo) {
+  const result = spawnSync("git", ["-C", repo, "rev-parse", "--show-prefix"], { encoding: "utf8" });
+  if (result.status !== 0) return "";
+  return result.stdout.trim().replace(/\/+$/, "");
+}
+
 /** The worktrees git still knows for `repo`; none when it is not a repository here. */
 function gitWorktrees(repo) {
   const result = spawnSync("git", ["-C", repo, "worktree", "list", "--porcelain"], { encoding: "utf8" });
   if (result.status !== 0) return [];
+  const subdir = gitSubdir(repo);
   return result.stdout
     .split("\n")
     .filter((line) => line.startsWith("worktree "))
-    .map((line) => line.slice("worktree ".length));
+    .map((line) => line.slice("worktree ".length))
+    .map((root) => (subdir ? path.join(root, subdir) : root));
 }
 
 function defaultDbPath() {
@@ -142,8 +159,15 @@ async function readDb(dbPath, projectRoots, from, toExclusive) {
     }
     const counted = (row) => projectOf.has(row.project_id);
 
-    const worktrees = db.prepare("SELECT project_id, path FROM worktrees").all().filter(counted);
-    for (const row of worktrees) projectOf.get(row.project_id).worktrees.add(normalise(row.path));
+    // `subdir` exists from migration 0015: a project inside a larger repository.
+    const hasSubdir = db.prepare("PRAGMA table_info(worktrees)").all().some((c) => c.name === "subdir");
+    const worktrees = db
+      .prepare(`SELECT project_id, path, ${hasSubdir ? "subdir" : "'' AS subdir"} FROM worktrees`)
+      .all()
+      .filter(counted);
+    for (const row of worktrees) {
+      projectOf.get(row.project_id).worktrees.add(normalise(path.join(row.path, row.subdir ?? "")));
+    }
 
     const requests = db
       .prepare("SELECT project_id, created_at, destructive_category FROM permission_requests")

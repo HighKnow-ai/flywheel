@@ -31,7 +31,7 @@ pub struct Worktree {
     pub status: String,
     /// Where the project sits inside the worktree, relative to `path`: '' for a project at its
     /// repository's root, `flywheel` for one registered at `<repo>/flywheel`
-    /// (cymarechal/highknow-mvp#551). Read through [`Worktree::project_dir`].
+    ///. Read through [`Worktree::project_dir`].
     pub subdir: String,
 }
 

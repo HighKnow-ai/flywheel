@@ -1,4 +1,4 @@
-//! A project rooted in a subdirectory of a larger repository (cymarechal/highknow-mvp#551): the
+//! A project rooted in a subdirectory of a larger repository: the
 //! developer registers `<repo>/flywheel`, not `<repo>`. Git sees one repository, so a Story's
 //! worktree is a worktree of the whole repository; the project lives at the same subdirectory inside
 //! it, and that is where the agent starts, where the Checks run, where the Context packet reads the

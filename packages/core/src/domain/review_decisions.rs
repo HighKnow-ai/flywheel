@@ -494,7 +494,7 @@ pub fn review_decisions(conn: &Connection, story_id: &str) -> anyhow::Result<Rev
     };
 
     // Paths relative to the project, so a project registered at a subdirectory of a larger
-    // repository reads its own `docs/adr/` and `GLOSSARY.md` (cymarechal/highknow-mvp#551).
+    // repository reads its own `docs/adr/` and `GLOSSARY.md`.
     let prefix = git::project_subdir(repo)?;
     let mut changes: Vec<DecisionChange> = git::project_review_files(repo, &base, &head)?
         .into_iter()

@@ -1,4 +1,4 @@
--- A project rooted in a subdirectory of a larger repository (cymarechal/highknow-mvp#551): a
+-- A project rooted in a subdirectory of a larger repository: a
 -- Story's worktree is a worktree of the whole repository, and the project sits at the same
 -- subdirectory inside it. `subdir` is that subdirectory, relative to the worktree's root, as
 -- `git rev-parse --show-prefix` named it when the worktree was created, without its trailing

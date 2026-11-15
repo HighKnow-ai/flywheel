@@ -100,6 +100,43 @@ test("finds a worktree that git still knows, outside the repo", () => {
   }
 });
 
+test("a project in a subdirectory counts only that subdirectory, in the repo and in its worktrees", () => {
+  const scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "exit-test-subdir-")));
+  try {
+    const repo = path.join(scratch, "mono");
+    const worktree = path.join(scratch, "elsewhere", "feature");
+    const git = (...args) => {
+      const r = spawnSync("git", args, { encoding: "utf8" });
+      assert.equal(r.status, 0, r.stderr);
+    };
+    fs.mkdirSync(path.join(repo, "flywheel"), { recursive: true });
+    fs.mkdirSync(path.join(repo, "apps"), { recursive: true });
+    git("init", "-q", "-b", "main", repo);
+    fs.writeFileSync(path.join(repo, "flywheel", "a.txt"), "a");
+    fs.writeFileSync(path.join(repo, "apps", "b.txt"), "b");
+    git("-C", repo, "add", ".");
+    git("-C", repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "init");
+    git("-C", repo, "worktree", "add", "-q", "-b", "feature", worktree);
+
+    const projects = path.join(scratch, "projects");
+    fs.mkdirSync(path.join(projects, "p"), { recursive: true });
+    const cwds = {
+      s1: path.join(worktree, "flywheel"),
+      s2: path.join(worktree, "apps"),
+      s3: path.join(repo, "apps"),
+      s4: path.join(repo, "flywheel"),
+    };
+    for (const [id, cwd] of Object.entries(cwds)) {
+      const line = { type: "user", timestamp: "2026-10-14T09:00:00.000Z", entrypoint: "cli", cwd, sessionId: id };
+      fs.writeFileSync(path.join(projects, "p", `${id}.jsonl`), JSON.stringify(line) + "\n");
+    }
+    const report = runJson(["--project", path.join(repo, "flywheel"), ...RANGE, "--projects-dir", projects, ...NO_DB]);
+    assert.deepEqual(sessionIds(report).sort(), ["s1", "s4"]);
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
 test("reads the secondary numbers for the counted projects and dates, and leaves the DB untouched", () => {
   const before = crypto.createHash("sha256").update(fs.readFileSync(fixtureDb)).digest("hex");
   const report = runJson([...COUNTED, ...RANGE, "--projects-dir", projectsDir, "--db", fixtureDb]);

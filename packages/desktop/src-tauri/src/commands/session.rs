@@ -97,7 +97,7 @@ pub struct StartRunOutcome {
     pub worktree_path: String,
     /// Where the session runs: the project's directory in the worktree. It is `worktree_path`
     /// itself unless the project is a subdirectory of a larger repository
-    /// (cymarechal/highknow-mvp#551).
+    ///.
     pub working_dir: String,
     /// The Story's own branch, checked out in `worktree_path`.
     pub branch: String,
@@ -3479,7 +3479,7 @@ pub(crate) mod tests {
     }
 
     /// [`seeded_git_conn_with_story`] for a project registered at `subdir` of the repository
-    /// (cymarechal/highknow-mvp#551); '' is the repository's root.
+    ///; '' is the repository's root.
     pub(crate) fn seeded_git_conn_with_story_at(
         subdir: &str,
     ) -> (Connection, String, String, String, tempfile::TempDir) {
@@ -3796,7 +3796,7 @@ pub(crate) mod tests {
         });
     }
 
-    /// cymarechal/highknow-mvp#551: a project registered at a subdirectory of a larger repository.
+    /// A project registered at a subdirectory of a larger repository.
     /// The worktree is the whole repository's, and the session runs in the project's directory in
     /// it; the Gated-action shim still knows the worktree as a whole.
     #[test]

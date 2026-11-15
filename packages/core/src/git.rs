@@ -179,7 +179,7 @@ pub fn worktree_add(
 
 /// Where `project_path` sits in its repository, relative to the repository's root and without a
 /// trailing slash: '' when the project is the repository's root, `flywheel` when it is registered
-/// at `<repo>/flywheel` (cymarechal/highknow-mvp#551). A worktree of the repository holds the
+/// at `<repo>/flywheel`. A worktree of the repository holds the
 /// project at the same place, so this is what joins a worktree's root to the project's directory.
 /// `git rev-parse --show-prefix` rather than stripping `--show-toplevel` from the path, because
 /// the two can differ by a symlink or by case on a case-insensitive filesystem; git's own answer
@@ -292,7 +292,7 @@ pub fn review_files(repo_path: &Path, base: &str, head: &str) -> anyhow::Result<
 /// [`review_files`] for the project at `project_dir` alone: only the files under it, each path
 /// relative to it (`git diff --relative`). For a project at its repository's root this is the same
 /// list; for one registered at a subdirectory of a larger repository
-/// (cymarechal/highknow-mvp#551) it is what reads `docs/adr/` and `GLOSSARY.md` as the project's
+/// it is what reads `docs/adr/` and `GLOSSARY.md` as the project's
 /// own, where [`review_files`] names them `flywheel/docs/adr/...`.
 pub fn project_review_files(
     project_dir: &Path,
@@ -394,7 +394,7 @@ fn changed_files(
 /// `path` and `old_path` are relative to the repository's root, as [`review_files`] names them,
 /// whatever directory `repo_path` is: each pathspec carries `:(top,literal)`, so the patch is the
 /// same read from a worktree's root or from a project registered at a subdirectory of its
-/// repository (cymarechal/highknow-mvp#551), and a file named like a pathspec magic string is
+/// repository, and a file named like a pathspec magic string is
 /// still read as itself. `--no-ext-diff`/`--no-textconv` keep repository config from running
 /// helpers while reading.
 pub fn review_patch(
