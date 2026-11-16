@@ -24,10 +24,11 @@
 
 use std::io::{BufRead, BufReader};
 
+use crate::AppHandle;
 use flywheel_core::domain::session_summary::SessionSummary;
 use rusqlite::{Connection, Transaction};
 use serde::Serialize;
-use tauri::{AppHandle, Manager, State};
+use tauri::{Manager, State};
 
 use super::{emit_board_changed, project_of, project_of_locked};
 

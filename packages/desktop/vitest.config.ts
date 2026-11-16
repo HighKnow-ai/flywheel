@@ -11,7 +11,7 @@ export default defineConfig({
     // The real-browser arm (`vitest.browser.config.ts`) owns these. They import `vitest/browser`,
     // which throws outside browser mode, and they measure layout, `color-mix()` resolution and
     // native button activation — none of which jsdom has.
-    exclude: ["**/node_modules/**", "**/dist/**", "src/**/*.browser.test.tsx"],
+    exclude: ["**/node_modules/**", "**/dist/**", "src/**/*.browser.test.tsx", "e2e/**/*.spec.ts"],
     setupFiles: ["./src/test/setup.ts"],
     globals: false,
     // Above the 5 s a Testing Library wait may take (src/test/setup.ts), so a slow wait fails as that wait,

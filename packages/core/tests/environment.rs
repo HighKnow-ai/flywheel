@@ -69,7 +69,7 @@ fn a_temporary_name_that_is_not_one_dns_label_is_refused() {
         "de.mo",
         "de mo",
         "dé",
-        "demo.highknow.dev",
+        "demo.example.test",
         "a/b",
     ] {
         assert!(temporary(typed).is_err(), "{typed:?} must be refused");

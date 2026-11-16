@@ -4,8 +4,9 @@
 //! Check edit are human-only, and the actor is always the local human resolved here (T-01-04), so
 //! no renderer claim can stand in for one.
 
+use crate::AppHandle;
 use serde::Serialize;
-use tauri::{AppHandle, State};
+use tauri::State;
 
 use super::{emit_board_changed, validate_text, MAX_PROSE_LEN};
 use crate::state::AppState;

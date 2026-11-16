@@ -13,7 +13,7 @@
  * unfolded, as the Developer left it; "the fold" covers folding itself.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StoryBoard } from "../StoryBoard";
 import { useRoadmapFold } from "../RoadmapStrip";
@@ -267,20 +267,38 @@ describe("RoadmapStrip: one row per Milestone", () => {
         land = resolve;
       }),
     );
-    renderBoard();
-    const skeleton = await screen.findByLabelText("Loading the Roadmap");
+    // THE CLOCK IS FAKE, NOT RACED. The hold is a 350 ms timer; with the real one, two awaited queries between
+    // the read landing and the "still up" assertion outlasted it on a slow machine (#1668). The test drives the
+    // 150 ms delay and the 350 ms hold itself, so the in-hold state is reached however busy the machine is.
+    // The hold counts from the animation frame that paints the skeleton (`useLoadingPhase`), so the frame clock and
+    // `performance` are fake too; with only the timers fake, real frames and a real clock used the hold up under load.
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame", "performance"],
+    });
+    try {
+      const advance = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));
+      renderBoard();
+      await advance(150);
+      // The frame that paints the skeleton: the hold starts here.
+      await advance(16);
+      const skeleton = screen.getByLabelText("Loading the Roadmap");
 
-    // The read lands inside the skeleton's hold: the header's count says so, and the skeleton is still up.
-    land(ROADMAP);
-    const region = await strip();
-    await within(region).findByRole("button", { name: /Revisit roadmap/i });
-    expect(skeleton).toBeInTheDocument();
-    expect(within(region).queryByRole("list", { name: "Milestones in Roadmap order" })).toBeNull();
+      // The read lands inside the skeleton's hold: the header's count says so, and the skeleton is still up.
+      land(ROADMAP);
+      await advance(0);
+      const region = screen.getByRole("region", { name: "Roadmap" });
+      expect(within(region).getByRole("button", { name: /Revisit roadmap/i })).toBeInTheDocument();
+      expect(skeleton).toBeInTheDocument();
+      expect(within(region).queryByRole("list", { name: "Milestones in Roadmap order" })).toBeNull();
 
-    // The skeleton leaves and the rows take its place in the same commit.
-    const list = await within(region).findByRole("list", { name: "Milestones in Roadmap order" });
-    expect(screen.queryByLabelText("Loading the Roadmap")).toBeNull();
-    expect(within(list).getAllByRole("listitem")).toHaveLength(5);
+      // The skeleton leaves and the rows take its place in the same commit.
+      await advance(350);
+      const list = within(region).getByRole("list", { name: "Milestones in Roadmap order" });
+      expect(screen.queryByLabelText("Loading the Roadmap")).toBeNull();
+      expect(within(list).getAllByRole("listitem")).toHaveLength(5);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("lists every Milestone in Roadmap order with its state and one-line Exit test", async () => {
@@ -325,7 +343,9 @@ describe("RoadmapStrip: the fold (issue #201)", () => {
     const trigger = await within(region).findByRole("button", { name: "6 Milestones" });
     expect(trigger).toHaveAttribute("aria-expanded", "false");
     expect(trigger).toHaveAttribute("data-slot", "collapsible-trigger");
-    const list = within(region).getByRole("list", { name: "Milestones in Roadmap order" });
+    // The header's count (the trigger) lands before the rows: the rows wait for the loading skeleton's 350 ms hold,
+    // which a slow first render starts late. So wait for the list; a bare `getByRole` raced that hold.
+    const list = await within(region).findByRole("list", { name: "Milestones in Roadmap order" });
     expect(trigger).toHaveAttribute("aria-controls", list.id);
     expect(shownTitles(list)).toEqual(["Shaping"]);
     // The folded rows leave the tab order and the accessibility tree, and keep their place for the unfold.

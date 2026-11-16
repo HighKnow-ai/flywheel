@@ -31,8 +31,27 @@ import path from "node:path";
 
 import { removeScratchDir, resolveHarnessBinary } from "./lib/sidecar-harness.mjs";
 
-/** The bound on a `fleet_list` issued during a reclaim, end to end including process start (T-11-44). */
-const LIST_DURING_RECLAIM_BOUND_MS = 2000;
+/**
+ * The property (T-11-44): `fleet_list` stays responsive while a reclaim runs. It is measured RELATIVE to an
+ * unloaded baseline taken in the same run (#1688): an absolute bound failed at 9643 ms when the shared
+ * runner was loaded, because host load slows the baseline and the reclaim alike. The test compares the p95
+ * of the calls issued during the reclaim with the p95 of calls issued just before it, same process start
+ * cost, same data. A reclaim that blocks `fleet_list` makes the ratio large (it waits for the whole
+ * reclaim, hundreds of ms to seconds over a ~tens-of-ms call); host load moves both sides together.
+ */
+const BASELINE_SAMPLES = Number(process.env.UAT12_BASELINE_SAMPLES ?? 15);
+/** Ratio ceiling, in-reclaim p95 over baseline p95. Justified by measurement: see the commit message. */
+const LIST_RATIO_BOUND = Number(process.env.UAT12_RATIO_BOUND ?? 6);
+/** The baseline never counts as faster than this, so a very quick idle baseline cannot make the ratio noisy. */
+const BASELINE_FLOOR_MS = 30;
+/** Generous absolute backstop: a fleet_list this slow is broken even when the baseline is slow too. */
+const LIST_DURING_RECLAIM_BACKSTOP_MS = Number(process.env.UAT12_BACKSTOP_MS ?? 30000);
+
+/** Nearest-rank percentile of a numeric list. */
+function percentile(values, p) {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1)];
+}
 /** Committed files per worktree in the reclaim section: enough that the removal takes measurable time. */
 const BULK_FILES = Number(process.env.UAT12_BULK_FILES ?? 6000);
 
@@ -229,6 +248,22 @@ async function main() {
       for (const w of reclaimable) assert.ok(fs.existsSync(w.path), `precondition: ${w.path} exists`);
       assert.ok(fs.existsSync(path.join(selected[0].path, "bulk")), "the worktrees really carry the bulk files");
 
+      // Unloaded baseline: the same call, same data, immediately before the reclaim starts.
+      const timeList = () =>
+        new Promise((resolve) => {
+          const t0 = Date.now();
+          const p = spawn(bin, ["fleet-list"], { env, stdio: ["ignore", "pipe", "pipe"] });
+          let out = "";
+          p.stdout.on("data", (d) => (out += d));
+          p.on("close", (code) => resolve({ start: t0, end: Date.now(), code, body: code === 0 ? JSON.parse(out) : null }));
+        });
+      const baselineMs = [];
+      for (let i = 0; i < BASELINE_SAMPLES; i += 1) {
+        const b = await timeList();
+        assert.equal(b.code, 0, "a baseline fleet_list must succeed");
+        baselineMs.push(b.end - b.start);
+      }
+
       // Reclaim runs as its own process; fleet_list calls are issued back to back until it exits.
       const reclaim = spawn(bin, ["reclaim", ...selected.map((w) => w.storyId)], { env, stdio: ["ignore", "pipe", "pipe"] });
       let stdout = "";
@@ -241,14 +276,7 @@ async function main() {
       let done = false;
       exited.then(() => (done = true));
       while (!done) {
-        const t0 = Date.now();
-        const r = await new Promise((resolve) => {
-          const p = spawn(bin, ["fleet-list"], { env, stdio: ["ignore", "pipe", "pipe"] });
-          let out = "";
-          p.stdout.on("data", (d) => (out += d));
-          p.on("close", (code) => resolve({ code, out }));
-        });
-        lists.push({ start: t0, end: Date.now(), code: r.code, body: r.code === 0 ? JSON.parse(r.out) : null });
+        lists.push(await timeList());
       }
       const code = await exited;
       assert.equal(code, 0, `reclaim exited ${code}: ${stderr.trim()}`);
@@ -282,14 +310,26 @@ async function main() {
         assert.ok(l.body.rows.some((r) => r.runStatus === "running"), "...and return the live row");
       }
       const slowest = Math.max(...lists.map((l) => l.end - l.start));
+      const baselineP95 = percentile(baselineMs, 95);
+      const duringP95 = percentile(lists.map((l) => l.end - l.start), 95);
+      const ratio = duringP95 / Math.max(baselineP95, BASELINE_FLOOR_MS);
+      process.stdout.write(
+        `      [D-REV-55 measured] baseline p95 ${baselineP95} ms (n=${baselineMs.length}), during-reclaim p95 ${duringP95} ms ` +
+          `(n=${lists.length}), slowest ${slowest} ms, ratio ${ratio.toFixed(2)}\n`,
+      );
       assert.ok(
-        slowest <= LIST_DURING_RECLAIM_BOUND_MS,
-        `slowest fleet_list during the reclaim took ${slowest} ms, over the ${LIST_DURING_RECLAIM_BOUND_MS} ms bound`,
+        ratio <= LIST_RATIO_BOUND,
+        `fleet_list p95 during the reclaim was ${duringP95} ms against an unloaded baseline p95 of ${baselineP95} ms ` +
+          `(ratio ${ratio.toFixed(2)}, bound ${LIST_RATIO_BOUND})`,
+      );
+      assert.ok(
+        slowest <= LIST_DURING_RECLAIM_BACKSTOP_MS,
+        `slowest fleet_list during the reclaim took ${slowest} ms, over the ${LIST_DURING_RECLAIM_BACKSTOP_MS} ms backstop`,
       );
       return [
         `${BULK_FILES} committed files per worktree; 3 of 4 reclaimable worktrees selected: those 3 gone from disk, the 4th and the live run's worktree untouched`,
         `reclaim lasted ${end.ms - start} ms; ${inFlight.length} fleet_list call(s) completed inside it, ${lists.length} issued in all`,
-        `slowest fleet_list: ${slowest} ms, bound ${LIST_DURING_RECLAIM_BOUND_MS} ms (end to end, including process start)`,
+        `fleet_list p95 ${duringP95} ms during vs ${baselineP95} ms baseline (ratio ${ratio.toFixed(2)}, bound ${LIST_RATIO_BOUND}); slowest ${slowest} ms, backstop ${LIST_DURING_RECLAIM_BACKSTOP_MS} ms (end to end, including process start)`,
         "NOT covered: the AppState mutex and spawn_blocking in the desktop command; a worktree holding node_modules; the dialog's look",
       ];
     });

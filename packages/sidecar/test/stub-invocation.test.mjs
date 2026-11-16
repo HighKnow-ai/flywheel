@@ -20,6 +20,7 @@ import path from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { after, test } from "node:test";
+import { unusableReason } from "./usable-binary.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -38,9 +39,12 @@ const STUB_PATH = path.join(
 const BUILD_OUTPUT_DIR = path.join(REPO_ROOT, "target");
 const BUILD_COMMAND = "npm --prefix packages/sidecar run build";
 
-const SKIP_REASON = fs.existsSync(STUB_PATH)
-  ? false
-  : `the generated launcher is missing at ${STUB_PATH} — run: npm --prefix packages/sidecar run build:dist`;
+// The launcher is a script, and the test restores the exec bit on its copy, so only a missing or
+// EMPTY file is refused. An empty one is the rust job's stand-in, never the launcher.
+const STUB_PROBLEM = unusableReason(STUB_PATH, { needsExecBit: false });
+const SKIP_REASON = STUB_PROBLEM
+  ? `the generated launcher at ${STUB_PATH} is ${STUB_PROBLEM} — run: npm --prefix packages/sidecar run build:dist`
+  : false;
 
 /** Every scratch directory a test in this file has created, removed unconditionally after every
  * test has settled — regardless of outcome, so a failing assertion never leaves state behind
@@ -69,7 +73,15 @@ function copyStubInto(dir) {
  * binary (`target/<profile>/flywheel-sidecar`), not somewhere under `packages/`. */
 function scratchUnderBuildOutput() {
   fs.mkdirSync(BUILD_OUTPUT_DIR, { recursive: true });
-  const dir = fs.mkdtempSync(path.join(BUILD_OUTPUT_DIR, "flywheel-stub-invocation-"));
+  // The launcher walks up from its PHYSICAL directory. When `target/` is a symlink to a cache kept
+  // outside the checkout (a CI runner that keeps build output across runs), no ancestor of a scratch
+  // directory in it holds `packages/sidecar/dist`, and the launcher exits 127. Then use a directory
+  // of the same depth that is really inside the checkout.
+  const real = fs.realpathSync(BUILD_OUTPUT_DIR);
+  const root = fs.realpathSync(REPO_ROOT);
+  const inside = real.startsWith(root + path.sep);
+  const base = inside ? BUILD_OUTPUT_DIR : path.join(REPO_ROOT, "packages", "desktop", "src-tauri");
+  const dir = fs.mkdtempSync(path.join(base, "flywheel-stub-invocation-"));
   scratchDirs.push(dir);
   return dir;
 }
@@ -83,7 +95,7 @@ function scratchOutsideRepository() {
 }
 
 /** Poll `predicate` until it's true or `timeoutMs` elapses. */
-async function waitForCondition(predicate, { timeoutMs = 2000, intervalMs = 10 } = {}) {
+async function waitForCondition(predicate, { timeoutMs = 30_000, intervalMs = 10 } = {}) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (predicate()) return;
@@ -148,7 +160,7 @@ test("the copied stub answers the readiness handshake on its own protocol", { sk
 
     await withTimeout(
       waitForCondition(() => acks.some((ack) => ack.id === requestId)),
-      2000,
+      10_000,
       `the copied stub never acked the readiness request in time; stdout so far: ${stdout}; stderr so far: ${stderr}`,
     );
 

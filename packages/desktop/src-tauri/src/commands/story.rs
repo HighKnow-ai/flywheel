@@ -6,9 +6,10 @@
 //! transition reached from here is the developer's act; the hand-off is the session's, never an IPC
 //! command's.
 
+use crate::AppHandle;
 use flywheel_core::domain::story::HandWrittenCriterion;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, State};
+use tauri::State;
 
 use flywheel_core::domain::session_kind::SessionKind;
 

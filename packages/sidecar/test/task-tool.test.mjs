@@ -40,7 +40,10 @@ after(() => {
   }
 });
 
-async function waitForCondition(predicate, { timeoutMs = 4000, intervalMs = 10 } = {}) {
+// A liveness bound, not a speed claim: the session spawns a fake agent and an MCP server, and a
+// loaded gate runner took more than the old 4 s to reach the first event (#1665). permission.test.mjs
+// and shaping-session.test.mjs use the same 30 s.
+async function waitForCondition(predicate, { timeoutMs = 30_000, intervalMs = 10 } = {}) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (predicate()) return;

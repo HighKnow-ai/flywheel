@@ -17,6 +17,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
+import { unusableReason } from "./usable-binary.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -27,7 +28,7 @@ function resolveShimBinaryForTest() {
   const binName = process.platform === "win32" ? "flywheel-shim.exe" : "flywheel-shim";
   for (const profile of ["debug", "release"]) {
     const candidate = path.join(workspaceRoot, "target", profile, binName);
-    if (fs.existsSync(candidate)) return candidate;
+    if (!unusableReason(candidate)) return candidate;
   }
   return undefined;
 }

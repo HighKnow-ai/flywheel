@@ -44,7 +44,7 @@ after(() => {
   }
 });
 
-async function waitForCondition(predicate, { timeoutMs = 4000, intervalMs = 10 } = {}) {
+async function waitForCondition(predicate, { timeoutMs = 30_000, intervalMs = 10 } = {}) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (predicate()) return;

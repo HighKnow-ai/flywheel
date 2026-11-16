@@ -73,6 +73,25 @@ test("a chunk carrying the picker fails", () => {
   }
 });
 
+test("a chunk carrying the e2e WebSocket transport, or a binary carrying the headless core, fails", () => {
+  const dir = fixture({
+    "dist/assets/ws-transport-x1.js": 'const M="flywheel-e2e-ws-transport"',
+    "Flywheel.app/flywheel": "usage: flywheel-headless --root",
+  });
+  try {
+    const { hits } = scan([dir]);
+    assert.deepEqual(
+      hits.map((h) => [path.basename(h.file), h.needle]),
+      [
+        ["flywheel", "flywheel-headless"],
+        ["ws-transport-x1.js", "flywheel-e2e-ws-transport"],
+      ],
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("every hit is reported, not only the first", () => {
   const dir = fixture({
     "a.js": "env-demo-api.highknow.dev dev_environment_get",

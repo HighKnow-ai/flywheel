@@ -21,7 +21,28 @@ import type { Project } from "../board/useBoardQuery";
  * Invoke a Tauri command and return its typed result.
  */
 export async function invokeCommand<TResult>(command: string, args?: Record<string, unknown>): Promise<TResult> {
+  if (E2E_TRANSPORT) return (await wsTransport()).invoke<TResult>(command, args);
   return invoke<TResult>(command, args);
+}
+
+/**
+ * The end-to-end harness's second transport (`ws-transport.ts`), selected by a Vite flag. Vite
+ * replaces the flag with a literal, so a production build keeps neither this branch nor the module
+ * behind it; `scripts/release/check-release-bundle.mjs` fails the build if a trace of it remains.
+ * Every `invoke` and `listen` in the renderer goes through this file, so this is the one seam.
+ */
+const E2E_TRANSPORT = import.meta.env.VITE_FLYWHEEL_E2E === "1";
+
+async function wsTransport() {
+  // The import sits after a throw the flag decides, so a release build drops it and its chunk.
+  if (import.meta.env.VITE_FLYWHEEL_E2E !== "1") throw new Error("the e2e transport is not in this build");
+  return (await import("./ws-transport")).connectWsTransport();
+}
+
+/** `listen` on whichever transport this build uses, handing the handler the event's payload. */
+async function listenEvent<TPayload>(event: string, handler: (payload: TPayload) => void): Promise<UnlistenFn> {
+  if (E2E_TRANSPORT) return (await wsTransport()).listen<TPayload>(event, handler);
+  return listen<TPayload>(event, (e) => handler(e.payload));
 }
 
 /**
@@ -43,7 +64,7 @@ export interface BoardChangedPayload {
  * the project the change happened in, so a handler can leave other projects' views alone.
  */
 export async function subscribeBoardChanged(handler: (payload: BoardChangedPayload) => void): Promise<UnlistenFn> {
-  return listen<BoardChangedPayload>("board:changed", (event) => handler(event.payload));
+  return listenEvent<BoardChangedPayload>("board:changed", handler);
 }
 
 /**
@@ -54,6 +75,8 @@ export async function subscribeBoardChanged(handler: (payload: BoardChangedPaylo
  * single-seam rule `invokeCommand`/`subscribeBoardChanged` follow above.
  */
 export async function openFolderDialog(): Promise<string | null> {
+  // The harness has no native dialog; it registers its scratch repository through `project_register`.
+  if (E2E_TRANSPORT) return null;
   const result = await open({ directory: true, multiple: false });
   return result ?? null;
 }
@@ -65,7 +88,7 @@ export async function openFolderDialog(): Promise<string | null> {
  * action ids as the keyboard/palette, never a broader capability (threat T-01-02).
  */
 export async function subscribeMenuAction(handler: (actionId: string) => void): Promise<UnlistenFn> {
-  return listen<string>("menu:action", (event) => handler(event.payload));
+  return listenEvent<string>("menu:action", handler);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1191,7 +1214,7 @@ export interface ChecksProgressPayload {
 
 /** Subscribe to `checks:progress`, which `story_checks_rerun` emits before the first Check and after each one. */
 export async function subscribeChecksProgress(handler: (payload: ChecksProgressPayload) => void): Promise<UnlistenFn> {
-  return listen<ChecksProgressPayload>("checks:progress", (event) => handler(event.payload));
+  return listenEvent<ChecksProgressPayload>("checks:progress", handler);
 }
 
 /**
@@ -1497,7 +1520,7 @@ export async function gitIdentifierResolve(raw: string): Promise<GitIdentityOutc
  * event as already-persisted.
  */
 export async function subscribeAgentEvent(handler: (event: Record<string, unknown>) => void): Promise<UnlistenFn> {
-  return listen<Record<string, unknown>>("agent:event", (event) => handler(event.payload));
+  return listenEvent<Record<string, unknown>>("agent:event", handler);
 }
 
 /** What `session_stop` returns — the mirror of the Rust command's `SessionStopDto`. */

@@ -3,8 +3,9 @@
 //! developer can add, edit, reorder and drop Tasks at any time, and the Story's agent writes them
 //! through its board tool ([`handle_inbound_board_tool_request`], issue #52).
 
+use crate::AppHandle;
 use serde::Serialize;
-use tauri::{AppHandle, State};
+use tauri::State;
 
 use super::{emit_board_changed, validate_text, MAX_TITLE_LEN};
 use crate::state::AppState;

@@ -45,7 +45,14 @@ cursor a future relay would read (§8).
 can later point at a different transport by editing that one file. The window capability in
 `packages/desktop/src-tauri/capabilities/default.json` is default-deny: no `fs:`, no bare `shell:`,
 and one `shell:allow-execute` grant scoped to the sidecar binary. App commands are exposed only
-through `generate_handler!` in `main.rs`.
+through the one `command_roster!` list in `src-tauri/src/roster.rs`, which `main.rs` registers.
+
+The seam has a second transport, for the end-to-end harness only. A Vite flag
+(`VITE_FLYWHEEL_E2E=1`) makes the adapter carry `invoke` and `listen` over a localhost WebSocket
+(`src/adapters/ws-transport.ts`) to the headless core (`src-tauri/src/bin/flywheel-headless.rs`).
+The core hosts the same handlers from the same roster, `AppState`, the real sidecar supervisor and
+the same events, on Tauri's mock runtime. A release build drops the transport and
+`scripts/release/check-release-bundle.mjs` fails the build if any trace of it remains.
 
 ## 6. Process supervision and the PATH shim
 

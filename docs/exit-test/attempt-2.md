@@ -13,6 +13,15 @@ Do not start before these are done:
 - The end-to-end harness and the gate jobs have landed on `main`.
 - The story "preflight the exit test on the monorepo layout" is closed.
 
+Before day 1, run the preflight. It builds, checks the board DB and its backup, the counted projects, the drop-back script on the monorepo layout, the shim and the sidecar's `claude`, and prints a green/red table. It exits 1 on any red row:
+
+```sh
+node <monorepo>/flywheel/scripts/exit-test/preflight.mjs \
+  --project <other counted project> --backup <copy of flywheel.db>
+```
+
+It cannot run a Story in the app for you. Do that once after it is green: create a Story, let an agent work in its worktree, and merge it.
+
 ## Build under test
 
 - Commit: `<sha>`

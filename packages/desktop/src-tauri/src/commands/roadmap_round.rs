@@ -11,9 +11,10 @@
 //! Round with no change; when its session is held on it, the held call is answered once the lock is
 //! released. Every handler resolves the human actor server-side (T-01-04) and emits `board:changed`.
 
+use crate::AppHandle;
 use rusqlite::Connection;
 use serde::Serialize;
-use tauri::{AppHandle, Manager, State};
+use tauri::{Manager, State};
 
 use flywheel_core::domain::roadmap_round::{describe_proposal, RoadmapRound};
 use flywheel_core::domain::session::ShapingSubject;

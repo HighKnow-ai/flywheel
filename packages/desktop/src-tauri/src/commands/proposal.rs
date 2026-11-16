@@ -4,8 +4,9 @@
 //! the local human actor resolved here (T-01-04). Accepting or amending applies the Proposal in the
 //! same transaction as the decision (`flywheel_core::domain::proposal_apply`, issue #125).
 
+use crate::AppHandle;
 use serde::Serialize;
-use tauri::{AppHandle, State};
+use tauri::State;
 
 use super::{emit_board_changed, validate_text, MAX_PROSE_LEN, MAX_TITLE_LEN};
 use crate::state::AppState;

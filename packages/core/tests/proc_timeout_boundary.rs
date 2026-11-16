@@ -20,13 +20,14 @@ fn sh(script: &str) -> Command {
 
 #[test]
 fn a_child_exiting_zero_just_before_its_timeout_reports_success_and_its_stdout() {
-    // A short sleep against a generous timeout: the exit-before-timeout path without a margin
+    // A short sleep against a 10 s ceiling: the exit-before-timeout path without a margin
     // that fork+exec and scheduler jitter on a loaded runner can eat (WR-10). Repeated anyway.
+    // The ceiling was 1 s until a loaded gate run took 1.9 s to see `sleep 0.05` exit (#1665).
     for _ in 0..10 {
         let out = output_with_timeout(
             &mut sh("sleep 0.05; printf done"),
             None,
-            Duration::from_millis(1000),
+            Duration::from_millis(10_000),
             "near-timeout success",
         )
         .expect("a child that exits before the ceiling is not a timeout");
@@ -41,7 +42,7 @@ fn a_child_exiting_non_zero_just_before_its_timeout_reports_that_status() {
         let out = output_with_timeout(
             &mut sh("sleep 0.05; exit 7"),
             None,
-            Duration::from_millis(1000),
+            Duration::from_millis(10_000),
             "near-timeout failure",
         )
         .expect("a non-zero exit is an outcome, not a timeout");

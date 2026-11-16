@@ -8,6 +8,19 @@ decision is ADR 0004 (Tailwind CSS v4 and shadcn/ui).
 - `src/components/`: Flywheel's own shared components (`Button` and `Badge` with the `attention` tone, `StateBadge`, `Icon`, `ReadError` in Flywheel's words).
 - `src/theme/__tests__/contrast.test.ts`: the per-role contrast floors, asserted in both schemes.
 
+## End-to-end
+
+`npm run e2e` drives the real renderer in WebKit and Chromium against the real core and the real sidecar. Every other UI test here fakes IPC.
+
+Parts:
+
+- `src-tauri/src/bin/flywheel-headless.rs`: the headless core. It runs the app's own handlers (`command_roster!` in `src-tauri/src/roster.rs`), `AppState`, `sidecar::spawn_sidecar` and Tauri's own events on Tauri's mock runtime. It serves them over a WebSocket on `127.0.0.1`, on a free port, and refuses a connection without its random token. Each run uses a scratch root: a git repository with a bare `origin`, a database and a worktree directory. It is built only with the `headless` feature, and a release-profile build refuses to compile.
+- `src/adapters/ws-transport.ts`: the second transport behind `adapters/tauri.ts`. The Vite flag `VITE_FLYWHEEL_E2E=1` selects it. A release build drops it, and `scripts/release/check-release-bundle.mjs` and `e2e/bundle.spec.ts` check that.
+- `e2e/`: the Playwright tests. `core.ts` starts a core, `fixtures.ts` gives each flow a page and a trace check, `flows/` holds the flows, `agents/` holds the scripted agents (`packages/sidecar/test/fake-claude.mjs` plays the backend) and `harness.spec.ts`, `bundle.spec.ts` and `flow-doc.test.ts` test the harness itself.
+- `docs/flows/`: one doc for each flow. Its sequence diagram is the spec. The core traces each command that changes the board and each board tool call of the agent. The test fails when the trace differs from the diagram, and `--update` rewrites the diagram.
+
+What the harness cannot cover: the Tauri window and webview (WKWebView, native menus, the folder dialog and notifications), the packaged sidecar runtime (`flywheel-node`), a real `claude` backend, and the cold start (`login_path`, launch reconciliation and the git-truth scheduler do not run).
+
 ## Third-party design assets
 
 Each ships inside the app bundle. Versions are pinned exactly in `package.json`.

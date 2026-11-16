@@ -16,6 +16,7 @@
 
 use std::sync::Mutex;
 
+use crate::AppHandle;
 use flywheel_core::domain::handoff::{
     complete_review_run, plan_review_run, run_checks_reporting, ReviewRunOutcome, ReviewRunRefused,
 };
@@ -31,7 +32,7 @@ use flywheel_core::git::ReviewFile;
 use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::Value;
-use tauri::{AppHandle, Manager, State};
+use tauri::{Manager, State};
 
 use super::{emit_board_changed, ipc_error, validate_text, MAX_PROSE_LEN};
 use crate::state::AppState;

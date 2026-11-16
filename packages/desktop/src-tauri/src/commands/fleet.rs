@@ -472,7 +472,7 @@ pub struct WorktreeMeasureDto {
 #[tauri::command(async)]
 pub async fn worktree_measure(
     state: State<'_, AppState>,
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
     story_ids: Option<Vec<String>>,
 ) -> Result<Vec<WorktreeMeasureDto>, String> {
     // An over-long explicit list is refused as a whole, never silently truncated (WR-03).
@@ -619,7 +619,7 @@ fn check_reclaim_batch(len: usize) -> Result<(), String> {
 #[tauri::command(async)]
 pub async fn worktree_reclaim(
     state: State<'_, AppState>,
-    app: tauri::AppHandle,
+    app: crate::AppHandle,
     story_ids: Vec<String>,
 ) -> Result<Vec<ReclaimOutcomeDto>, String> {
     check_reclaim_batch(story_ids.len())?;

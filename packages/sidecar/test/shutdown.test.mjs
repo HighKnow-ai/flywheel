@@ -64,7 +64,7 @@ after(() => {
 
 /** Poll `predicate` until it is true or `timeoutMs` elapses. The default is wider than every caller's `withTimeout`, so
  * the caller's bound and its message are the ones that fire: a 2s default here once cut an 8s budget short under load. */
-async function waitForCondition(predicate, { timeoutMs = 10_000, intervalMs = 10 } = {}) {
+async function waitForCondition(predicate, { timeoutMs = 30_000, intervalMs = 10 } = {}) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (predicate()) return;

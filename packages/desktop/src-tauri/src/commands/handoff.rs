@@ -5,13 +5,13 @@
 
 use std::sync::Mutex;
 
+use crate::AppHandle;
 use flywheel_core::domain::handoff::{
     batch_as_tool_result, complete_handoff, handoff_as_tool_result, plan_feedback_run,
     plan_handoff, run_checks, HandoffToolCall,
 };
 use rusqlite::Connection;
 use serde_json::{json, Value};
-use tauri::AppHandle;
 
 use super::emit_board_changed;
 use super::task::send_board_tool_answer;

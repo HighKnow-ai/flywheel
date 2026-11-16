@@ -20,10 +20,11 @@ use std::time::Duration;
 
 use flywheel_core::git_facts::{COLD_TICK_SECS, FETCH_INTERVAL_SECS, HOT_TICK_SECS};
 use flywheel_core::git_tick::{self, Digests};
-use tauri::{AppHandle, Manager};
+use tauri::Manager;
 use tokio_cron_scheduler::{Job, JobScheduler};
 
 use crate::state::AppState;
+use crate::AppHandle;
 
 /// The last-seen digest per Story id, keyed so the hot and cold ticks share one map.
 fn digests() -> &'static Digests {

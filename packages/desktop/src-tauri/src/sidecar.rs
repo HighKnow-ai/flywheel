@@ -34,10 +34,11 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+use crate::AppHandle;
 use anyhow::Context;
 use rusqlite::Connection;
 use serde::Deserialize;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{Emitter, Manager};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 

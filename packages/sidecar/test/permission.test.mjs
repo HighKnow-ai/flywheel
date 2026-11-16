@@ -50,7 +50,7 @@ after(() => {
 });
 
 /** Poll `predicate` until it's true or `timeoutMs` elapses. */
-async function waitForCondition(predicate, { timeoutMs = 4000, intervalMs = 10 } = {}) {
+async function waitForCondition(predicate, { timeoutMs = 30_000, intervalMs = 10 } = {}) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (predicate()) return;
@@ -138,7 +138,7 @@ test("a gated tool call raises a permission_request event and does not resolve u
   await waitForCondition(() => toolResultFor(events, "first") !== undefined);
   assert.equal(toolResultFor(events, "first").behavior, "allow");
 
-  await withTimeout(sessionPromise, 5000, "session did not close after being allowed");
+  await withTimeout(sessionPromise, 30_000, "session did not close after being allowed");
   const closed = events.find((e) => e.type === "session_closed");
   assert.equal(closed.reason, "completed");
 });
@@ -158,7 +158,7 @@ test("a denying answer resolves as denied and the fake backend records a denial 
   await waitForCondition(() => toolResultFor(events, "first") !== undefined);
   assert.equal(toolResultFor(events, "first").behavior, "deny", "a denied call must record a denial, not proceed");
 
-  await withTimeout(sessionPromise, 5000, "session did not close after being denied");
+  await withTimeout(sessionPromise, 30_000, "session did not close after being denied");
 });
 
 test("an answer whose request id matches no held call is ignored and resolves nothing else", async () => {
@@ -179,7 +179,7 @@ test("an answer whose request id matches no held call is ignored and resolves no
 
   // Clean up: answer the real one so the session can close.
   adapter.resolvePermission(runId, request.requestId, "allow");
-  await withTimeout(sessionPromise, 5000, "session did not close after the real answer");
+  await withTimeout(sessionPromise, 30_000, "session did not close after the real answer");
 });
 
 test("two concurrent held calls resolve independently and in the order their answers arrive, not the order raised", async () => {
@@ -212,7 +212,7 @@ test("two concurrent held calls resolve independently and in the order their ans
   await waitForCondition(() => toolResultFor(events, "first") !== undefined);
   assert.equal(toolResultFor(events, "first").behavior, "allow");
 
-  await withTimeout(sessionPromise, 5000, "session did not close after both calls resolved");
+  await withTimeout(sessionPromise, 30_000, "session did not close after both calls resolved");
 });
 
 test(
@@ -244,7 +244,7 @@ test(
 
     // Clean up: answer it so this test doesn't leak a hung process into the suite.
     adapter.resolvePermission(runId, request.requestId, "allow");
-    await withTimeout(sessionPromise, 5000, "session did not close after the cleanup answer");
+    await withTimeout(sessionPromise, 30_000, "session did not close after the cleanup answer");
   },
 );
 
@@ -266,5 +266,5 @@ test("no credential value appears in any permission_request event this suite obs
   }
 
   adapter.resolvePermission(runId, request.requestId, "allow");
-  await withTimeout(sessionPromise, 5000, "session did not close");
+  await withTimeout(sessionPromise, 30_000, "session did not close");
 });

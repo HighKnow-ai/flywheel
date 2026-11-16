@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import { test } from "node:test";
 
+import { unusableReason } from "./usable-binary.mjs";
 import { startPermissionServer } from "../dist/mcp-permission-server.js";
 import { waitForListening } from "./socket-test-helpers.mjs";
 
@@ -134,7 +135,7 @@ function resolveShimBinaryForTest() {
   const workspaceRoot = path.resolve(__dirname, "..", "..", "..");
   for (const profile of ["debug", "release"]) {
     const candidate = path.join(workspaceRoot, "target", profile, "flywheel-shim");
-    if (fs.existsSync(candidate)) return candidate;
+    if (!unusableReason(candidate)) return candidate;
   }
   return undefined;
 }

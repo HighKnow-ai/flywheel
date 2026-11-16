@@ -126,6 +126,23 @@ npm --prefix packages/desktop run test:browser:dark
 npm --prefix packages/desktop run test:browser:motion
 ```
 
+## End-to-end tests
+
+One command runs the real UI against the real core and the real sidecar:
+
+```bash
+npm --prefix packages/desktop run e2e              # all flows, WebKit and Chromium
+npm --prefix packages/desktop run e2e -- --project=webkit
+npm --prefix packages/desktop run e2e -- --update  # rewrite a flow diagram from its trace
+```
+
+- The command stages the sidecar and builds the headless core. It needs `npm ... ci` in `packages/sidecar` and `packages/desktop`, and `npx playwright install webkit chromium` once.
+- The headless core is a debug-only binary (`flywheel-headless`, feature `headless`). It serves the command handlers over a localhost WebSocket. It uses a scratch git repository and a scratch database for each test.
+- The agent is a script (`packages/sidecar/test/fake-claude.mjs`). No test needs a `claude` binary, a token or the keychain.
+- Playwright saves a trace and screenshots for each test in `packages/desktop/e2e-results/`.
+- A flow doc in `docs/flows/` holds the sequence diagram of each flow. The test fails when the steps that really happen differ from the diagram.
+- The design is in [`packages/desktop/README.md`](packages/desktop/README.md), section "End-to-end".
+
 ## Architecture
 
 See [`ARCHITECTURE.md`](ARCHITECTURE.md).

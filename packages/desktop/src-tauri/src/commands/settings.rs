@@ -7,8 +7,9 @@
 //! permission-rules table) is plan 02-10's responsibility (this plan's own Boundary note) — this
 //! module builds only the mechanism and its command surface.
 
+use crate::AppHandle;
 use serde::Serialize;
-use tauri::{AppHandle, Manager, State};
+use tauri::{Manager, State};
 
 use crate::state::AppState;
 

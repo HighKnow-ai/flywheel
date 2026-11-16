@@ -87,6 +87,16 @@ function touchHeartbeat(runtimeDir) {
   fs.writeFileSync(path.join(runtimeDir, "heartbeat"), new Date().toISOString());
 }
 
+/** Keep the heartbeat fresh until the returned function is called. A test with a short stale
+ * window holds the heartbeat fresh until it has seen the backend: one touch before the spawn let a
+ * slow start (a loaded gate run, #1665) outlast the window, so the watchdog killed the run before
+ * the backend was ever seen. */
+function keepHeartbeatFresh(runtimeDir, everyMs = 50) {
+  touchHeartbeat(runtimeDir);
+  const timer = setInterval(() => touchHeartbeat(runtimeDir), everyMs);
+  return () => clearInterval(timer);
+}
+
 /**
  * Spawn the watchdog exactly the way `claude-code-adapter.ts` does — `detached: true` on the
  * wrapper itself, nothing else — pointed at `fake-claude.mjs` in its STUBBORN mode (never exits
@@ -142,14 +152,19 @@ test("ceasing to touch the heartbeat kills both the watchdog and the backend wit
   const runtimeDir = scratchRuntimeDir();
   const pollMs = 100;
   const staleMs = 300;
-  touchHeartbeat(runtimeDir);
+  const stopTouching = keepHeartbeatFresh(runtimeDir);
 
   const watchdog = spawnWatchdog({ runtimeDir, runId: "wd-stale-kill", staleMs, pollMs });
   trackedWatchdogPids.push(watchdog.pid);
 
-  const backendPid = await waitFor(() => directChildPidOf(watchdog.pid), {
-    message: "the backend never appeared as the watchdog's own direct child",
-  });
+  let backendPid;
+  try {
+    backendPid = await waitFor(() => directChildPidOf(watchdog.pid), {
+      message: "the backend never appeared as the watchdog's own direct child",
+    });
+  } finally {
+    stopTouching();
+  }
   assert.ok(isAlive(watchdog.pid) && isAlive(backendPid), "both must start out alive");
 
   // Never touched again after this point — the watchdog must notice this on its own.
@@ -166,13 +181,17 @@ test("a kill record for the run exists on disk, parses as JSON, and names the re
   const pollMs = 100;
   const staleMs = 300;
   const runId = "wd-kill-record";
-  touchHeartbeat(runtimeDir);
+  const stopTouching = keepHeartbeatFresh(runtimeDir);
 
   const watchdog = spawnWatchdog({ runtimeDir, runId, staleMs, pollMs });
   trackedWatchdogPids.push(watchdog.pid);
-  await waitFor(() => directChildPidOf(watchdog.pid), {
-    message: "the backend never appeared as the watchdog's own direct child",
-  });
+  try {
+    await waitFor(() => directChildPidOf(watchdog.pid), {
+      message: "the backend never appeared as the watchdog's own direct child",
+    });
+  } finally {
+    stopTouching();
+  }
 
   const killRecordFile = path.join(runtimeDir, "kills", `${runId}.json`);
   await waitFor(() => fs.existsSync(killRecordFile), {
@@ -215,7 +234,9 @@ test("sending the force signal to the negation of the watchdog's pid kills both 
 test("starting with no heartbeat file at all does not kill the backend before one full stale window has elapsed", async () => {
   const runtimeDir = scratchRuntimeDir();
   const pollMs = 50;
-  const staleMs = 1000;
+  // Wide enough that a slow start on a loaded runner (#1665) cannot use up half of it before the
+  // backend is seen; the test is about the grace window existing, not its length.
+  const staleMs = 5000;
   // Deliberately never touched — this is the launch-race grace window, not staleness detection.
 
   const watchdog = spawnWatchdog({ runtimeDir, runId: "wd-no-heartbeat-grace", staleMs, pollMs });

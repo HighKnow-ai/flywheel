@@ -195,7 +195,9 @@ describe("A Story whose reads fail (issue #204)", () => {
     const tasks = await screen.findByRole("region", { name: "Tasks" });
     expect(await within(tasks).findByText("No Tasks yet")).toBeTruthy();
     expect(
-      within(screen.getByRole("region", { name: "Acceptance criteria" })).getByText("No Acceptance criteria yet"),
+      await within(screen.getByRole("region", { name: "Acceptance criteria" })).findByText(
+        "No Acceptance criteria yet",
+      ),
     ).toBeTruthy();
     expect(await within(screen.getByRole("region", { name: "Sessions" })).findByText("No sessions yet")).toBeTruthy();
   });
@@ -235,7 +237,7 @@ describe("Make Ready in the Story view", () => {
     renderView();
     const button = await screen.findByRole("button", { name: "Make FLY-12 Ready" });
     expect((button as HTMLButtonElement).disabled).toBe(false);
-    expect(screen.getByText("An empty line yields no token")).toBeTruthy();
+    expect(await screen.findByText("An empty line yields no token")).toBeTruthy();
     fireEvent.click(button);
     await waitFor(() => expect(storyMakeReady).toHaveBeenCalledWith("s12"));
     expect(storyMakeReadyOffer).toHaveBeenCalledWith("s12");
@@ -248,7 +250,7 @@ describe("Make Ready in the Story view", () => {
     const button = (await screen.findByRole("button", { name: "Make FLY-12 Ready" })) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     expect(button.getAttribute("aria-describedby")).toBeTruthy();
-    expect(screen.getByText(/^Make Ready waits: FLY-12 has no Acceptance criterion yet/)).toBeTruthy();
+    expect(await screen.findByText(/^Make Ready waits: FLY-12 has no Acceptance criterion yet/)).toBeTruthy();
     fireEvent.click(button);
     expect(storyMakeReady).not.toHaveBeenCalled();
   });

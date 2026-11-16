@@ -107,6 +107,19 @@ jobs:
 
       - run: npm --prefix packages/sidecar run build
 
+      # The real shim over the stand-in. tauri-build copies the empty flywheel-shim stand-in over
+      # target/debug/flywheel-shim whenever the desktop crate's build script runs, and cargo does
+      # not link the real shim back while its own unit is fresh: a runner that keeps target/ between
+      # runs then ran the shim tests against a 0-byte file (PermissionDenied; gate run 43842944203).
+      # Build everything first, so the build script has run, then drop the copy and let cargo link
+      # the real one. The tests then find the shim next to their own binaries.
+      - name: Real flywheel-shim
+        run: |
+          cargo nextest run --workspace --profile ci --no-run
+          rm -f target/debug/flywheel-shim
+          cargo build --locked -p flywheel-shim
+          test -s target/debug/flywheel-shim
+
       # nextest, not `cargo test`: one process per test, so the ~90 test binaries run side by side
       # rather than one after another. .config/nextest.toml holds the one binary whose tests share
       # something outside the process (the Keychain item) to one at a time.
@@ -169,6 +182,12 @@ jobs:
       # The release body's extraction from CHANGELOG.md (release.yml's notes step): plain Node.
       - name: Release script tests
         run: node --test scripts/release/test/*.test.mjs
+
+      # Every HighKnow host in the code is a row of docs/hosted-calls.md (ADR 0041): plain Node.
+      - name: Hosted-calls allowlist
+        run: |
+          node --test scripts/hosted-calls/test/*.test.mjs
+          node scripts/hosted-calls/check-hosted-calls.mjs
 
       # The version is rust-toolchain.toml's, which says why it is pinned; a test holds these together.
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # 2026-10-16, the stable branch (it has no release tags)

@@ -411,12 +411,13 @@ function TriageList({
   // Opened from an Epic's marker: that Epic's group comes into view, its heading holding the keyboard.
   const landed = useRef(false);
   useEffect(() => {
-    if (landed.current || !loaded || !epicId) return;
+    // The skeleton's hold can outlast the read: the list is not on screen until it leaves (#1668).
+    if (landed.current || !loaded || !epicId || loadingPhase === "skeleton") return;
     landed.current = true;
     const heading = listRef.current?.querySelector<HTMLElement>(`[data-group="${CSS.escape(epicId)}"] h3`);
     heading?.scrollIntoView?.({ block: "start" });
     heading?.focus({ preventScroll: true });
-  }, [loaded, epicId]);
+  }, [loaded, epicId, loadingPhase]);
 
   useEffect(() => {
     if (!empty || !focusEmpty.current) return;
@@ -466,9 +467,11 @@ function TriageList({
       const left = (queryClient.getQueryData<TriageProposalDto[]>(triageQueryKey(projectId)) ?? []).length;
       setAnnouncement(left === 0 ? "Decided. Nothing left to triage." : `Decided. ${countWords(left)} left to triage.`);
       requestAnimationFrame(() => {
+        // The decided card is skipped by id: the frame can run before React draws the refetched list, and the
+        // card is then not yet marked leaving. Focus put on it would be lost when it goes inert.
         const now = [
           ...(listRef.current?.querySelectorAll<HTMLElement>("[data-proposal-card]:not([data-leaving])") ?? []),
-        ];
+        ].filter((c) => c.dataset.proposalCard !== id);
         const card = now[Math.min(Math.max(index, 0), now.length - 1)];
         const target = card?.querySelector<HTMLElement>("[data-decision=accept]");
         if (target) target.focus();

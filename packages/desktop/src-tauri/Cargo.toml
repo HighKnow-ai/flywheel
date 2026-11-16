@@ -7,6 +7,8 @@ edition = "2021"
 # The workspace's licence (LICENSE). Never published as a crate: it ships inside the app.
 license = "Apache-2.0"
 publish = false
+# `src/bin/flywheel-headless.rs` is a second binary; the app is the one `cargo run` and `tauri dev` mean.
+default-run = "flywheel-desktop"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -15,6 +17,19 @@ publish = false
 [lib]
 name = "flywheel_desktop_lib"
 path = "src/lib.rs"
+
+# The end-to-end harness's headless core (packages/desktop/README.md, "End-to-end"). It hosts the
+# command handlers on Tauri's mock runtime, so the whole library is built on it: `main.rs` does not
+# run with this feature, and the app's own build, which never enables it, is untouched. The two
+# optional crates below are only ever compiled for it.
+[features]
+headless = ["tauri/test", "tokio/net", "tokio/sync", "tokio/io-util", "tokio/io-std", "dep:tokio-tungstenite", "dep:futures-util"]
+
+[[bin]]
+name = "flywheel-headless"
+path = "src/bin/flywheel-headless.rs"
+# Never built by `cargo build`, `tauri build` or the release bundle, which enable no features.
+required-features = ["headless"]
 
 [build-dependencies]
 tauri-build = { version = "=2.7.4", features = [] }
@@ -41,12 +56,15 @@ tauri-plugin-dialog = "2.8.3"
 # D-181 (Phase 10 plan 10-07): OS notifications, emitted by the Rust core only. Pinned to 2.4.0, which
 # requires `tauri ^2.10` and so runs on the 2.12 line; it has no JS half, so Tauri's JS/Rust minor
 # check does not pair it. The window is granted nothing from this plugin (D-175).
-tauri-plugin-notification = "=2.8.0"
+tauri-plugin-notification = "=2.8.1"
 # D-113: the Rust core's periodic git-truth tick needs a tokio runtime and `app.emit`, which
 # `packages/core` (sync, no `AppHandle`) does not have — so the desktop crate, which already owns
 # the tokio runtime, starts the scheduler, and is the one crate that depends on it: `packages/core`
 # declared it unused ("vendored now, wired later") until cargo-machete found it.
 tokio-cron-scheduler = "0.15"
+# Only for the `headless` feature: the localhost WebSocket the end-to-end harness's browser drives.
+tokio-tungstenite = { version = "0.30", optional = true }
+futures-util = { version = "0.3", optional = true }
 
 # [profile.release] lives at the workspace root (Cargo.toml) — Cargo ignores
 # per-member profile tables and warns when they're set here.

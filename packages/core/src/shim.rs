@@ -48,22 +48,71 @@ fn shadowed_rm_entry_name() -> &'static str {
     }
 }
 
+/// Why a file cannot be the shim: `None` when it is a non-empty executable regular file.
+///
+/// A 0-byte file is the stand-in `tauri-build` copies from `binaries/flywheel-shim-<triple>` over
+/// `target/<profile>/flywheel-shim` whenever the desktop crate's build script runs (the CI and gate
+/// `rust` job `touch`es those stand-ins so the build script finds its `externalBin` files). It
+/// exists, so `is_file()` is true, and running it fails with `PermissionDenied` — which is how
+/// gate run 43842944203 failed. Picking it is never right, so it is refused by name.
+fn unusable_reason(path: &Path) -> Option<&'static str> {
+    let Ok(meta) = fs::metadata(path) else {
+        return Some("missing");
+    };
+    if !meta.is_file() {
+        return Some("not a file");
+    }
+    if meta.len() == 0 {
+        return Some("empty (a build stand-in, not the compiled shim)");
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if meta.permissions().mode() & 0o111 == 0 {
+            return Some("not executable");
+        }
+    }
+    None
+}
+
+/// The first usable candidate, or an error naming every candidate probed and why each failed.
+fn first_usable_shim(candidates: &[PathBuf]) -> anyhow::Result<PathBuf> {
+    let mut probed: Vec<String> = Vec::new();
+    for candidate in candidates {
+        match unusable_reason(candidate) {
+            None => return Ok(candidate.clone()),
+            Some(reason) => probed.push(format!("{} ({reason})", candidate.display())),
+        }
+    }
+    bail!(
+        "flywheel-shim binary not found; probed: {}. An empty or non-executable file is a build \
+         stand-in: run `cargo build -p flywheel-shim` after the desktop crate's build script",
+        probed.join(", ")
+    );
+}
+
 /// Resolve the compiled `flywheel-shim` binary: first next to the CURRENT executable (the
 /// packaged Tauri app layout), then at `<workspace>/target/{debug,release}/flywheel-shim`
-/// resolved from this crate's own `CARGO_MANIFEST_DIR` (the `tauri dev` layout). Fails loud,
-/// naming every path probed, when neither resolves — never a silent skip, mirroring
+/// resolved from this crate's own `CARGO_MANIFEST_DIR` (the `tauri dev` layout). A candidate
+/// that is empty or not executable is skipped (see [`unusable_reason`]). Fails loud, naming every
+/// path probed and why it was refused, when none resolves — never a silent skip, mirroring
 /// `spawn_sidecar`'s own resolution failure shape.
 pub fn resolve_shim_binary() -> anyhow::Result<PathBuf> {
     let bin_name = shim_binary_file_name();
-    let mut probed: Vec<PathBuf> = Vec::new();
+    let mut candidates: Vec<PathBuf> = Vec::new();
 
     if let Ok(current_exe) = std::env::current_exe() {
         if let Some(dir) = current_exe.parent() {
-            let candidate = dir.join(bin_name);
-            if candidate.is_file() {
-                return Ok(candidate);
+            candidates.push(dir.join(bin_name));
+            // A test binary runs from `<target>/<profile>/deps/`; the shim is built one level up.
+            // Checking there first follows whatever target directory the build actually used
+            // (`CARGO_TARGET_DIR` included), before the source-tree guess below can pick up a
+            // stale binary from another build.
+            if dir.file_name().is_some_and(|name| name == "deps") {
+                if let Some(profile_dir) = dir.parent() {
+                    candidates.push(profile_dir.join(bin_name));
+                }
             }
-            probed.push(candidate);
         }
     }
 
@@ -77,22 +126,11 @@ pub fn resolve_shim_binary() -> anyhow::Result<PathBuf> {
             ["release", "debug"]
         };
         for profile in profiles {
-            let candidate = workspace_root.join("target").join(profile).join(bin_name);
-            if candidate.is_file() {
-                return Ok(candidate);
-            }
-            probed.push(candidate);
+            candidates.push(workspace_root.join("target").join(profile).join(bin_name));
         }
     }
 
-    bail!(
-        "flywheel-shim binary not found; probed: {}",
-        probed
-            .iter()
-            .map(|p| p.display().to_string())
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
+    first_usable_shim(&candidates)
 }
 
 /// Resolve the system `git` binary ONCE, by walking the supervisor's OWN `PATH` directories in
@@ -418,4 +456,48 @@ pub fn shim_env_for_run(run_id: &str) -> anyhow::Result<HashMap<String, String>>
     );
     env.extend(publishing_env);
     Ok(env)
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    fn write(dir: &Path, name: &str, bytes: &[u8], mode: u32) -> PathBuf {
+        let path = dir.join(name);
+        fs::write(&path, bytes).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(mode)).unwrap();
+        path
+    }
+
+    /// POSITIVE CONTROL for gate run 43842944203: the empty, non-executable stand-in that
+    /// `tauri-build` leaves at `target/debug/flywheel-shim` is not picked; the real one behind it
+    /// is, and with no real one the error names the stand-in and why.
+    #[test]
+    fn an_empty_stand_in_is_never_picked_over_a_real_shim() {
+        let dir = tempfile::tempdir().unwrap();
+        let stand_in = write(dir.path(), "stand-in", b"", 0o644);
+        let real = write(dir.path(), "real", b"\x7fELF", 0o755);
+
+        let picked = first_usable_shim(&[stand_in.clone(), real.clone()]).unwrap();
+        assert_eq!(picked, real);
+
+        let err = first_usable_shim(std::slice::from_ref(&stand_in))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("stand-in"), "{err}");
+        assert!(err.contains("empty"), "{err}");
+    }
+
+    #[test]
+    fn a_non_executable_or_missing_candidate_is_refused_with_its_reason() {
+        let dir = tempfile::tempdir().unwrap();
+        let no_exec = write(dir.path(), "no-exec", b"data", 0o644);
+        let missing = dir.path().join("missing");
+        let err = first_usable_shim(&[no_exec, missing])
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("not executable"), "{err}");
+        assert!(err.contains("missing"), "{err}");
+    }
 }

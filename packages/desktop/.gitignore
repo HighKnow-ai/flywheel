@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# End-to-end run artifacts: Playwright traces, screenshots and the HTML report (regenerated on every run)
+e2e-results/

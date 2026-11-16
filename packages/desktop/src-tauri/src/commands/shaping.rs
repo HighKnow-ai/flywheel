@@ -23,9 +23,10 @@
 //! Milestone's one Stage, Exit test, with the Milestone's packet. [`stage_close`] closes it too, which
 //! makes the Milestone Ready and starts no further session.
 
+use crate::AppHandle;
 use rusqlite::Connection;
 use serde::Serialize;
-use tauri::{AppHandle, Manager, State};
+use tauri::{Manager, State};
 
 use flywheel_core::domain::round::{AnswerOutcome, RoundAnswer, RoundRelease};
 use flywheel_core::domain::session::ShapingSubject;
@@ -51,7 +52,7 @@ pub struct ShapingSessionDto {
 ///
 /// Generic over the runtime so `tests/command_threads.rs` can drive it on Tauri's mock runtime.
 pub async fn epic_shape<R: tauri::Runtime>(
-    app: AppHandle<R>,
+    app: tauri::AppHandle<R>,
     epic_id: String,
 ) -> Result<ShapingSessionDto, String> {
     // Waits on the sidecar (the spawn floor, an acknowledgement or a probe): on the blocking
@@ -67,7 +68,7 @@ pub async fn epic_shape<R: tauri::Runtime>(
 /// [`epic_shape`]'s body, on the blocking pool.
 fn epic_shape_blocking<R: tauri::Runtime>(
     state: &AppState,
-    app: &AppHandle<R>,
+    app: &tauri::AppHandle<R>,
     epic_id: String,
 ) -> Result<ShapingSessionDto, String> {
     let run_id = shape_epic(

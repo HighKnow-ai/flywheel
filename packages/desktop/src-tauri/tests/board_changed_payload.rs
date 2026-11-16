@@ -15,6 +15,8 @@ use std::path::{Path, PathBuf};
 
 const EVENT_LITERAL: &str = "\"board:changed\"";
 const HELPER_FILE: &str = "src/commands/mod.rs";
+/// The e2e harness's headless core, which names the event only to forward it to the renderer.
+const HEADLESS_CORE: &str = "src/bin/flywheel-headless.rs";
 const HELPER_CALL: &str = "emit_board_changed(";
 
 /// Every file that calls the helper, sorted, one per line. Listed by name rather than floored by a
@@ -83,7 +85,8 @@ fn is_comment(line: &str) -> bool {
 fn raw_emit_offenders(files: &[(String, String)]) -> Vec<String> {
     files
         .iter()
-        .filter(|(path, _)| path != HELPER_FILE)
+        // The headless core (e2e harness) only listens to the event and forwards it: it never emits it.
+        .filter(|(path, _)| path != HELPER_FILE && path != HEADLESS_CORE)
         .flat_map(|(path, body)| {
             body.lines()
                 .enumerate()

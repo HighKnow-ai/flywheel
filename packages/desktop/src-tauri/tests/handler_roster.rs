@@ -1,7 +1,7 @@
 //! F11 — `generate_handler!` owns the command surface, and a test owns `generate_handler!`.
 //!
 //! Every `#[tauri::command]` under `src/commands` is an IPC entry point the webview can reach once
-//! it is registered, and unreachable until it is. The roster in `main.rs` is the single
+//! it is registered, and unreachable until it is. The roster in `src/roster.rs` is the single
 //! enforcement point; this gate fails the build if a command is declared but never registered
 //! (silently orphaned), or registered under a name that is no command (a stale entry that will not
 //! compile, or worse, shadows a rename).
@@ -236,7 +236,7 @@ fn debug_only_entries(main_src: &str) -> BTreeSet<Command> {
 fn roster_entries(main_src: &str) -> Vec<(Vec<String>, Command)> {
     let start = main_src
         .find("generate_handler![")
-        .expect("main.rs has no generate_handler![")
+        .expect("roster.rs has no generate_handler![")
         + "generate_handler![".len();
     let mut text = String::new();
     let mut depth = 0usize;
@@ -309,7 +309,8 @@ fn commands_in(dir: &Path) -> BTreeSet<Command> {
 #[test]
 fn every_tauri_command_is_registered_in_generate_handler() {
     let declared = commands_in(&manifest_dir().join("src/commands"));
-    let main_src = fs::read_to_string(manifest_dir().join("src/main.rs")).expect("read main.rs");
+    let main_src =
+        fs::read_to_string(manifest_dir().join("src/roster.rs")).expect("read roster.rs");
     let roster = parse_roster(&main_src);
 
     assert!(
@@ -328,7 +329,7 @@ fn every_tauri_command_is_registered_in_generate_handler() {
     let (missing, orphaned) = diff(&declared, &roster);
     assert!(
         missing.is_empty() && orphaned.is_empty(),
-        "main.rs's `generate_handler!` list is the enforcement point for the command surface; \
+        "roster.rs's `generate_handler!` list is the enforcement point for the command surface; \
          `capabilities/default.json`'s roster string is documentation and is not checked here.\n\
          declared with #[tauri::command] but missing from the roster: {missing:?}\n\
          in the roster but naming no #[tauri::command] function: {orphaned:?}"
@@ -340,7 +341,8 @@ fn every_tauri_command_is_registered_in_generate_handler() {
 /// attribute would break only the release build; this fails it in every `cargo test` instead.
 #[test]
 fn only_the_environment_picker_is_registered_for_development_builds_alone() {
-    let main_src = fs::read_to_string(manifest_dir().join("src/main.rs")).expect("read main.rs");
+    let main_src =
+        fs::read_to_string(manifest_dir().join("src/roster.rs")).expect("read roster.rs");
     let debug_only: Vec<String> = debug_only_entries(&main_src)
         .into_iter()
         .map(|(m, f)| format!("{m}::{f}"))
@@ -417,6 +419,53 @@ pub fn forgotten_command() {}
         &parse_roster(stale),
     );
     assert_eq!(orphaned, vec![("planted".to_string(), "ghost".to_string())]);
+}
+
+/// The headless core's `READ_ONLY` list (`src/bin/flywheel-headless.rs`) leaves reads out of a flow's
+/// trace. A name in it that is no command is stale and would hide a rename, so this fails it. The
+/// planted case proves the extractor reads a list at all.
+fn read_only_names(bin_src: &str) -> Vec<String> {
+    let marker = "const READ_ONLY: &[&str] = &[";
+    let start = bin_src
+        .find(marker)
+        .expect("flywheel-headless.rs has no READ_ONLY list")
+        + marker.len();
+    let body = &bin_src[start..];
+    let body = &body[..body.find("];").expect("READ_ONLY is not closed")];
+    body.split('"')
+        .skip(1)
+        .step_by(2)
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn the_headless_read_only_list_names_only_real_commands() {
+    let roster: BTreeSet<String> = parse_roster(
+        &fs::read_to_string(manifest_dir().join("src/roster.rs")).expect("read roster.rs"),
+    )
+    .into_iter()
+    .map(|(_, name)| name)
+    .collect();
+    let bin = fs::read_to_string(manifest_dir().join("src/bin/flywheel-headless.rs"))
+        .expect("read flywheel-headless.rs");
+    let listed = read_only_names(&bin);
+    assert!(listed.len() > 20, "READ_ONLY looks truncated: {listed:?}");
+    let stale: Vec<&String> = listed.iter().filter(|n| !roster.contains(*n)).collect();
+    assert!(stale.is_empty(), "READ_ONLY names no command: {stale:?}");
+    let mut sorted = listed.clone();
+    sorted.sort();
+    sorted.dedup();
+    assert_eq!(
+        sorted, listed,
+        "READ_ONLY must stay sorted with no duplicates"
+    );
+}
+
+#[test]
+fn the_read_only_extractor_reads_a_planted_list() {
+    let src = "const READ_ONLY: &[&str] = &[\n    \"a_list\",\n    \"b_get\",\n];";
+    assert_eq!(read_only_names(src), ["a_list", "b_get"]);
 }
 
 fn roster_of(names: &[&str]) -> BTreeSet<Command> {

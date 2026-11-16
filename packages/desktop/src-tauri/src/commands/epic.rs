@@ -3,8 +3,9 @@
 //! test (`domain::epic`). Every handler stamps the local human actor server-side (T-01-04) and
 //! emits `board:changed` after a successful mutation.
 
+use crate::AppHandle;
 use serde::Serialize;
-use tauri::{AppHandle, State};
+use tauri::State;
 
 use super::{emit_board_changed, validate_text, MAX_PROSE_LEN, MAX_TITLE_LEN};
 use crate::state::AppState;

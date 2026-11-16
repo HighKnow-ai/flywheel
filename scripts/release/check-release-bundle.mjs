@@ -27,6 +27,10 @@ import { fileURLToPath } from "node:url";
 export const FORBIDDEN = [
   { needle: "highknow.dev", why: "a non-production Environment's hostname" },
   { needle: "dev_environment", why: "the development builds' Environment picker" },
+  // The end-to-end harness (packages/desktop/e2e): its WebSocket transport in the renderer
+  // (`adapters/ws-transport.ts`, behind `VITE_FLYWHEEL_E2E`) and its headless core binary.
+  { needle: "flywheel-e2e-ws-transport", why: "the end-to-end harness's WebSocket transport" },
+  { needle: "flywheel-headless", why: "the end-to-end harness's headless core" },
 ];
 
 /** Every regular file under `root` (itself, if it is one), in a stable order. */

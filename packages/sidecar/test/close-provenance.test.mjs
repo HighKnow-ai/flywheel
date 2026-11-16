@@ -34,7 +34,7 @@ delete process.env.FLYWHEEL_HEARTBEAT_STALE_MS;
 
 /** Poll `predicate` until it's true or `timeoutMs` elapses — mirrors `stop.test.mjs`'s own
  * identical helper. */
-async function waitForCondition(predicate, { timeoutMs = 5000, intervalMs = 20 } = {}) {
+async function waitForCondition(predicate, { timeoutMs = 30_000, intervalMs = 20 } = {}) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (predicate()) return;

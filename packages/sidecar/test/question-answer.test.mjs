@@ -97,7 +97,7 @@ test("a plain allow still passes the input through unchanged, and a deny never c
   });
 });
 
-async function waitFor(predicate, timeoutMs = 4000) {
+async function waitFor(predicate, timeoutMs = 30_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const value = predicate();

@@ -58,6 +58,16 @@ Decided. Full rationale, alternatives considered, and sources live in `docs/rese
 
 See `ARCHITECTURE.md` at the repo root.
 
+## End-to-end tests
+
+- Run `npm --prefix packages/desktop run e2e` to test a UI change against the real core and sidecar. Every other UI test fakes IPC.
+- The command builds `flywheel-headless`, a debug-only binary that hosts the real command handlers over a localhost WebSocket. It must never enter a release build.
+- Add a command in `src-tauri/src/roster.rs` only. The headless core and the app share that list.
+- A command that only reads goes in `READ_ONLY` in `src-tauri/src/bin/flywheel-headless.rs`. Other commands are steps in a flow.
+- A flow is a test in `packages/desktop/e2e/flows/` and a doc in `docs/flows/`. The doc's sequence diagram is the spec. The test fails when the trace differs from it.
+- To accept a new flow, run `e2e -- --update` and read the diff of the doc.
+- The agent is always the script `fake-claude.mjs`. Never use a real `claude` binary, a token or the keychain in a test.
+
 ## Agent skills
 
 ### Issue tracker
