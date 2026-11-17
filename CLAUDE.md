@@ -67,6 +67,7 @@ See `ARCHITECTURE.md` at the repo root.
 - A flow is a test in `packages/desktop/e2e/flows/` and a doc in `docs/flows/`. The doc's sequence diagram is the spec. The test fails when the trace differs from it.
 - To accept a new flow, run `e2e -- --update` and read the diff of the doc.
 - The agent is always the script `fake-claude.mjs`. Never use a real `claude` binary, a token or the keychain in a test.
+- CI runs the command in the `e2e` job of `.github/workflows/ci.yml`. The `build` job needs it, so a red flow blocks `main`.
 
 ## Agent skills
 

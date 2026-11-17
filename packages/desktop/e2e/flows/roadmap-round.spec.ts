@@ -64,6 +64,12 @@ flow(
     await expect.poll(async () => (await roadmap()).proposals.length, { timeout: 60_000 }).toBe(1);
     const [change] = (await roadmap()).proposals;
     expect(change.summary).toBe('New Epic "Round history" in Milestone "Shaping"');
+    // S9 before S10: the developer's accept answers the agent's held `round_wait`, so the test waits
+    // until that call is held. Accepting first is also correct (the call then returns at once), but
+    // it is not the flow the diagram draws, and on a slow machine the agent's call came second.
+    await expect
+      .poll(() => core.trace().some((s) => s.from === "agent" && s.label === "round_wait"), { timeout: 60_000 })
+      .toBe(true);
     await core.call("proposal_accept", { proposalId: change.id });
     await expect.poll(async () => (await roadmap()).open, { timeout: 60_000 }).toBeNull();
     const closed = (await roadmap()).last!;

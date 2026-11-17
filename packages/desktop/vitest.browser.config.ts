@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { playwright } from "@vitest/browser-playwright";
 import { resolve } from "node:path";
+import { testTimeScale } from "./src/test/time-scale";
 
 /**
  * The real-browser arm of the suite (Phase 8 UAT items 1, 2 and 6).
@@ -41,7 +42,8 @@ export default defineConfig({
     // The jsdom arm's budget (`vitest.config.ts`). Vitest bounds every Playwright action by what is left of the
     // test's timeout, so the 5 s default made a long click-through (the Epic exit test takes 3.5 s idle) fail as
     // "locator.click: Timeout 450ms exceeded" on a loaded runner, with the click not at fault.
-    testTimeout: 15000,
+    // Times FLYWHEEL_TEST_TIME_SCALE (src/test/time-scale.ts), as the jsdom arm.
+    testTimeout: 15000 * testTimeScale(),
     browser: {
       enabled: true,
       headless: true,

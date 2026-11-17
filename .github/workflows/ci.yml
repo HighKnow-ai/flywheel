@@ -305,6 +305,63 @@ jobs:
       - name: Layout defects (WebKit, four window sizes)
         run: npm --prefix packages/desktop run test:layout-defects
 
+  # The end-to-end flows: the real renderer in WebKit and Chromium, against the headless core and the
+  # real sidecar with a scripted agent (packages/desktop/e2e/). Every other UI test fakes the IPC, so
+  # this is the only job in which the renderer, the core and the sidecar run together. A flow fails
+  # when the steps it records differ from its sequence diagram in docs/flows/.
+  # macOS because the headless core is the Tauri crate and the shim is macOS code.
+  e2e:
+    name: End-to-end flows (WebKit and Chromium)
+    runs-on: macos-15
+    # Bounded, from a local run on an Apple-silicon Mac (2026-11-17): 3.1 min for the 28 flows and
+    # 0.9 min for a cold debug build of the core. The `browser` job runs ~1.6 times slower on macos-15
+    # than there, so a cold first run (installs, browsers, build, flows) is expected near 12 min.
+    # Tighten this from the first hosted runs.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            packages/desktop/package-lock.json
+            packages/sidecar/package-lock.json
+
+      # The version is rust-toolchain.toml's, which says why it is pinned; a test holds these together.
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # 2026-10-16, the stable branch (it has no release tags)
+        with:
+          toolchain: 1.99.1
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      # The run stages the sidecar's JavaScript and the headless core itself (e2e/stage.mjs); it
+      # needs both installs first, and runs `npm ci` only when `node_modules` is missing.
+      - run: npm --prefix packages/sidecar ci
+
+      - run: npm --prefix packages/desktop ci
+
+      # The same browsers, install command and cache key as the `browser` job, so the two share one
+      # cache entry: WebKit for the macOS shell, Chromium (headless shell only) as the second engine.
+      # This runner is macOS, so Playwright needs no system packages (no --with-deps).
+      - name: Playwright version
+        id: playwright
+        run: echo "version=$(node -p "require('./packages/desktop/node_modules/playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/Library/Caches/ms-playwright
+          key: playwright-webkit-chromium-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
+
+      - run: packages/desktop/node_modules/.bin/playwright install webkit chromium --only-shell
+
+      # Every flow in both engines, one at a time (playwright.config.ts: one worker, no retry).
+      - name: End-to-end flows (WebKit and Chromium)
+        run: npm --prefix packages/desktop run e2e
+
   # Unsigned (D-185). The .dmg bundle costs 5-8 minutes and is the step that flaked, so it runs only
   # on pushes to `next`, never on pull_request runs. It is part of what has to pass before `main`
   # moves, and the fast-forward to `main` starts no run of its own, so this is the bundle's only
@@ -371,7 +428,7 @@ jobs:
   build:
     name: build
     if: always()
-    needs: [rust, sidecar, uat, desktop, browser, dmg]
+    needs: [rust, sidecar, uat, desktop, browser, e2e, dmg]
     runs-on: ubuntu-latest
     # Bounded: an aggregate of `needs`: observed 0.1 min.
     timeout-minutes: 5

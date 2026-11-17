@@ -58,8 +58,10 @@ export async function startCore(options: {
   let logPath = path.join(tmp, "core.log");
   for (let n = 2; fs.existsSync(logPath); n++) logPath = path.join(tmp, `core-${n}.log`);
   const log = fs.openSync(logPath, "w");
+  // From its real path: Tauri refuses, on macOS, an executable path through a symlink, and a
+  // checkout reached through one would otherwise carry it (stage.mjs, BIN_DIR, says the rest).
   const child: ChildProcess = spawn(
-    HEADLESS_BIN,
+    fs.realpathSync(HEADLESS_BIN),
     ["--root", root, ...(options.layout ? ["--layout", options.layout] : [])],
     {
       stdio: ["pipe", "pipe", log],

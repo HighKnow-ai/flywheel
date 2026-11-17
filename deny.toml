@@ -16,6 +16,12 @@ unmaintained = "all"
 unsound = "all"
 # An ignore names the advisory, the crate, and why it is not a defect in what ships.
 ignore = [
+  # `chrono` and `chrono-tz` are UNMAINTAINED, not vulnerable: no version is affected by a bug,
+  # and there is no maintained upgrade. Flywheel uses `chrono` directly (core, desktop, shim,
+  # rusqlite's `chrono` feature) and `chrono-tz` through `tokio-cron-scheduler`. The move to
+  # `jiff` and a scheduler without them is #1728, which removes these two lines.
+  { id = "RUSTSEC-2026-0543", reason = "chrono is unmaintained, not vulnerable; the move to jiff is #1728" },
+  { id = "RUSTSEC-2026-0555", reason = "chrono-tz is unmaintained, not vulnerable; it comes through tokio-cron-scheduler, replaced in #1728" },
 ]
 
 [licenses]

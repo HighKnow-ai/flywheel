@@ -141,6 +141,7 @@ npm --prefix packages/desktop run e2e -- --update  # rewrite a flow diagram from
 - The agent is a script (`packages/sidecar/test/fake-claude.mjs`). No test needs a `claude` binary, a token or the keychain.
 - Playwright saves a trace and screenshots for each test in `packages/desktop/e2e-results/`.
 - A flow doc in `docs/flows/` holds the sequence diagram of each flow. The test fails when the steps that really happen differ from the diagram.
+- CI runs the same command in the `e2e` job of `.github/workflows/ci.yml`. A red flow fails the `build` job.
 - The design is in [`packages/desktop/README.md`](packages/desktop/README.md), section "End-to-end".
 
 ## Architecture

@@ -29,6 +29,10 @@ const POLICY = {
 let worktree;
 let runtimeDir;
 let argvFile;
+let home;
+
+/** The home the suite started with. Each test gets a home of its own inside it (see `beforeEach`). */
+const REAL_HOME = os.homedir();
 
 function scratch(prefix) {
   return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
@@ -40,7 +44,7 @@ function writePolicy(text) {
 }
 
 function probeLeftovers() {
-  const inHome = fs.readdirSync(os.homedir()).filter((name) => name.startsWith(".flywheel-sandbox-probe-"));
+  const inHome = fs.readdirSync(home).filter((name) => name.startsWith(".flywheel-sandbox-probe-"));
   const inWorktree = fs.readdirSync(worktree).filter((name) => name.startsWith(".flywheel-sandbox-probe-"));
   return [...inHome, ...inWorktree];
 }
@@ -86,6 +90,12 @@ function valueOf(argv, flag) {
 }
 
 beforeEach(() => {
+  // The probe writes outside the worktree into the home directory. A home of the test's own keeps
+  // `probeLeftovers` from counting another run's probe as this one's: a second sidecar suite on the same
+  // machine failed five cases here with its in-flight folder (2026-11-17). It sits inside the real home,
+  // not the temporary directory, because a sandbox opens the temporary directory for writes.
+  home = fs.realpathSync(fs.mkdtempSync(path.join(REAL_HOME, ".flywheel-sandbox-test-home-")));
+  process.env.HOME = home;
   worktree = scratch("flywheel-sandbox-worktree-");
   runtimeDir = scratch("flywheel-sandbox-runtime-");
   argvFile = path.join(runtimeDir, "argv.jsonl");
@@ -93,6 +103,8 @@ beforeEach(() => {
 
 afterEach(() => {
   delete process.env.FLYWHEEL_SANDBOX_PROBE_MS;
+  process.env.HOME = REAL_HOME;
+  fs.rmSync(home, { recursive: true, force: true });
   fs.rmSync(worktree, { recursive: true, force: true });
   fs.rmSync(runtimeDir, { recursive: true, force: true });
 });
@@ -251,7 +263,8 @@ function realEnv() {
   const bin = path.join(runtimeDir, "bin");
   fs.mkdirSync(bin, { recursive: true });
   fs.writeFileSync(path.join(bin, "security"), "#!/bin/sh\nexit 44\n", { mode: 0o755 });
-  const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` };
+  // The real binary keeps its own home, and so its own configuration; only the probe's folder moves.
+  const env = { ...process.env, HOME: REAL_HOME, PATH: `${bin}${path.delimiter}${process.env.PATH}` };
   delete env.CLAUDECODE;
   return env;
 }

@@ -2,6 +2,7 @@ import "./settle-react";
 import { afterEach } from "vitest";
 import { cleanup, configure } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
+import { testTimeScale } from "./time-scale";
 
 /**
  * How long a `findBy*` or `waitFor` waits for the UI to reach a state: 5 s, not Testing Library's 1 s.
@@ -12,7 +13,8 @@ import "@testing-library/jest-dom/vitest";
  * still resolves the wait the moment it does, so a passing run is no slower; only a state that never comes takes
  * longer to fail. Nothing here asserts speed: a budget belongs in a test of its own that names it.
  */
-configure({ asyncUtilTimeout: 5000 });
+// Times FLYWHEEL_TEST_TIME_SCALE (./time-scale.ts), 1 on a developer's machine.
+configure({ asyncUtilTimeout: 5000 * testTimeScale() });
 
 /**
  * `vitest.config.ts` sets `globals: false`, so Testing Library's auto-detection of a global

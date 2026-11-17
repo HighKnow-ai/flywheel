@@ -1,5 +1,6 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
+import { testTimeScale } from "./src/test/time-scale";
 
 // https://vitest.dev/config/
 export default defineConfig({
@@ -16,6 +17,7 @@ export default defineConfig({
     globals: false,
     // Above the 5 s a Testing Library wait may take (src/test/setup.ts), so a slow wait fails as that wait,
     // naming what it waited for, rather than as an anonymous test timeout.
-    testTimeout: 15000,
+    // Times FLYWHEEL_TEST_TIME_SCALE, which only a runner that knows it is slow sets (src/test/time-scale.ts).
+    testTimeout: 15000 * testTimeScale(),
   },
 });

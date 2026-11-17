@@ -25,3 +25,6 @@ dist-ssr
 
 # End-to-end run artifacts: Playwright traces, screenshots and the HTML report (regenerated on every run)
 e2e-results/
+
+# The e2e harness stages the headless core here (e2e/stage.mjs, BIN_DIR)
+e2e/.bin/

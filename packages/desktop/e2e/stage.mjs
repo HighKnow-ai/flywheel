@@ -18,7 +18,14 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const FLYWHEEL_ROOT = path.resolve(here, "..", "..", "..");
 export const DEBUG_DIR = path.join(FLYWHEEL_ROOT, "target", "debug");
-export const HEADLESS_BIN = path.join(DEBUG_DIR, "flywheel-headless");
+// THE CORE RUNS FROM A COPY INSIDE THE CHECKOUT, NOT FROM `target/debug`. The self-hosted gate links
+// `target/` to a cache outside the checkout, and two things then break: Tauri refuses, on macOS, an
+// executable path that passes through a symlink ("StartingBinary found current_exe() that contains a
+// symlink on a non-allowed platform"), and the sidecar launcher finds `packages/sidecar/dist` by
+// walking up from its PHYSICAL directory, which a cache outside the checkout never reaches. Step 5
+// stages the core with the two files it resolves beside itself.
+export const BIN_DIR = path.join(here, ".bin");
+export const HEADLESS_BIN = path.join(BIN_DIR, "flywheel-headless");
 export const FAKE_CLAUDE = path.join(FLYWHEEL_ROOT, "packages", "sidecar", "test", "fake-claude.mjs");
 
 function run(command, args, cwd) {
@@ -86,6 +93,16 @@ export function stage() {
   fs.copyFileSync(launcher, path.join(DEBUG_DIR, "flywheel-sidecar"));
   fs.chmodSync(path.join(DEBUG_DIR, "flywheel-sidecar"), 0o755);
   fs.chmodSync(FAKE_CLAUDE, 0o755);
+
+  // 5. The core, the launcher and the shim, side by side inside the checkout (see BIN_DIR). A clone
+  //    on APFS, so the copy costs nothing; a plain copy elsewhere.
+  fs.mkdirSync(BIN_DIR, { recursive: true });
+  for (const name of ["flywheel-headless", "flywheel-sidecar", "flywheel-shim"]) {
+    const to = path.join(BIN_DIR, name);
+    fs.rmSync(to, { force: true });
+    fs.copyFileSync(path.join(DEBUG_DIR, name), to, fs.constants.COPYFILE_FICLONE);
+    fs.chmodSync(to, 0o755);
+  }
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) stage();
