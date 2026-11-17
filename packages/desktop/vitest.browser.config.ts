@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { playwright } from "@vitest/browser-playwright";
@@ -29,7 +29,16 @@ import { testTimeScale } from "./src/test/time-scale";
  */
 const REPO_ROOT = resolve(import.meta.dirname, "../..");
 
+/**
+ * A cache of its own for this run, when the caller names one. Vitest keeps the optimised dependencies and
+ * the last run's results in `<cacheDir>/vitest/`, and two runs that share it overwrite each other's files.
+ * `scripts/run-browser-arms.mjs` runs the arms side by side and gives each its own; a run of one arm does
+ * not set it and uses Vite's default, as before.
+ */
+const cacheDir = process.env["FLYWHEEL_VITE_CACHE_DIR"];
+
 export default defineConfig({
+  ...(cacheDir ? { cacheDir } : {}),
   plugins: [react(), tailwindcss()],
   resolve: { alias: { "@": resolve(import.meta.dirname, "src") } },
   // The two UAT screenshots are written into the phase folder at the repo root, which is outside
@@ -37,6 +46,10 @@ export default defineConfig({
   server: { fs: { allow: [REPO_ROOT] } },
   test: {
     include: ["src/**/*.browser.test.tsx"],
+    // The design-critique harness (`src/test/critique/`) runs under `vitest.critique.config.ts` alone. Its
+    // files check `CRITIQUE_RUN` and skip themselves here, but a skipped file still loads the whole app and
+    // its fixtures first, and there are eight of them since the walk was split to run side by side (#1732).
+    exclude: [...configDefaults.exclude, "src/test/critique/**"],
     setupFiles: ["./src/test/browser-setup.ts"],
     globals: false,
     // The jsdom arm's budget (`vitest.config.ts`). Vitest bounds every Playwright action by what is left of the

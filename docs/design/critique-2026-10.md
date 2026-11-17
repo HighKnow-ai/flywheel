@@ -235,7 +235,7 @@ faked:
   from seeded data shaped like Flywheel's own backlog: two projects, the Milestone "Shaping" with two
   Epics, a Story in every Story state, a live session, a Gated action, a permission request, an agent's
   question, a Stopped Story and a handed-off session. No database is opened.
-- `m2-flow.critique.browser.test.tsx` mounts the app in Playwright's WebKit (the engine closest to the
+- `m2-flow-1` to `m2-flow-6` (`m2-flow-<part>.critique.browser.test.tsx`, the steps in `m2-walk.tsx`) mount the app in Playwright's WebKit (the engine closest to the
   shipped WKWebView) at **1440 × 900**, walks the M2 flow by clicking the real controls, and screenshots
   each screen in the light and the dark scheme. Re-shoot with
   `CRITIQUE_SCHEME=light npx vitest run --config vitest.critique.config.ts src/test/critique` (and `dark`)

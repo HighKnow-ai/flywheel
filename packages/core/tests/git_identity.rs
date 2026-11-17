@@ -163,6 +163,66 @@ fn insert_worktree_row(
     .expect("insert worktree row should succeed");
 }
 
+/// Append `count` empty commits ("commit 0" .. "commit {count-1}") to the tip of `main` with ONE
+/// `git fast-import` process, as the author and committer `fresh_repo` configures.
+///
+/// WHY NOT `count` x `git commit --allow-empty`: each of those costs a `git commit`, the installed
+/// `commit-msg` hook's `sh` and its `git rev-parse` (three processes), and 900 of them took 164 to
+/// 189 s on the gate runner's efficiency cores (#1732). The history is the same shape either way:
+/// a linear chain of commits that share the initial commit's tree and differ by their message (and
+/// here by their timestamp), so each is a distinct commit object. The hook exits at its own
+/// branch guard on `main` and stamps nothing, so skipping it changes no byte of the history.
+/// What the caller asserts is about real object names in a real repository, not about the tool
+/// that wrote them: `find_ambiguous_prefix` still confirms its prefix against git's own
+/// `rev-parse --disambiguate`.
+fn add_empty_commits_on_main(repo: &Path, count: u32) {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    // `from refs/heads/main^0` once: fast-import does not read a ref that already exists unless
+    // told to, and every later commit of the stream continues from the one before it.
+    let mut stream = String::new();
+    for i in 0..count {
+        // The message `git commit -m "commit {i}"` writes: the text and a final newline.
+        let message = format!("commit {i}\n");
+        stream.push_str("commit refs/heads/main\n");
+        stream.push_str(&format!(
+            "committer Flywheel Git Identity Test <git-identity-test@flywheel.invalid> {} +0000\n",
+            1_700_000_000 + u64::from(i)
+        ));
+        stream.push_str(&format!("data {}\n{message}", message.len()));
+        if i == 0 {
+            stream.push_str("from refs/heads/main^0\n");
+        }
+        stream.push('\n');
+    }
+
+    let mut child = Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["fast-import", "--quiet"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|e| panic!("failed to spawn git fast-import in {repo:?}: {e}"));
+    child
+        .stdin
+        .take()
+        .expect("fast-import stdin")
+        .write_all(stream.as_bytes())
+        .expect("failed to write the fast-import stream");
+    let output = child
+        .wait_with_output()
+        .expect("failed to wait for git fast-import");
+    assert!(
+        output.status.success(),
+        "git fast-import in {repo:?} failed (exit {:?}): {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 /// Every object's full name in `repo`, via `git cat-file --batch-all-objects`.
 fn repo_object_shas(repo: &Path) -> Vec<String> {
     let output = run_git_ok(
@@ -343,12 +403,7 @@ fn resolve_identifier_for_an_ambiguous_prefix_reports_the_real_match_count() {
     // 1-exp(-900^2/(2*65536)) ≈ 0.998) that a real prefix collision among real object names is
     // all but certain, proven below against git's own --disambiguate rather than assumed (and the
     // length loop below falls through to longer prefixes on the rare miss).
-    for i in 0..900 {
-        run_git_ok(
-            &repo,
-            &["commit", "--allow-empty", "-m", &format!("commit {i}")],
-        );
-    }
+    add_empty_commits_on_main(&repo, 900);
 
     let (prefix, expected_count) = find_ambiguous_prefix(&repo);
 

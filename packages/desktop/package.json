@@ -14,10 +14,11 @@
     "test:browser:dark": "vitest run --config vitest.browser.dark.config.ts",
     "test:browser:motion": "vitest run --config vitest.browser.motion.config.ts",
     "test:browser:forced-colors": "vitest run --config vitest.browser.forced-colors.config.ts",
+    "test:browser:arms": "node scripts/run-browser-arms.mjs",
     "test:critique": "CRITIQUE_SHOTS=1 CRITIQUE_SCHEME=light vitest run --config vitest.critique.config.ts && CRITIQUE_SHOTS=1 CRITIQUE_SCHEME=dark vitest run --config vitest.critique.config.ts",
     "format": "prettier --write src e2e playwright.config.ts",
     "format:check": "prettier --check src e2e playwright.config.ts",
-    "test:layout-defects": "CRITIQUE_SCHEME=light vitest run --config vitest.critique.config.ts"
+    "test:layout-defects": "CRITIQUE_SCHEME=light VITEST_MAX_WORKERS=8 vitest run --config vitest.critique.config.ts"
   },
   "dependencies": {
     "@highknow/design": "0.3.0",

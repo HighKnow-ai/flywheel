@@ -189,6 +189,11 @@ jobs:
           node --test scripts/hosted-calls/test/*.test.mjs
           node scripts/hosted-calls/check-hosted-calls.mjs
 
+      # The runner that runs the offline UAT below side by side (scripts/uat/run-offline.mjs, over
+      # scripts/lib/side-by-side.mjs, which the browser job's runner uses too).
+      - name: UAT runner tests
+        run: node --test scripts/lib/test/*.test.mjs scripts/uat/test/*.test.mjs
+
       # The version is rust-toolchain.toml's, which says why it is pinned; a test holds these together.
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # 2026-10-16, the stable branch (it has no release tags)
         with:
@@ -207,15 +212,12 @@ jobs:
 
       # The offline UAT (docs/mvp-spec.md §9): zero tokens, no `claude` binary, no credentials. The
       # job holds no secret. A SKIP exits 3, so it fails this step rather than passing silently.
+      # The runner runs the seven scripts (harness-supervision-gate in two modes, uat-12, uat-16,
+      # uat-17, uat-18, uat-19) side by side, each in its own temporary directory, and prints each
+      # one's output whole. They wait on timers and child processes, so one after another they took
+      # the sum of their waits (#1732).
       - name: Offline UAT (harness-supervision-gate, uat-12, uat-16, uat-17, uat-18, uat-19)
-        run: |
-          node scripts/uat/harness-supervision-gate.mjs --mode=supervised
-          node scripts/uat/harness-supervision-gate.mjs --mode=unsupervised
-          node scripts/uat/uat-12-fleet-live-reads.mjs
-          node scripts/uat/uat-16-epic-shaping.mjs
-          node scripts/uat/uat-17-roadmap-round.mjs
-          node scripts/uat/uat-18-execution-proposals.mjs
-          node scripts/uat/uat-19-board-and-review.mjs
+        run: node scripts/uat/run-offline.mjs
 
   desktop:
     name: Desktop unit tests and build
@@ -290,20 +292,16 @@ jobs:
       # shell is WebView2, and WebKit reports the media query but substitutes nothing (see that config's header).
       - run: packages/desktop/node_modules/.bin/playwright install webkit chromium --only-shell
 
-      # Light, dark, reduced motion and forced colors: each a separate Playwright context (see each config's header).
-      - name: Desktop browser tests (WebKit; forced colors in Chromium)
-        run: |
-          npm --prefix packages/desktop run test:browser
-          npm --prefix packages/desktop run test:browser:dark
-          npm --prefix packages/desktop run test:browser:motion
-          npm --prefix packages/desktop run test:browser:forced-colors
-
-      # The layout-defect check (#192): every screen of the critique harness at 900 × 600, 1280 × 800, 1440 × 900 and
-      # 1920 × 1200, failing on a window that scrolls, an element past the window's edge, two lines of text drawn over
-      # each other, or a rail or main pane short of the window's height. Light only and no screenshots; the critique
-      # run (`npm run test:critique`) shoots both schemes.
-      - name: Layout defects (WebKit, four window sizes)
-        run: npm --prefix packages/desktop run test:layout-defects
+      # The five arms, side by side (packages/desktop/scripts/run-browser-arms.mjs prints each one's output whole):
+      # light, dark, reduced motion and forced colors, each a separate Playwright context (see each config's
+      # header), and the layout-defect check (#192): every screen of the critique harness at 900 × 600,
+      # 1280 × 800, 1440 × 900 and 1920 × 1200, failing on a window that scrolls, an element past the window's
+      # edge, two lines of text drawn over each other, or a rail or main pane short of the window's height.
+      # Light only and no screenshots; the critique run (`npm run test:critique`) shoots both schemes.
+      # They wait on timers and a browser, not on the CPU, so one after another they took the sum of their
+      # waits (#1732). Each arm has its own Vitest cache, and no two share a file or a port.
+      - name: Desktop browser tests and layout defects (WebKit; forced colors in Chromium)
+        run: npm --prefix packages/desktop run test:browser:arms
 
   # The end-to-end flows: the real renderer in WebKit and Chromium, against the headless core and the
   # real sidecar with a scripted agent (packages/desktop/e2e/). Every other UI test fakes the IPC, so
