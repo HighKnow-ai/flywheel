@@ -21,6 +21,7 @@ import path from "node:path";
 import { after, test } from "node:test";
 
 import { buildClaudeArgv } from "../dist/claude-code-adapter.js";
+import { testTimeScale } from "./time-scale.mjs";
 
 /** The binary this file probes and spawns — `FLYWHEEL_REAL_CLAUDE_BIN` if set, else the plain
  * name resolved from PATH. Deliberately a SEPARATE env var from `FLYWHEEL_CLAUDE_BIN`
@@ -28,13 +29,14 @@ import { buildClaudeArgv } from "../dist/claude-code-adapter.js";
  * other test in this suite; this one points THIS file at a real one. */
 const REAL_CLAUDE_BIN = process.env.FLYWHEEL_REAL_CLAUDE_BIN ?? "claude";
 
-/** Bounded wait for the one-shot availability probe below. */
-const AVAILABILITY_PROBE_TIMEOUT_MS = 5_000;
+/** Bounded wait for the one-shot availability probe below, scaled for a slow machine (`time-scale.mjs`). */
+const AVAILABILITY_PROBE_TIMEOUT_MS = 5_000 * testTimeScale();
 
 /** Bounded wait for each spawned real-binary run in the two tests below. Argument validation is
  * synchronous and immediate, so either case settles in well under a second in practice — this
- * ceiling only guards against a CLI that hangs instead of exiting. */
-const SPAWN_DEADLINE_MS = 10_000;
+ * ceiling only guards against a CLI that hangs instead of exiting. Scaled for a slow machine: on the
+ * self-hosted runner a spawn had not exited after 10 s (`time-scale.mjs`). */
+const SPAWN_DEADLINE_MS = 10_000 * testTimeScale();
 
 /**
  * Resolve once, before any test runs, whether the real binary is available at all: spawn it with
