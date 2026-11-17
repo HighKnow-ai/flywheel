@@ -38,6 +38,10 @@ export default defineConfig({
     include: ["src/**/*.browser.test.tsx"],
     setupFiles: ["./src/test/browser-setup.ts"],
     globals: false,
+    // The jsdom arm's budget (`vitest.config.ts`). Vitest bounds every Playwright action by what is left of the
+    // test's timeout, so the 5 s default made a long click-through (the Epic exit test takes 3.5 s idle) fail as
+    // "locator.click: Timeout 450ms exceeded" on a loaded runner, with the click not at fault.
+    testTimeout: 15000,
     browser: {
       enabled: true,
       headless: true,

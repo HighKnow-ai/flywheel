@@ -98,6 +98,14 @@ const useOutcome = create<{ outcome: Outcome | null; set: (outcome: Outcome | nu
 }));
 
 /**
+ * Forgets the last confirmation's outcome. The store lives at module scope, so a stalled-session dialog left
+ * open by one test would open again, modal, over the next test's board; tests call this in `beforeEach`.
+ */
+export function resetConfirmExitOutcome() {
+  useOutcome.setState({ outcome: null });
+}
+
+/**
  * Mounted once on the board: the dialog that says a record is Done while its Round's session could not start.
  */
 export function ConfirmExitTestOutcome() {

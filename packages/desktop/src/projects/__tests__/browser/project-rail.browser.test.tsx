@@ -155,10 +155,17 @@ describe("⌘B folds the rail to icons (issue #200)", () => {
     await page.viewport(1440, 900);
   });
 
+  /** ⌘B. The width change then runs on the state duration: the assertions poll for the end state. */
   async function toggle() {
     await userEvent.keyboard("{Meta>}b{/Meta}");
-    // The width change runs on the state duration; wait it out.
-    await new Promise((resolve) => setTimeout(resolve, 400));
+  }
+
+  /**
+   * Wait for the rail to reach `width`, not for a fixed time: a 400 ms sleep returned mid-transition on a loaded
+   * runner (57.3 px folded, 247.98 px open), and "no transition running" can be true before one starts.
+   */
+  async function expectRailWidth(width: number, message: string) {
+    await expect.poll(railWidth, { message, timeout: 5000 }).toBe(width);
   }
 
   function railWidth(): number {
@@ -170,18 +177,18 @@ describe("⌘B folds the rail to icons (issue #200)", () => {
       await page.viewport(width, height);
       await renderApp();
       await settle();
-      expect(railWidth(), "open, the rail is 248px").toBe(248);
+      await expectRailWidth(248, "open, the rail is 248px");
       expectRailFillsWindow(`${width}×${height} open`);
 
       await toggle();
       expect(rail()).toHaveAttribute("data-state", "collapsed");
-      expect(railWidth(), "folded, the rail is a 56px column").toBe(56);
+      await expectRailWidth(56, "folded, the rail is a 56px column");
       expectRailFillsWindow(`${width}×${height} folded`);
       expectWindowCannotScroll(`${width}×${height} folded`);
       // The main pane takes the room the rail gave up.
-      const inset = document.querySelector<HTMLElement>("[data-slot=sidebar-inset]")!.getBoundingClientRect();
-      expect(inset.left).toBe(56);
-      expect(inset.right).toBe(width);
+      const insetEl = document.querySelector<HTMLElement>("[data-slot=sidebar-inset]")!;
+      await expect.poll(() => insetEl.getBoundingClientRect().left, { timeout: 5000 }).toBe(56);
+      expect(insetEl.getBoundingClientRect().right).toBe(width);
       // Every row still fits the column: nothing spills past its edge.
       for (const button of rail().querySelectorAll<HTMLElement>("[data-slot=sidebar-menu-button]")) {
         expect(button.getBoundingClientRect().right, button.getAttribute("aria-label") ?? "").toBeLessThanOrEqual(56);
@@ -189,7 +196,7 @@ describe("⌘B folds the rail to icons (issue #200)", () => {
 
       await toggle();
       expect(rail()).toHaveAttribute("data-state", "expanded");
-      expect(railWidth()).toBe(248);
+      await expectRailWidth(248, "unfolded again, the rail is 248px");
     });
   }
 
@@ -197,6 +204,7 @@ describe("⌘B folds the rail to icons (issue #200)", () => {
     await renderApp();
     await settle();
     await toggle();
+    await expectRailWidth(56, "folded, the rail is a 56px column");
     const settings = screen.getByRole("button", { name: "Open Settings" });
     await userEvent.hover(settings);
     await expect.poll(() => screen.queryByRole("tooltip")?.textContent ?? "").toContain("Settings");

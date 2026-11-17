@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StoryBoard } from "../StoryBoard";
+import { resetConfirmExitOutcome } from "../ConfirmExitTest";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 import type {
   EpicDto,
@@ -172,6 +173,7 @@ async function card(title: string) {
 beforeEach(() => {
   notifySuccess.mockReset();
   resetUiState();
+  resetConfirmExitOutcome();
   useUiStore.setState({ currentProjectId: "p1" });
   roadmap = [milestone()];
   milestoneList.mockReset().mockImplementation(() => Promise.resolve(roadmap));
