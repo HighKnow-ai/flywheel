@@ -373,7 +373,7 @@ A separate read of the source, outside `components/ui/`:
   - Cause: after a decision, the decided card stays in the list, inert, while it collapses out (`board/leaving.tsx`). The walk then typed into the next card. The browser locator is a path by list position, so it went stale when the leaving card was removed mid-step.
   - Fix: the walk waits until no `[data-leaving]` card is left, in Needs you and in the triage drawer, before it acts on the next one. It keeps the default timeout.
   - Result: with the Needs-you guard alone, 1 of 14 motion runs still failed, and its log was not kept. After the drawer guard was added, 5 consecutive motion runs and a full `test:browser` run passed.
-- **Formatting.** `prettier --check` on `packages/desktop/src` is a CI step (Prettier 3.9.10, 120 columns, `components/ui/` left in the shadcn CLI's style). The tree was formatted in a commit of its own.
+- **Formatting.** `prettier --check` on `packages/desktop/src` is a CI step (Prettier 3.10.1, 120 columns, `components/ui/` left in the shadcn CLI's style). The tree was formatted in a commit of its own.
 
 ### Stories filed
 
