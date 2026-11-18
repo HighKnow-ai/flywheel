@@ -1,22 +1,32 @@
 name: Release
 
-# D-182: this workflow is the only sanctioned way a Flywheel binary comes into existence, and a
-# tag is the only thing that starts it. There is deliberately no workflow_dispatch with a typed
-# version: D-184 rejected it as trivially desynced from the tag and the changelog.
-# The build steps are ci.yml's, in the same order, so a release is itself a clean-clone build.
+# D-182: this workflow is the only sanctioned way a Flywheel release is published, and a tag is the
+# only thing that starts it. There is deliberately no workflow_dispatch with a typed version: D-184
+# rejected it as trivially desynced from the tag and the changelog.
+#
+# THIS WORKFLOW BUILDS NO .dmg. The installer on a release is Apple-signed with a Developer ID and
+# notarised, and it is built, signed and notarised elsewhere, on a machine that holds the signing
+# credentials (a public workflow must hold none). That build is checked on a clean Mac and put on this
+# release's DRAFT, with its checksum, BEFORE the tag that starts this workflow exists (the `v*` tag below is
+# pushed only after the upload). So this workflow works from what it finds on the draft: it refuses a draft
+# that carries anything else, checks that the .dmg is signed, notarised and stapled and that nothing in it
+# would fail to load, adds the release notes and the SBOM, attests the files and publishes. A tag with no
+# such draft publishes nothing, and no step here can put an unsigned .dmg on a release.
+# WHAT THE ATTESTATION THEREFORE SAYS: it is a signed record that this workflow, from this tag, published
+# exactly these files. It is not a record that this workflow built them; the Apple signature and the
+# notarisation ticket inside the .dmg are what tie it to its builder. README.md's "Verifying a download"
+# is how a user checks the result.
 #
 # The `v*` tag is pushed by the private monorepo's export (a `flywheel-v*` tag there becomes `v*`
 # here, at the commit exported from it), never by hand, and only once that commit is on `main`.
-# The build job has the same runner and pinned actions as ci.yml: macOS 15, every action at a full
-# commit SHA.
+# Both jobs run on the same pinned actions as ci.yml, every action at a full commit SHA.
 #
-# TWO JOBS, SO THE ONE THAT SIGNS RUNS NOTHING IT DID NOT HAVE TO. `release` builds the bundle and
-# the SBOM and leaves them on a draft release; it runs npm's and cargo's whole dependency trees and
-# tauri-action, and holds only `contents: write`. `attest` downloads the draft's assets, attests
-# them with GitHub artifact attestations (SLSA build provenance for every asset, the SBOM for the
-# app's), checks those attestations verify, and only then publishes. It runs GitHub's own actions
-# and `gh`, with no checkout, so the OIDC token that signs (`id-token: write`) is never in a job
-# where third-party code runs. README.md's "Verifying a download" is how a user checks the result.
+# TWO JOBS, SO THE ONE THAT ATTESTS RUNS NOTHING IT DID NOT HAVE TO. `release` finds and checks the draft
+# and leaves the notes and the SBOM on it; it runs this repository's scripts and Apple's tools, and holds
+# only `contents: write`. `attest` downloads the draft's assets, attests them with GitHub artifact
+# attestations (SLSA build provenance for every asset, the SBOM for the app's), checks those attestations
+# verify, and only then publishes. It runs GitHub's own actions and `gh`, with no checkout, so the OIDC
+# token that signs (`id-token: write`) is never in a job where third-party code runs.
 
 on:
   push:
@@ -28,12 +38,14 @@ jobs:
   release:
     runs-on: macos-15
     permissions:
-      # tauri-action creates the draft and uploads the bundle to it; the SBOM is uploaded beside it.
+      # Writing the draft's name, body and SBOM. It never publishes: `attest` does.
       contents: write
     outputs:
-      release-id: ${{ steps.tauri.outputs.releaseId }}
-    # Bounded: observed 8.9 min (one run).
+      release-id: ${{ steps.draft.outputs.id }}
+    # Bounded: the notes, the SBOM and a mount of the .dmg, a few minutes; not yet observed on a release.
     timeout-minutes: 25
+    env:
+      TAG: ${{ github.ref_name }}
     steps:
       # fetch-depth 0: the gate below reads main.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -41,10 +53,9 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
-      # A release is built only from a commit ci.yml passed. `main` holds nothing else (it moves
+      # A release is published only from a commit ci.yml passed. `main` holds nothing else (it moves
       # only by the export's fast-forward just before this tag, and its ruleset requires `build` on
-      # the pushed commit), so "the tag is on main" is that statement, read from git rather than from a status API. It
-      # replaces re-running the sidecar and workspace tests here: they passed on this very commit.
+      # the pushed commit), so "the tag is on main" is that statement, read from git rather than from a status API.
       - name: The tagged commit passed CI (it is on main)
         run: |
           git fetch --quiet origin main
@@ -55,36 +66,33 @@ jobs:
 
       # First, before any toolchain is installed: a malformed tag fails here and writes nothing.
       - name: Stamp the tag as the version
-        env:
-          TAG: ${{ github.ref_name }}
         run: node scripts/release/apply-tag-version.mjs "$TAG"
 
       # The release body is CHANGELOG.md's section for the tag, written in the changes that made
       # it, in a user's words; the commit subjects it replaced were written for developers. Here,
-      # before any toolchain: a tag whose version has no section with an entry fails and builds
-      # nothing. A release is prepared by moving the Unreleased entries under its version.
+      # before anything is read from the draft: a tag whose version has no section with an entry
+      # fails and changes nothing. A release is prepared by moving the Unreleased entries under its version.
       # D-205: the first-run workaround follows the notes, one blank line between them. It is
       # written into the body here, so the release is created complete and nothing edits the page
       # after it is published.
       - name: Release notes from the changelog
-        id: notes
-        env:
-          TAG: ${{ github.ref_name }}
         run: |
           node scripts/release/changelog-notes.mjs "$TAG" > release-notes.md
           printf '%s\n\n%s\n' "$(cat release-notes.md)" "$(cat .github/release-install-note.md)" > release-body.md
-          {
-            echo 'body<<NOTES_EOF'
-            cat release-body.md
-            echo 'NOTES_EOF'
-          } >> "$GITHUB_OUTPUT"
 
-      # THE SBOM, CycloneDX, before anything is installed, so it reads the committed lockfiles (the
-      # version just stamped included) and nothing a build step wrote. Two catalogers and no others:
+      # No cache: nothing is installed here, and nothing restored from a cache another ref wrote may reach a
+      # job that publishes.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      # THE SBOM, CycloneDX, from the committed lockfiles (the version just stamped included) and
+      # nothing a build step wrote, since nothing is built here. Two catalogers and no others:
       # Cargo.lock (the app, the core crate and flywheel-shim) and the two package-lock.json files
       # (the sidecar and the bundled frontend; syft leaves dev dependencies out of a lockfile by
-      # default). The default set would also list this repository's workflow actions, which build
-      # the release and are not in it; the build is described by the provenance attestation.
+      # default). The default set would also list this repository's workflow actions, which publish
+      # the release and are not in it; the publication is described by the provenance attestation.
       # The Node runtime the bundle carries is in no lockfile, so sbom-add-runtime.mjs adds it from
       # stage-runtime.mjs's pin. syft is installed by install-action, which checks its checksum.
       - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
@@ -93,8 +101,6 @@ jobs:
 
       - name: SBOM (CycloneDX) from the lockfiles
         id: sbom
-        env:
-          TAG: ${{ github.ref_name }}
         run: |
           version="${TAG#v}"
           sbom="$RUNNER_TEMP/sbom/Flywheel_${version}.cdx.json"
@@ -113,90 +119,72 @@ jobs:
           done
           echo "path=$sbom" >> "$GITHUB_OUTPUT"
 
-      # CACHES ON A RELEASE, AND WHY zizmor's cache-poisoning FINDING IS IGNORED ON BOTH. A tag run
-      # restores only entries its own ref or the default branch wrote; a fork's pull request writes
-      # to its own merge ref, which no tag run can read. So every entry here was written by a run
-      # of code already pushed to this repository's branches by the export, which is the access a
-      # release needs anyway. Without the two caches this build is a cold Rust compile on macOS,
-      # several times the observed 8.9 min; npm still checks every package against the lockfile.
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0 # zizmor: ignore[cache-poisoning] see "CACHES ON A RELEASE" above
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: |
-            packages/desktop/package-lock.json
-            packages/sidecar/package-lock.json
-
-      # The version is rust-toolchain.toml's, which says why it is pinned; a test holds these together.
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # 2026-10-16, the stable branch (it has no release tags)
-        with:
-          toolchain: 1.99.1
-
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3 # zizmor: ignore[cache-poisoning] see "CACHES ON A RELEASE" above
-
-      - run: npm --prefix packages/sidecar ci
-
-      - run: npm --prefix packages/desktop ci
-
-      # Staging MUST precede every cargo step. tauri_build::build() fails the whole workspace
-      # build when a bundle.externalBin file is missing, so a fresh clone cannot compile or test
-      # until the three binaries/flywheel-* files exist.
-      - run: npm --prefix packages/sidecar run build:dist
-
-      # A DRAFT FIRST, PUBLISHED ONLY ONCE EVERY ASSET IS ON IT. This repository's releases are
-      # immutable: once a release is published GitHub locks its assets and its tag, so an asset
-      # uploaded after publication is refused and the release ships without it. GitHub's guidance
-      # for immutable releases is to create the release as a draft, attach every asset, then
-      # publish. With `releaseDraft: true`, tauri-action v0.6.2 creates the release as a draft (or
-      # reuses the draft a failed run left for this tag), uploads the bundles to it, and outputs
-      # its `releaseId`; it never publishes. The `attest` job's "Publish the release" step does.
-      # Every other asset (the SBOM) is uploaded to the same draft, by that id, before the
-      # draft's assets are asserted. Attestations are not assets: GitHub stores them by digest.
-      #
-      # Not Apple-signed on purpose (D-185): nothing but criterion 1 waits on an Apple account.
-      # Env group added later, NOT here:
-      #   the Apple signing and notarization set  -> plan 11-07
-      #
-      # A BINARY DYLD COULD REFUSE STOPS HERE, WITH NO DRAFT. tauri-action runs `tauri
-      # build` to its end and only then creates the draft, and `tauri build` runs tauri.conf.json's
-      # beforeBundleCommand between compiling and bundling. That hook, scripts/release/before-bundle.mjs,
-      # strips with Apple's tool and refuses what scripts/release/check-macho.mjs refuses, so a refusal
-      # fails this step before there is a bundle, a draft or, once it exists, a signature.
-      - id: tauri
-        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
+      # THE DRAFT IS WHAT THIS RELEASE PUBLISHES, AND IT EXISTS BEFORE THIS RUN. This repository's
+      # releases are immutable: once a release is published GitHub locks its assets and its tag, so
+      # everything is put on a draft first and the draft is published once, by `attest`. The draft is the
+      # one whose tag is this tag, found by listing the releases (GET .../releases/tags/{tag} does not
+      # answer for a draft). `pick` refuses a release already published, no draft, and two drafts;
+      # `check` refuses a draft that carries anything but the signed .dmg, its checksum and (from an earlier
+      # failed run) the SBOM, or an asset not in state "uploaded" (an interrupted upload leaves "starter").
+      - name: Find the draft and check what is on it
+        id: draft
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          projectPath: packages/desktop
-          tagName: ${{ github.ref_name }}
-          releaseName: Flywheel ${{ github.ref_name }}
-          releaseBody: ${{ steps.notes.outputs.body }}
-          releaseDraft: true
-          prerelease: false
-          args: --target aarch64-apple-darwin
-
-      # LOCKED TO PRODUCTION (issue #786). The built app must hold no non-production Environment
-      # (`highknow.dev`) and no Environment picker; both are compiled out of a release build, and
-      # this reads the bytes that ship. The renderer is embedded compressed in the binary, so it is
-      # checked as `dist`, which the beforeBuildCommand's `npm run build` already scanned and which
-      # is scanned again here beside the app. A failure stops this job, so `attest` never runs and
-      # the draft is never published.
-      - name: The bundle is locked to production
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          node scripts/release/check-release-bundle.mjs \
-            target/aarch64-apple-darwin/release/bundle/macos/Flywheel.app packages/desktop/dist
+          set -euo pipefail
+          releases=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" | jq -s 'add // []')
+          id=$(node scripts/release/draft-assets.mjs pick "$TAG" <<<"$releases")
+          gh api "repos/$GITHUB_REPOSITORY/releases/$id" | node scripts/release/draft-assets.mjs check "${TAG#v}"
+          echo "id=$id" >> "$GITHUB_OUTPUT"
 
-      # THE SAME CHECK ON THE COPIES THAT SHIP, the .app and the one inside the .dmg, walking every
-      # Mach-O in them, whatever a dependency added. tauri-action has already put these on the draft,
-      # so this cannot stop a draft existing; what it stops is the release: a failure ends this job,
-      # `attest` never runs, and the draft is never published. The next run reuses it.
-      - name: Every Mach-O in the bundle would load
+      # The installer and its checksum, downloaded from the draft by asset id: these are the bytes a user
+      # downloads. An asset's name becomes a path here. GitHub's asset names have no slash; this holds it.
+      - name: Download the installer from the draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ steps.draft.outputs.id }}
         run: |
-          bundle=target/aarch64-apple-darwin/release/bundle
+          set -euo pipefail
+          mkdir signed
+          while read -r id name; do
+            [[ "$name" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "::error::unexpected asset name: $name"; exit 1; }
+            case "$name" in
+              *.dmg | *.dmg.sha256)
+                gh api -H 'Accept: application/octet-stream' "repos/$GITHUB_REPOSITORY/releases/assets/$id" > "signed/$name" ;;
+            esac
+          done < <(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" | jq -r '.assets[] | "\(.id) \(.name)"')
+          shasum -a 256 signed/*
+
+      # SIGNED, NOTARISED, STAPLED, OR NOTHING IS PUBLISHED. This asks the questions a user's Mac asks (the
+      # checksum, Gatekeeper, the notarisation tickets, the signature, the hardened runtime), from a clean
+      # hosted Mac. A failure ends this job, so `attest` never runs and the draft is never published.
+      - name: The installer is signed, notarised and stapled
+        run: node scripts/release/check-signed-dmg.mjs "signed/Flywheel_${TAG#v}_aarch64.dmg"
+
+      # LOCKED TO PRODUCTION (issue #786), AND EVERY MACH-O WOULD LOAD, on the app inside the .dmg that
+      # ships. The built app must hold no non-production Environment (`highknow.dev`) and no Environment
+      # picker; both are compiled out of a release build, and this reads the bytes that ship. The renderer
+      # is embedded compressed in the binary, so the build that made this .dmg scanned it as `dist` as well
+      # (scripts/release/check-release-bundle.mjs); only the app can be read here. The Mach-O check walks every
+      # Mach-O in it, whatever a dependency added. A failure ends this job and the draft is never published.
+      - name: The bundle is locked to production, and every Mach-O in it would load
+        run: |
+          set -euo pipefail
           mnt=$(mktemp -d)
-          hdiutil attach "$bundle"/dmg/*.dmg -nobrowse -readonly -mountpoint "$mnt" -quiet
+          hdiutil attach "signed/Flywheel_${TAG#v}_aarch64.dmg" -nobrowse -readonly -mountpoint "$mnt" -quiet
           trap 'hdiutil detach "$mnt" -quiet' EXIT
-          node scripts/release/check-macho.mjs "$bundle/macos/Flywheel.app" "$mnt/Flywheel.app"
+          node scripts/release/check-release-bundle.mjs "$mnt/Flywheel.app"
+          node scripts/release/check-macho.mjs "$mnt/Flywheel.app"
+
+      # The page's name and body, written once the installer has passed. Only now: nothing is changed on
+      # a draft whose installer was refused.
+      - name: Write the release page
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ steps.draft.outputs.id }}
+        run: |
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
+            -f name="Flywheel $TAG" -F body=@release-body.md --silent
 
       # A failed run leaves its draft and the next run reuses it (see above), so an SBOM of this
       # name may already be on it: it is replaced, not refused as a duplicate. Uploaded to GitHub's
@@ -204,7 +192,7 @@ jobs:
       - name: Attach the SBOM to the draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_ID: ${{ steps.tauri.outputs.releaseId }}
+          RELEASE_ID: ${{ steps.draft.outputs.id }}
           SBOM: ${{ steps.sbom.outputs.path }}
         run: |
           name=$(basename "$SBOM")
@@ -221,6 +209,8 @@ jobs:
     # Bounded: two bundle downloads, two attestation calls and their verification, about a
     # minute in all; not yet observed on a release.
     timeout-minutes: 15
+    env:
+      TAG: ${{ github.ref_name }}
     permissions:
       # Reading the draft's assets, and publishing it.
       contents: write
@@ -230,11 +220,13 @@ jobs:
       attestations: write
     steps:
       # WHAT IS ATTESTED IS WHAT IS ON THE DRAFT, downloaded from it rather than handed over by the
-      # build job, so the digests are those of the files a user downloads. First, before
-      # downloading anything: the release is still a draft, and every asset it must carry is there
-      # in state "uploaded" (an interrupted upload leaves one in state "starter"). Read by id:
-      # GET .../releases/tags/{tag} does not answer for a draft. The SBOM goes to its own
-      # directory, so the SBOM attestation's subjects are the app's assets and not the SBOM itself.
+      # previous job, so the digests are those of the files a user downloads. First, before
+      # downloading anything: the release is still a draft, and it carries EXACTLY the signed .dmg, its
+      # checksum and the SBOM, every one in state "uploaded" (an interrupted upload leaves one in state
+      # "starter"). Read by id: GET .../releases/tags/{tag} does not answer for a draft. The SBOM goes to
+      # its own directory, so the SBOM attestation's subjects are the app's assets and not the SBOM itself.
+      # The checksum is then checked against the .dmg that was downloaded: the file attested is the file the
+      # `release` job's checks were about.
       - name: Assert and download the draft's assets
         id: assets
         env:
@@ -246,13 +238,16 @@ jobs:
             echo "::error::Release $RELEASE_ID is already published, so its assets cannot change. Not releasing again."
             exit 1
           fi
-          NAMES=$(jq -r '.assets[] | select(.state == "uploaded") | .name' <<<"$RELEASE")
+          if [ "$(jq '[.assets[] | select(.state != "uploaded")] | length' <<<"$RELEASE")" -ne 0 ]; then
+            echo "::error::the draft carries an asset that is not in state uploaded."
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          NAMES=$(jq -r '.assets[].name' <<<"$RELEASE" | sort)
           echo "$NAMES"
-          need() { echo "$NAMES" | grep -Eq "$1" || { echo "MISSING release asset matching: $1" >&2; exit 1; }; }
-          need '\.dmg$'
-          need '\.cdx\.json$'
-          if [ "$(grep -Ec '\.cdx\.json$' <<<"$NAMES")" -ne 1 ]; then
-            echo "::error::the draft carries more than one SBOM."
+          WANT=$(printf '%s\n' "Flywheel_${VERSION}_aarch64.dmg" "Flywheel_${VERSION}_aarch64.dmg.sha256" "Flywheel_${VERSION}.cdx.json" | sort)
+          if [ "$NAMES" != "$WANT" ]; then
+            echo "::error::the draft must carry exactly the signed .dmg, its checksum and the SBOM; it carries the files above."
             exit 1
           fi
           mkdir -p assets sbom
@@ -264,8 +259,9 @@ jobs:
               *) dir=assets ;;
             esac
             gh api -H 'Accept: application/octet-stream' "repos/$GITHUB_REPOSITORY/releases/assets/$id" > "$dir/$name"
-          done < <(jq -r '.assets[] | select(.state == "uploaded") | "\(.id) \(.name)"' <<<"$RELEASE")
+          done < <(jq -r '.assets[] | "\(.id) \(.name)"' <<<"$RELEASE")
           sha256sum assets/* sbom/*
+          (cd assets && sha256sum -c "Flywheel_${VERSION}_aarch64.dmg.sha256")
 
       # SLSA build provenance for every asset, the SBOM included, so `gh attestation verify <file>`
       # answers for any file on the release page.
@@ -328,5 +324,6 @@ jobs:
           echo "$NAMES"
           need() { echo "$NAMES" | grep -Eq "$1" || { echo "MISSING release asset matching: $1" >&2; exit 1; }; }
           need '\.dmg$'
+          need '\.dmg\.sha256$'
           need '\.cdx\.json$'
           echo "immutable: $(jq -r .immutable <<<"$RELEASE")"
