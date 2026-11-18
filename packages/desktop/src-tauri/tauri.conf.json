@@ -46,6 +46,9 @@
       "resources/sidecar": "sidecar",
       "../../../NOTICE": "NOTICE",
       "../../../LICENSES/mattpocock-skills.txt": "LICENSES/mattpocock-skills.txt"
+    },
+    "macOS": {
+      "entitlements": "Entitlements.plist"
     }
   }
 }

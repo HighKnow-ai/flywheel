@@ -127,6 +127,9 @@ const READ_ONLY: &[&str] = &[
 ];
 
 fn main() {
+    // The first thing the core does, so that a start that stalls names its phase (issue #1743).
+    let clock = StartClock::new();
+    clock.mark("main entered");
     let args: Vec<String> = std::env::args().collect();
     let root = match args.iter().position(|a| a == "--root") {
         Some(i) => PathBuf::from(args.get(i + 1).expect("--root takes a directory")),
@@ -134,6 +137,7 @@ fn main() {
     };
     std::fs::create_dir_all(&root).expect("create the scratch root");
     let root = root.canonicalize().expect("resolve the scratch root");
+    clock.mark("scratch root created");
 
     // Scratch data only, set before anything reads it: the database, the runtime directory and the
     // worktrees all live under `root`. The developer's own git configuration stays out of the
@@ -150,6 +154,13 @@ fn main() {
         .position(|a| a == "--layout")
         .and_then(|i| args.get(i + 1))
         .is_some_and(|v| v == "monorepo");
+    // `--seed-only`: seed the scratch repository and exit. The harness runs this once for each layout and
+    // copies the result for every start (`e2e/core.ts`): seeding is nine `git` processes, and at
+    // background priority on a loaded Mac each one took a second or more, which was most of a start.
+    if args.iter().any(|a| a == "--seed-only") {
+        seed_repository(&root, monorepo, &clock);
+        return;
+    }
     // The app's first step, `startup::adopt_login_path`, before any thread starts. The login shell is
     // a stub that answers with the PATH it was started with: the developer's own shell (rc files,
     // `mise`, a keychain-backed helper) must not change a run, and nothing here may block on it.
@@ -167,13 +178,15 @@ fn main() {
     }
     std::env::set_var("SHELL", &shell);
     flywheel_desktop_lib::startup::adopt_login_path();
+    clock.mark("login path adopted");
 
     // A restart on the same root (a flow that crashes the core and starts it again) keeps the
     // repository it seeded the first time: the board's rows point at it.
     let repo = if root.join("repo").join(".git").exists() {
+        clock.mark("repository found, not seeded");
         root.join("repo")
     } else {
-        seed_repository(&root, monorepo)
+        seed_repository(&root, monorepo, &clock)
     };
     let project = if monorepo {
         repo.join("flywheel")
@@ -189,13 +202,17 @@ fn main() {
     let window = WebviewWindowBuilder::new(&app, "main", Default::default())
         .build()
         .expect("build the mock window");
+    clock.mark("mock app and window built");
 
     // The app's own cold-start path (`startup::boot`): database, launch reconciliation, sidecar,
     // `AppState` and the scheduler. A flow that restarts this core on the same root proves what the
     // app does at launch. The trace records that it ran, so a diagram can show the order.
-    flywheel_desktop_lib::startup::boot(app.handle()).expect(
-        "start the core: run `npm --prefix packages/desktop run e2e`, which stages the sidecar",
-    );
+    let deadline = sidecar_deadline();
+    clock.mark(&format!("booting: the sidecar has {deadline:?} to answer"));
+    flywheel_desktop_lib::startup::boot_observed(app.handle(), &|step| clock.mark(step), deadline)
+        .expect(
+            "start the core: run `npm --prefix packages/desktop run e2e`, which stages the sidecar",
+        );
     // Only a start that finds an earlier run's trace is a step of a flow: the first start of a root
     // has nothing to reconcile, and its seeding is not part of any flow.
     let trace_path = root.join("trace.jsonl");
@@ -229,6 +246,7 @@ fn main() {
             .await
             .expect("bind localhost");
         let port = listener.local_addr().expect("bound address").port();
+        clock.mark(&format!("listening on 127.0.0.1:{port}"));
         // The one line the harness reads. Everything else this process prints is a log line.
         println!(
             "{}",
@@ -271,10 +289,20 @@ async fn shutdown_signal() {
 }
 
 /// A scratch git repository with one commit on `main` and a local bare remote named `origin`:
-/// what a registered project needs, and nothing of the developer's.
-fn seed_repository(root: &Path, monorepo: bool) -> PathBuf {
+/// what a registered project needs, and nothing of the developer's. Each git call is a phase of the
+/// start: a slow `git` (a loaded machine, a throttled disk) shows as the call that took the time.
+fn seed_repository(root: &Path, monorepo: bool, clock: &StartClock) -> PathBuf {
     let (remote, repo) = (root.join("remote.git"), root.join("repo"));
-    git(
+    let step = |dir: &Path, args: &[&str]| {
+        git(dir, args);
+        // The subcommand, and the key of a `config`: the paths are the scratch root's, and long.
+        let name = match args {
+            ["config", key, ..] => format!("config {key}"),
+            _ => args[0].to_string(),
+        };
+        clock.mark(&format!("git {name} done"));
+    };
+    step(
         root,
         &[
             "init",
@@ -284,13 +312,13 @@ fn seed_repository(root: &Path, monorepo: bool) -> PathBuf {
             remote.to_str().unwrap(),
         ],
     );
-    git(
+    step(
         root,
         &["init", "--initial-branch", "main", repo.to_str().unwrap()],
     );
-    git(&repo, &["config", "user.email", "e2e@flywheel.invalid"]);
-    git(&repo, &["config", "user.name", "Flywheel e2e"]);
-    git(&repo, &["config", "commit.gpgsign", "false"]);
+    step(&repo, &["config", "user.email", "e2e@flywheel.invalid"]);
+    step(&repo, &["config", "user.name", "Flywheel e2e"]);
+    step(&repo, &["config", "commit.gpgsign", "false"]);
     std::fs::write(
         repo.join("README.md"),
         "# Flywheel e2e scratch repository\n",
@@ -302,13 +330,13 @@ fn seed_repository(root: &Path, monorepo: bool) -> PathBuf {
             std::fs::write(repo.join(folder).join("README.md"), format!("# {folder}\n")).unwrap();
         }
     }
-    git(&repo, &["add", "."]);
-    git(&repo, &["commit", "-m", "initial commit"]);
-    git(
+    step(&repo, &["add", "."]);
+    step(&repo, &["commit", "-m", "initial commit"]);
+    step(
         &repo,
         &["remote", "add", "origin", remote.to_str().unwrap()],
     );
-    git(&repo, &["push", "-u", "origin", "main"]);
+    step(&repo, &["push", "-u", "origin", "main"]);
     repo
 }
 
@@ -316,6 +344,46 @@ fn seed_repository(root: &Path, monorepo: bool) -> PathBuf {
 /// (`packages/core/tests/supervisor_cwd.rs`); it fails on a non-zero exit with git's stderr.
 fn git(dir: &Path, args: &[&str]) {
     flywheel_core::git::git_at(dir, args).unwrap_or_else(|e| panic!("{e:#}"));
+}
+
+/// The sidecar's readiness deadline, scaled by `FLYWHEEL_TEST_TIME_SCALE` as every test budget is (the
+/// factor the gate sets for the runner, which is slower than a developer's machine). Unset, or not a
+/// positive number, it is the app's own five seconds.
+fn sidecar_deadline() -> std::time::Duration {
+    let scale = std::env::var("FLYWHEEL_TEST_TIME_SCALE")
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok())
+        .filter(|f| f.is_finite() && *f > 0.0)
+        .unwrap_or(1.0);
+    flywheel_desktop_lib::sidecar::STARTUP_READINESS_TIMEOUT.mul_f64(scale)
+}
+
+/// One line on stderr for each phase of the start, with the wall clock and the time since `main`:
+/// `flywheel-headless: [start] @<epoch ms> +<ms since main> ms <phase>`. The core's stderr is the
+/// core's log, so a start that stalls leaves the last phase it reached in the harness's failure
+/// output (`e2e/core-start.ts` reads these lines), where before it left an empty log (issue #1743).
+/// The epoch lets the harness set the lines against its own clock: the time from its spawn to the
+/// first line is the cost of loading the binary, which no line of the core can show.
+struct StartClock {
+    began: std::time::Instant,
+}
+
+impl StartClock {
+    fn new() -> Self {
+        Self {
+            began: std::time::Instant::now(),
+        }
+    }
+
+    fn mark(&self, phase: &str) {
+        let epoch_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis());
+        eprintln!(
+            "flywheel-headless: [start] @{epoch_ms} +{} ms {phase}",
+            self.began.elapsed().as_millis()
+        );
+    }
 }
 
 /// 128 random bits from the OS, as hex.
@@ -365,9 +433,13 @@ impl Trace {
     }
 
     fn step(&self, from: &str, to: &str, label: &str) {
-        let line = json!({ "from": from, "to": to, "label": label });
+        // ONE `write`, with its newline. `writeln!(file, "{line}")` on a bare file is a `write` for each
+        // piece the JSON formatter produces, so the harness, which reads this file while a flow runs, saw
+        // half a line and `JSON.parse` threw "Unterminated string" (a flow of the gate runner, 2026-11-18).
+        let mut line = json!({ "from": from, "to": to, "label": label }).to_string();
+        line.push('\n');
         if let Ok(mut file) = self.file.lock() {
-            let _ = writeln!(file, "{line}");
+            let _ = file.write_all(line.as_bytes());
         }
     }
 }

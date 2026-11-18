@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened-runtime entitlements for a signed release. A release signed with a Developer ID is
+  notarised only with the hardened runtime on, and that runtime kills a process that maps
+  executable memory without an entitlement. tauri applies this one file to every executable it
+  signs in the bundle: the app, and the three externalBin files.
+
+  EXACTLY TWO KEYS, and both are for the bundled Node (`flywheel-node`, nodejs.org's binary), which
+  runs the sidecar:
+    * allow-jit: V8 compiles JavaScript to machine code in pages it maps with MAP_JIT. Without this
+      key the Node process is killed at start, and the sidecar never runs.
+    * allow-unsigned-executable-memory: V8 also writes and executes code in pages that are not MAP_JIT.
+  Nothing else is granted:
+    * no disable-library-validation: the sidecar loads no native add-on, and every library in the bundle
+      carries the same team's signature.
+    * no microphone, camera, location or network entitlement: the app is not sandboxed, and an entitlement
+      that grants a capability a user then approves in a dialog is not needed here.
+  The app itself, which runs no JavaScript of its own (WKWebView does, in Apple's process), gets the two keys
+  too. tauri has one file for all of them. If a later bundle step signs the Node alone, the app drops them.
+-->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+</dict>
+</plist>

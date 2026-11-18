@@ -106,19 +106,43 @@ test("checkDropBacks counts flywheel/ and ignores the rest of the monorepo, then
   const before = fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith("flywheel-preflight-"));
   const r = checkDropBacks({ flywheelProject: fw, scriptPath: dropBacks });
   assert.equal(r.status, "green", r.detail);
-  assert.match(r.detail, /counts 2 sessions in flywheel\/ across 1 worktree/);
+  assert.match(r.detail, /across 1 worktree\(s\): drop-backs\.mjs counts the 2 in flywheel\/ and ignores the 2 elsewhere/);
   assert.deepEqual(fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith("flywheel-preflight-")), before);
+});
+
+test("checkDropBacks' row says its two counts are the self-check's sample sessions, not drop-backs, green or red", () => {
+  const fw = path.join(fakeMonorepo(), "flywheel");
+  const ok = checkDropBacks({ flywheelProject: fw, scriptPath: dropBacks });
+  // A script that counts every session it is given, so both counts on the red row are non-zero.
+  const script = path.join(tmpDir(), "all.mjs");
+  fs.writeFileSync(
+    script,
+    `import fs from "node:fs";
+import path from "node:path";
+const dir = process.argv[process.argv.indexOf("--projects-dir") + 1];
+const dropBacks = fs.readdirSync(dir).flatMap((d) => fs.readdirSync(path.join(dir, d)).map((f) => ({ sessionId: path.basename(f, ".jsonl") })));
+console.log(JSON.stringify({ dropBacks }));`,
+  );
+  const bad = checkDropBacks({ flywheelProject: fw, scriptPath: script });
+  assert.equal(bad.status, "red", bad.detail);
+  assert.match(bad.detail, /missed 0 of the 2 in flywheel\/ and counted 2 of the 2 elsewhere in the monorepo/);
+  for (const r of [ok, bad]) {
+    assert.match(r.detail, /^self-check on sample sessions written today in a temp dir/);
+    assert.match(r.detail, /These are not drop-backs: the exit test counts only sessions from day 1$/);
+  }
 });
 
 test("checkDropBacks is red for a project that is not <monorepo>/flywheel, and when the script misbehaves", () => {
   const mono = fakeMonorepo();
   assert.equal(checkDropBacks({ flywheelProject: mono, scriptPath: dropBacks }).status, "red");
   const fw = path.join(mono, "flywheel");
-  // A script that counts everything wrongly counts the root sessions.
+  // A script that counts nothing misses the flywheel/ sessions.
   const bad = tmpDir();
-  const script = path.join(bad, "all.mjs");
+  const script = path.join(bad, "none.mjs");
   fs.writeFileSync(script, 'console.log(JSON.stringify({dropBacks:[]}))');
-  assert.equal(checkDropBacks({ flywheelProject: fw, scriptPath: script }).status, "red");
+  const none = checkDropBacks({ flywheelProject: fw, scriptPath: script });
+  assert.equal(none.status, "red");
+  assert.match(none.detail, /missed 2 of the 2 in flywheel\/ and counted 0 of the 2 elsewhere/);
   fs.writeFileSync(script, "process.exit(2)");
   assert.match(checkDropBacks({ flywheelProject: fw, scriptPath: script }).detail, /exited 2/);
 });

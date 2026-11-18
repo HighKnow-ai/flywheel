@@ -10,6 +10,7 @@
 //! impossible for a future caller to add a fourth, unguarded `Command::new(...)` here instead of
 //! routing through the three existing spawn helpers.
 
+use std::cell::Cell;
 use std::io::{Read, Write};
 use std::process::{Command, Output, Stdio};
 use std::sync::mpsc::{self, Receiver};
@@ -27,6 +28,10 @@ pub const FORGE_CLI_TIMEOUT_SECS: u64 = 30;
 /// How often [`output_with_timeout`] polls `Child::try_wait` while watching its deadline.
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
+/// How many times [`output_with_timeout`] looks again at a child whose stdout has closed but which the
+/// kernel has not yet marked exited, before it polls with a timer. The gap is microseconds long.
+const EXIT_SPINS: u32 = 200;
+
 /// The least time [`output_with_timeout`] spends collecting a child's output AFTER the child has
 /// exited, even when its own deadline has nearly or fully run out. An exited child's pipes hold
 /// only what is already buffered, so a healthy drain takes microseconds; this floor is for a slow
@@ -38,6 +43,8 @@ const DRAIN_FLOOR: Duration = Duration::from_millis(500);
 struct Drain {
     buf: Arc<Mutex<Vec<u8>>>,
     done: Receiver<()>,
+    /// The end of the stream has been seen (the `done` message is taken once).
+    finished: Cell<bool>,
 }
 
 fn drain<R: Read + Send + 'static>(mut pipe: R) -> Drain {
@@ -57,16 +64,31 @@ fn drain<R: Read + Send + 'static>(mut pipe: R) -> Drain {
         }
         let _ = tx.send(());
     });
-    Drain { buf, done }
+    Drain {
+        buf,
+        done,
+        finished: Cell::new(false),
+    }
 }
 
 impl Drain {
+    /// Wait up to `limit` for the stream to end. Returns whether it has. It wakes the moment the reader
+    /// thread sends, so it waits on the stream and not on the clock (see [`output_with_timeout`]).
+    fn wait_eof(&self, limit: Duration) -> bool {
+        if !self.finished.get() {
+            match self.done.recv_timeout(limit) {
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                // Sent, or the reader thread is gone: either way the stream has ended.
+                Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => self.finished.set(true),
+            }
+        }
+        self.finished.get()
+    }
+
     /// Wait for EOF until `deadline`, then return whatever has been read. If a descendant still
     /// holds the pipe open the reader thread is left behind to finish on its own.
     fn collect(self, deadline: Instant) -> Vec<u8> {
-        let _ = self
-            .done
-            .recv_timeout(deadline.saturating_duration_since(Instant::now()));
+        self.wait_eof(deadline.saturating_duration_since(Instant::now()));
         self.buf
             .lock()
             .map(|mut b| std::mem::take(&mut *b))
@@ -128,6 +150,7 @@ pub fn output_with_timeout(
     }
 
     let start = Instant::now();
+    let mut spins = 0;
     let status = loop {
         // Read the clock BEFORE the exit check, never after it: the deadline is only acted on
         // when the child was still running at an exit check made at-or-after the deadline. The
@@ -137,7 +160,27 @@ pub fn output_with_timeout(
         match child.try_wait()? {
             Some(status) => break Some(status),
             None if expired => break None,
-            None => std::thread::sleep(POLL_INTERVAL),
+            None => {
+                // WAIT ON THE CHILD'S OUTPUT, NOT ON A TIMER. A child that exits closes its pipes, which
+                // ends the drain thread, which wakes this wait at once. A `sleep` here is a timer, and
+                // under `taskpolicy -b` (the gate runner's background tier) the system defers a timer
+                // by a factor of three at a light load, and by seconds at a heavy one: every `git` of a
+                // start paid it, and a start of the headless core took 12 s instead of 2 (issue #1743).
+                // The timer stays as the bound: a child that is still running when the wait ends is
+                // looked at again, and one that closed its stdout but runs on is polled as before.
+                if stdout_drain.finished.get() {
+                    // The pipe closes a moment before the kernel marks the child exited: look again
+                    // a few times without a timer before polling with one.
+                    if spins < EXIT_SPINS {
+                        spins += 1;
+                        std::thread::yield_now();
+                    } else {
+                        std::thread::sleep(POLL_INTERVAL);
+                    }
+                } else {
+                    stdout_drain.wait_eof(POLL_INTERVAL);
+                }
+            }
         }
     };
 

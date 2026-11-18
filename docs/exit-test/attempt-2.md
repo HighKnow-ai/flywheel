@@ -20,6 +20,8 @@ node <monorepo>/flywheel/scripts/exit-test/preflight.mjs \
   --project <other counted project> --backup <copy of flywheel.db>
 ```
 
+The row "drop-backs on the monorepo layout" shows two counts. They are not drop-backs. They come from a self-check: the preflight writes sample sessions in a temporary directory, in `flywheel/` and in other folders of each worktree. The first count is the sessions that the drop-back script counted in `flywheel/`. The second count is the sessions that it ignored in the other folders. The exit test counts only sessions from day 1.
+
 It cannot run a Story in the app for you. Do that once after it is green: create a Story, let an agent work in its worktree, and merge it.
 
 ## Build under test
@@ -35,7 +37,7 @@ Do not run an interactive `claude` session in a counted project before day 1. Th
 The owner declares these before day 1. Use the path of each project's main checkout, the one Flywheel registered. Flywheel is the folder `flywheel/` inside the monorepo, not the monorepo root.
 
 - `<monorepo>/flywheel` (Flywheel)
-- `<path>`
+- A second project, not Flywheel, declared by the owner on 2026-11-18. It is private, so its path is not written in this public file.
 
 ## Days
 

@@ -4,10 +4,10 @@
  * trace the core recorded against the sequence diagram in the flow's doc (`--update` rewrites it).
  */
 import path from "node:path";
-import fs from "node:fs";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { startCore, type AgentScript, type Core } from "./core";
 import { checkFlow } from "./flow-doc";
+import { removeScratch } from "./scratch";
 
 export const FLOWS_DIR = path.resolve(import.meta.dirname, "..", "..", "..", "docs", "flows");
 
@@ -87,8 +87,15 @@ export function flow(title: string, spec: FlowSpec, body: (ctx: FlowContext) => 
     } finally {
       await attachCoreArtifacts(current, testInfo);
       await current.stop();
-      if (testInfo.status === testInfo.expectedStatus)
-        fs.rmSync(path.dirname(core.root), { recursive: true, force: true });
+      if (testInfo.status === testInfo.expectedStatus) {
+        // A process that still writes must not fail a flow that passed: the folder stays, and the report
+        // names what holds it (`scratch.ts`).
+        const kept = await removeScratch(path.dirname(core.root));
+        if (kept !== null) {
+          console.warn(`flywheel e2e: ${kept}`);
+          testInfo.annotations.push({ type: "scratch folder kept", description: kept });
+        }
+      }
     }
   });
 }
@@ -112,4 +119,6 @@ async function attachCoreArtifacts(core: Core, testInfo: TestInfo): Promise<void
     contentType: "application/json",
   });
   await testInfo.attach("core.log", { body: core.log(), contentType: "text/plain" });
+  // How long each step of the core's start took: a slow start that passed is read here too (issue #1743).
+  await testInfo.attach("core-start.txt", { body: core.startReport(), contentType: "text/plain" });
 }

@@ -176,9 +176,13 @@ function localToday() {
  * 4. `drop-backs.mjs` against the monorepo layout, on synthetic transcripts in a temp directory: a session in
  * `<monorepo>/flywheel` counts, one at the monorepo root and one in another folder do not, and the same holds
  * in every other git worktree of the monorepo. The real transcripts and the real DB are not read.
+ *
+ * The row's numbers are those sample sessions, so it says they are not drop-backs: a count printed on a row
+ * named "drop-backs" read as drop-backs already scored against the test, which counts only from day 1.
  */
 export function checkDropBacks({ flywheelProject, scriptPath, run = spawnSync }) {
   const name = "drop-backs on the monorepo layout";
+  const notDropBacks = "These are not drop-backs: the exit test counts only sessions from day 1";
   const top = git(flywheelProject, ["rev-parse", "--show-toplevel"]);
   const prefix = git(flywheelProject, ["rev-parse", "--show-prefix"]);
   if (!top || prefix !== "flywheel/") return red(name, `${flywheelProject} is not <monorepo>/flywheel`);
@@ -224,10 +228,17 @@ export function checkDropBacks({ flywheelProject, scriptPath, run = spawnSync })
     const got = new Set(report.dropBacks.map((d) => d.sessionId));
     const missed = expectIn.filter((id) => !got.has(id));
     const wrong = expectOut.filter((id) => got.has(id));
+    const sample = `self-check on sample sessions written today in a temp dir, across ${worktrees.length} worktree(s)`;
     if (missed.length || wrong.length) {
-      return red(name, `missed ${missed.length} session(s) in flywheel/, wrongly counted ${wrong.length} outside it`);
+      return red(
+        name,
+        `${sample}: drop-backs.mjs missed ${missed.length} of the ${expectIn.length} in flywheel/ and counted ${wrong.length} of the ${expectOut.length} elsewhere in the monorepo. ${notDropBacks}`,
+      );
     }
-    return green(name, `counts ${expectIn.length} sessions in flywheel/ across ${worktrees.length} worktree(s), ignores ${expectOut.length} elsewhere in the monorepo`);
+    return green(
+      name,
+      `${sample}: drop-backs.mjs counts the ${expectIn.length} in flywheel/ and ignores the ${expectOut.length} elsewhere in the monorepo. ${notDropBacks}`,
+    );
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

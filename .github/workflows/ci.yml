@@ -356,7 +356,7 @@ jobs:
 
       - run: packages/desktop/node_modules/.bin/playwright install webkit chromium --only-shell
 
-      # Every flow in both engines, one at a time (playwright.config.ts: one worker, no retry).
+      # Every flow in both engines, two spec files at a time (playwright.config.ts: two workers, no retry).
       - name: End-to-end flows (WebKit and Chromium)
         run: npm --prefix packages/desktop run e2e
 

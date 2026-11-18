@@ -35,6 +35,19 @@ test("tauri runs the hook that strips and checks, between compiling and bundling
   assert.equal(conf.build.beforeBundleCommand, "node ../../scripts/release/before-bundle.mjs");
 });
 
+test("a signed bundle carries the entitlements the bundled Node needs under the hardened runtime", () => {
+  // A Developer ID build is notarised only with the hardened runtime on, which kills a process that maps
+  // executable memory without these keys: the sidecar's Node would die at start, in a signed app only.
+  const conf = JSON.parse(read("packages/desktop/src-tauri/tauri.conf.json"));
+  assert.equal(conf.bundle.macOS.entitlements, "Entitlements.plist");
+  const plist = read("packages/desktop/src-tauri/Entitlements.plist");
+  assert.match(plist, /<key>com\.apple\.security\.cs\.allow-jit<\/key>\s*<true\/>/);
+  assert.match(plist, /<key>com\.apple\.security\.cs\.allow-unsigned-executable-memory<\/key>\s*<true\/>/);
+  // Nothing else is granted without a reason written beside it: a new key is a change to this test.
+  const keys = [...plist.matchAll(/<key>([^<]+)<\/key>/g)].map((m) => m[1]).sort();
+  assert.deepEqual(keys, ["com.apple.security.cs.allow-jit", "com.apple.security.cs.allow-unsigned-executable-memory"]);
+});
+
 test("the release publishes only after the job holding the guard succeeded", () => {
   const workflow = read(".github/workflows/release.yml");
   const attest = workflow.slice(workflow.indexOf("\n  attest:"));

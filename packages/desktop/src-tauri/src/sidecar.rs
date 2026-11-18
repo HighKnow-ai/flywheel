@@ -213,7 +213,7 @@ const READINESS_REQUEST_ID: &str = "startup-readiness-check";
 /// launch; the same expect-or-crash-loudly idiom `main.rs`'s `.setup()` closure already applies to
 /// every other startup step surfaces this as a named, actionable failure well within a user's
 /// patience for "the app is starting."
-const STARTUP_READINESS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+pub const STARTUP_READINESS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// The cap, in bytes, on how much of the sidecar's stderr [`spawn_sidecar`]'s readiness handshake
 /// retains while waiting (G-02-1, T-02G-15-03). Once reached, further stderr chunks are dropped
@@ -938,6 +938,18 @@ mod stderr_tail_tests {
 /// closure) — a failure to resolve, spawn, OR ANSWER READY aborts startup rather than proceeding
 /// with a half-working app. See this module's own doc comment for the full contract.
 pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
+    spawn_sidecar_within(app, STARTUP_READINESS_TIMEOUT)
+}
+
+/// [`spawn_sidecar`] with the readiness deadline given. The app passes [`STARTUP_READINESS_TIMEOUT`]. The
+/// end-to-end harness's core passes it times `FLYWHEEL_TEST_TIME_SCALE`: on the gate runner, at
+/// background priority on the efficiency cores and a load average of 80, a Node process took more than
+/// five seconds to answer, three starts in a row (2026-11-18), and a deadline sized for a normal machine
+/// read a slow start as a wedged sidecar.
+pub fn spawn_sidecar_within(
+    app: &AppHandle,
+    readiness_timeout: std::time::Duration,
+) -> anyhow::Result<SidecarHandle> {
     let sidecar_command = app
         .shell()
         .sidecar("flywheel-sidecar")
@@ -970,7 +982,7 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
     // the process before a window was ever shown, rather than surfacing as the startup error this
     // function returns.
     let handshake_result = tauri::async_runtime::block_on(async {
-        tokio::time::timeout(STARTUP_READINESS_TIMEOUT, async {
+        tokio::time::timeout(readiness_timeout, async {
             let mut stderr_tail = String::new();
             loop {
                 match rx.recv().await {
@@ -1029,7 +1041,7 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
         Ok(Err(err)) => return Err(err),
         Err(_elapsed) => {
             return Err(anyhow::anyhow!(
-                "the flywheel-sidecar did not answer the readiness handshake within {STARTUP_READINESS_TIMEOUT:?}"
+                "the flywheel-sidecar did not answer the readiness handshake within {readiness_timeout:?}"
             ));
         }
     }

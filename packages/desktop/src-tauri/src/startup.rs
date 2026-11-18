@@ -37,6 +37,18 @@ pub fn adopt_login_path() -> LoginPath {
 /// start the scheduler. A failure here aborts startup: the app never proceeds against a
 /// half-migrated file, a board that lies about a dead session, or without a sidecar.
 pub fn boot(app: &AppHandle) -> anyhow::Result<()> {
+    boot_observed(app, &|_| {}, sidecar::STARTUP_READINESS_TIMEOUT)
+}
+
+/// [`boot`], telling `observe` the name of each step as the step ends, and with the sidecar's readiness
+/// deadline given. The end-to-end harness's core prints the steps with the time they took, so a start
+/// that stalls names the step it stalled in (issue #1743), and scales the deadline for a slow machine.
+/// The app passes no observer and the standard deadline: it has nothing to say about a start that works.
+pub fn boot_observed(
+    app: &AppHandle,
+    observe: &dyn Fn(&str),
+    sidecar_ready_within: std::time::Duration,
+) -> anyhow::Result<()> {
     // Open (or create) the one fleet-wide database, backing it up before migrating and applying
     // pragmas, before any window is shown (D-18, T-01-10).
     let db_path = flywheel_core::db::default_db_path()
@@ -45,6 +57,7 @@ pub fn boot(app: &AppHandle) -> anyhow::Result<()> {
         .context("failed to resolve the app-data backups directory")?;
     let mut conn = flywheel_core::db::open_and_migrate(&db_path, &backups_dir)
         .context("failed to open and migrate the database at startup")?;
+    observe("database opened and migrated");
 
     // Launch-time reconciliation (D-16, BOARD-10): verify every known project's marker still
     // matches its cached path BEFORE the window is shown. Never scans the disk and never rewrites
@@ -66,10 +79,12 @@ pub fn boot(app: &AppHandle) -> anyhow::Result<()> {
     // new session could start.
     let pending_orphans = flywheel_core::domain::session::reconcile_sessions(&mut conn, &actor_id)
         .context("failed to reconcile in-flight agent runs at launch")?;
+    observe("projects, worktrees and sessions reconciled");
 
     // A sidecar that fails to start means no agent run can ever be driven (PROC-01, PROC-02).
-    let sidecar_handle = sidecar::spawn_sidecar(app)
+    let sidecar_handle = sidecar::spawn_sidecar_within(app, sidecar_ready_within)
         .context("failed to spawn the flywheel-sidecar process at startup")?;
+    observe("sidecar answered its readiness handshake");
 
     app.manage(AppState {
         db: Mutex::new(conn),
@@ -87,6 +102,7 @@ pub fn boot(app: &AppHandle) -> anyhow::Result<()> {
     tauri::async_runtime::spawn(async move {
         scheduler::start_git_truth_scheduler(scheduler_handle);
     });
+    observe("AppState managed and scheduler spawned");
 
     Ok(())
 }
