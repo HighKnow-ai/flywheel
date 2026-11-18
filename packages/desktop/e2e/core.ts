@@ -16,7 +16,7 @@ import {
   startLimitMs,
   StartTimeline,
 } from "./core-start";
-import { reapProcesses } from "./scratch";
+import { reapProcesses, snapshotGroups } from "./scratch";
 import type { TraceStep } from "./flow-doc";
 
 export interface Core {
@@ -196,8 +196,8 @@ export async function startCore(options: {
    * the scratch folder's unique name, with their children. The core's exit does not end them, and a flow
    * that removes the root while one still writes fails its teardown with ENOTEMPTY (`scratch.ts`).
    */
-  const reap = async () => {
-    const left = await reapProcesses({ group: child.pid, marker: path.basename(tmp) });
+  const reap = async (groups: ReadonlySet<number>) => {
+    const left = await reapProcesses({ group: child.pid, marker: path.basename(tmp), groups });
     if (left.length > 0) console.warn(`the core's processes could not be ended: ${left.join("; ")}`);
   };
   const tracePath = path.join(ready.root, "trace.jsonl");
@@ -229,6 +229,7 @@ export async function startCore(options: {
     log: () => fs.readFileSync(logPath, "utf8"),
     startReport: () => timeline.report(readLog()),
     async crash() {
+      const groups = await snapshotGroups({ group: child.pid, marker: path.basename(tmp) });
       socket.close();
       stopped = true;
       const gone = new Promise<void>((resolve) => {
@@ -238,11 +239,12 @@ export async function startCore(options: {
       child.kill("SIGKILL");
       await gone;
       fs.closeSync(log);
-      await reap();
+      await reap(groups);
     },
     async stop() {
       if (stopped) return;
       stopped = true;
+      const groups = await snapshotGroups({ group: child.pid, marker: path.basename(tmp) });
       socket.close();
       // The core ends its sessions and the sidecar when stdin closes, as the app does on quit.
       child.stdin!.end();
@@ -255,7 +257,7 @@ export async function startCore(options: {
         });
       });
       fs.closeSync(log);
-      await reap();
+      await reap(groups);
     },
   };
 }

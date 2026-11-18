@@ -104,6 +104,21 @@ describe("parseProcessTable and ownedProcesses", () => {
     expect(owned.map((r) => r.pid)).not.toContain(500);
     expect(owned.map((r) => r.pid)).not.toContain(640);
   });
+
+  it("takes an orphan with no marker that stays in a group seen before its agent exited", () => {
+    // 650 is the grandchild of a stubborn agent: init's child, in the dead agent's group 620, no folder name.
+    const rows = parseProcessTable(
+      [
+        ...Object.values(TABLE).map((r) => `${r.pid} ${r.ppid} ${r.pgid} ${r.stat} ${r.command}`),
+        "650 1 620 S node -e setInterval",
+      ].join("\n"),
+    );
+    const by = { group: 600, marker: "flywheel-e2e-AbC123", except: new Set([500]) };
+    expect(ownedProcesses(rows, by).map((r) => r.pid)).toContain(620); // the agent still runs: its pid is found
+    const orphaned = rows.filter((r) => r.pid !== 620);
+    expect(ownedProcesses(orphaned, by).map((r) => r.pid)).not.toContain(650);
+    expect(ownedProcesses(orphaned, { ...by, groups: new Set([620]) }).map((r) => r.pid)).toContain(650);
+  });
 });
 
 describe("reapProcesses", () => {

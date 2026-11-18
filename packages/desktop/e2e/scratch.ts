@@ -58,12 +58,23 @@ function processTable(): Promise<ProcessRow[]> {
  */
 export function ownedProcesses(
   rows: readonly ProcessRow[],
-  by: { group: number | undefined; marker: string; except: ReadonlySet<number> },
+  by: {
+    group: number | undefined;
+    marker: string;
+    except: ReadonlySet<number>;
+    /** Process groups seen to hold a process of the core earlier: what stays in one is still the core's. */
+    groups?: ReadonlySet<number>;
+  },
 ): ProcessRow[] {
   const alive = rows.filter((r) => !r.stat.startsWith("Z") && !by.except.has(r.pid));
   const owned = new Set<number>(
     alive
-      .filter((r) => (by.group !== undefined && r.pgid === by.group) || r.command.includes(by.marker))
+      .filter(
+        (r) =>
+          (by.group !== undefined && r.pgid === by.group) ||
+          (by.groups?.has(r.pgid) ?? false) ||
+          r.command.includes(by.marker),
+      )
       .map((r) => r.pid),
   );
   // A child of an owned process is owned, whatever group it moved to (an agent may lead its own).
@@ -97,20 +108,49 @@ const describe = (r: ProcessRow) =>
   `pid ${r.pid} (${r.command.length > 140 ? `${r.command.slice(0, 139)}…` : r.command})`;
 
 /**
+ * The process groups that hold a process of the core now, taken BEFORE the core is ended. An agent leads a
+ * group of its own and forks into it (the stubborn fake agent's grandchild: no scratch folder in its command
+ * line). When the agent exits first, the grandchild is an orphan of init in that group, and neither the
+ * core's group, the marker nor the parent chain reaches it any more. The group id still does. Never throws.
+ */
+export async function snapshotGroups(by: { group: number | undefined; marker: string }): Promise<Set<number>> {
+  try {
+    const rows = await processTable();
+    const except = ownChain(rows);
+    const groups = new Set<number>();
+    for (const r of ownedProcesses(rows, { group: by.group, marker: by.marker, except })) groups.add(r.pgid);
+    // Never a group that holds the harness or what is above it.
+    for (const r of rows) if (except.has(r.pid)) groups.delete(r.pgid);
+    return groups;
+  } catch {
+    return new Set();
+  }
+}
+
+/**
  * End every process that belongs to the core and wait until none is left, killing again what is
  * forked meanwhile. Returns a description of each process still alive after `waitMs` (none, normally).
  */
 export async function reapProcesses(by: {
   group: number | undefined;
   marker: string;
+  /** From `snapshotGroups`, taken before the core was ended. */
+  groups?: ReadonlySet<number>;
   waitMs?: number;
 }): Promise<string[]> {
   const deadline = Date.now() + (by.waitMs ?? 10_000);
   for (;;) {
     let left: ProcessRow[];
+    let killGroups: ReadonlySet<number> = new Set();
     try {
       const rows = await processTable();
-      left = ownedProcesses(rows, { group: by.group, marker: by.marker, except: ownChain(rows) });
+      const except = ownChain(rows);
+      // A snapshotted group that now holds the harness is no longer ours to take.
+      const groups = new Set(
+        [...(by.groups ?? [])].filter((g) => !rows.some((r) => except.has(r.pid) && r.pgid === g)),
+      );
+      left = ownedProcesses(rows, { group: by.group, marker: by.marker, except, groups });
+      killGroups = groups;
     } catch (err) {
       return [`could not read the process table: ${String(err)}`];
     }
@@ -120,6 +160,13 @@ export async function reapProcesses(by: {
     if (by.group !== undefined) {
       try {
         process.kill(-by.group, "SIGKILL");
+      } catch {
+        // No such group any more.
+      }
+    }
+    for (const g of killGroups) {
+      try {
+        process.kill(-g, "SIGKILL");
       } catch {
         // No such group any more.
       }
