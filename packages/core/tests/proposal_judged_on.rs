@@ -55,7 +55,7 @@ fn fixture() -> Fixture {
     for state in [StoryState::Ready, StoryState::Running] {
         story::set_story_state(&mut conn, &human, &s.id, state).unwrap();
     }
-    let ran = chrono::Utc::now().to_rfc3339();
+    let ran = flywheel_core::timestamp::now_rfc3339();
     let run = CheckRunRecord {
         commit_sha: "abc123",
         result: CheckResult::Passed,
@@ -219,7 +219,9 @@ fn a_run_after_the_change_is_current_again() {
     let mut f = fixture();
     let id = amend(&mut f, "Parses an empty line", None);
     accept_proposal(&mut f.conn, &f.human, &id).unwrap();
-    let later = (chrono::Utc::now() + chrono::Duration::seconds(1)).to_rfc3339();
+    let later = flywheel_core::timestamp::format_rfc3339(
+        jiff::Timestamp::now() + jiff::SignedDuration::from_secs(1),
+    );
     let run = CheckRunRecord {
         commit_sha: "abc123",
         result: CheckResult::Failed,

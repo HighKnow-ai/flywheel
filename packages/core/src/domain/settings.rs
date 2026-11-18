@@ -14,8 +14,8 @@
 //! (`projects.credential_mode`) DOES have a natural project stream — `set_project_credential_mode`
 //! appends a real event there, following this crate's usual transactional-outbox shape exactly.
 
+use crate::timestamp::now_rfc3339;
 use anyhow::Context;
-use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 use crate::domain::event::{append_event, next_sequence};
@@ -96,7 +96,7 @@ pub fn set_global_credential_mode(
         ));
     }
 
-    let now = Utc::now().to_rfc3339();
+    let now = now_rfc3339();
     let tx = conn.transaction()?;
     upsert_setting(&tx, SETTING_GLOBAL_CREDENTIAL_MODE, mode, actor_id, &now)?;
     tx.commit()
@@ -120,7 +120,7 @@ pub fn set_notifications_enabled(
     actor_id: &str,
     value: bool,
 ) -> anyhow::Result<()> {
-    let now = Utc::now().to_rfc3339();
+    let now = now_rfc3339();
     let tx = conn.transaction()?;
     upsert_setting(
         &tx,
@@ -165,7 +165,7 @@ pub fn set_project_credential_mode(
     project_id: &str,
     mode: Option<&str>,
 ) -> anyhow::Result<()> {
-    let now = Utc::now().to_rfc3339();
+    let now = now_rfc3339();
     let tx = conn.transaction()?;
 
     let project_name: String = tx
@@ -248,7 +248,7 @@ pub fn board_visit(
         &last_looked_key(project_id),
         &newest.to_string(),
         actor_id,
-        &Utc::now().to_rfc3339(),
+        &now_rfc3339(),
     )?;
     tx.commit().context("failed to commit board_visit")?;
     Ok(seen)

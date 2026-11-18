@@ -20,6 +20,9 @@ use std::path::Path;
 use std::process::{Command, Output};
 
 use anyhow::{anyhow, bail, Context};
+use jiff::Timestamp;
+
+use crate::timestamp::format_rfc3339;
 
 /// The root every Flywheel-managed worktree lives under (D-23): `~/Flywheel/`, unless overridden
 /// by `FLYWHEEL_WORKTREE_ROOT` — a test-only seam (see `crate::domain::worktree::worktree_root`),
@@ -481,8 +484,9 @@ pub fn last_fetch_at(repo_path: &Path) -> anyhow::Result<Option<String>> {
             let modified = meta
                 .modified()
                 .context("FETCH_HEAD metadata carries no modified time")?;
-            let datetime: chrono::DateTime<chrono::Utc> = modified.into();
-            Ok(Some(datetime.to_rfc3339()))
+            let modified = Timestamp::try_from(modified)
+                .context("FETCH_HEAD's modified time is outside the range of a timestamp")?;
+            Ok(Some(format_rfc3339(modified)))
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e).context("failed to read FETCH_HEAD metadata"),

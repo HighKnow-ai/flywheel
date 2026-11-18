@@ -1,6 +1,10 @@
-//! D-113/D-114/D-116's git-truth tick, on `tokio-cron-scheduler`. Three registrations of the same
-//! primitive — a hot tier, a cold tier and a slower fetch — never one job with internal
-//! partitioning (07-CONTEXT.md's own discretion call).
+//! D-113/D-114/D-116's git-truth tick, on one Tokio task per tier. Three registrations of the same
+//! primitive ([`spawn_every`]) — a hot tier, a cold tier and a slower fetch — never one job with
+//! internal partitioning (07-CONTEXT.md's own discretion call).
+//!
+//! Every schedule here is a fixed interval; there is no cron expression. That is why a Tokio
+//! interval is enough, and why the cron crates the scheduler used to bring (`tokio-cron-scheduler`,
+//! `croner`, `chrono`, `chrono-tz`) are gone (issue #1728, RUSTSEC-2026-0543 and -0555).
 //!
 //! This module owns the cadence and the board-invalidation emit only. Each job's body is
 //! `flywheel_core::git_tick`, which never holds `AppState.db` while git runs (issue #215): it reads
@@ -15,13 +19,14 @@
 //! on every tick.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use flywheel_core::git_facts::{COLD_TICK_SECS, FETCH_INTERVAL_SECS, HOT_TICK_SECS};
 use flywheel_core::git_tick::{self, Digests};
 use tauri::Manager;
-use tokio_cron_scheduler::{Job, JobScheduler};
+use tokio::task::JoinHandle;
+use tokio::time::{interval_at, Instant, MissedTickBehavior};
 
 use crate::state::AppState;
 use crate::AppHandle;
@@ -83,38 +88,201 @@ fn run_fetch_tick(app: &AppHandle) {
     }
 }
 
-/// Build, register and start the three D-113/D-114/D-116 jobs against `app`'s already-managed
-/// `AppState` — called once, after `app.manage(AppState { .. })`, from `main.rs`'s `.setup()`.
-pub async fn start_git_truth_scheduler(app: AppHandle) -> anyhow::Result<()> {
-    let sched = JobScheduler::new().await?;
+/// Run `tick` once every `period`, on its own Tokio task, until the runtime ends. The first run is
+/// one full `period` after the call, never at the start: the board's git facts are display
+/// freshness, and a launch has just read them.
+///
+/// Three properties keep one bad tick from costing every later one:
+/// - Each run is a task of its own that this loop awaits, so a panic inside `tick` ends that run
+///   with an `eprintln!` and the next period runs as usual.
+/// - Runs of one `name` never overlap: the next period waits for the previous run to end.
+/// - A run that overruns its period, or a clock that jumped (a laptop that slept), makes the
+///   missed periods one skipped slot, never a burst of catch-up runs ([`MissedTickBehavior::Skip`]).
+///
+/// `tick` is synchronous because every job body is: `flywheel_core::git_tick` shells out to git.
+/// It runs on a runtime worker, as it did under `tokio-cron-scheduler`.
+///
+/// Must be called inside a Tokio runtime.
+fn spawn_every<F>(name: &'static str, period: Duration, tick: F) -> JoinHandle<()>
+where
+    F: Fn() + Send + Sync + 'static,
+{
+    let tick = Arc::new(tick);
+    // Read here, not inside the task: "one period after the call" must not depend on when the
+    // runtime first polls the task.
+    let first_run = Instant::now() + period;
+    tokio::spawn(async move {
+        let mut interval = interval_at(first_run, period);
+        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        loop {
+            interval.tick().await;
+            let run = Arc::clone(&tick);
+            if let Err(err) = tokio::spawn(async move { run() }).await {
+                eprintln!("flywheel: the {name} git-truth tick failed: {err}");
+            }
+        }
+    })
+}
 
+/// Start the three D-113/D-114/D-116 jobs against `app`'s already-managed `AppState` — called once,
+/// after `app.manage(AppState { .. })`, from inside the Tokio runtime (`startup::boot` spawns it).
+/// Nothing here can fail: a job is a task, not a registration with a store.
+pub fn start_git_truth_scheduler(app: AppHandle) {
     let hot_app = app.clone();
-    let hot_job =
-        Job::new_repeated_async(Duration::from_secs(HOT_TICK_SECS), move |_uuid, _lock| {
-            let app = hot_app.clone();
-            Box::pin(async move { run_hot_tick(&app) })
-        })?;
-    sched.add(hot_job).await?;
+    spawn_every("hot", Duration::from_secs(HOT_TICK_SECS), move || {
+        run_hot_tick(&hot_app)
+    });
 
     let cold_app = app.clone();
-    let cold_job =
-        Job::new_repeated_async(Duration::from_secs(COLD_TICK_SECS), move |_uuid, _lock| {
-            let app = cold_app.clone();
-            Box::pin(async move { run_cold_tick(&app) })
-        })?;
-    sched.add(cold_job).await?;
+    spawn_every("cold", Duration::from_secs(COLD_TICK_SECS), move || {
+        run_cold_tick(&cold_app)
+    });
 
-    let fetch_app = app.clone();
-    let fetch_job = Job::new_repeated_async(
+    let fetch_app = app;
+    spawn_every(
+        "fetch",
         Duration::from_secs(FETCH_INTERVAL_SECS),
-        move |_uuid, _lock| {
-            let app = fetch_app.clone();
-            Box::pin(async move { run_fetch_tick(&app) })
-        },
-    )?;
-    sched.add(fetch_job).await?;
+        move || run_fetch_tick(&fetch_app),
+    );
+}
 
-    sched.start().await?;
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
-    Ok(())
+    use tokio::time::advance;
+
+    use super::*;
+
+    const PERIOD: Duration = Duration::from_secs(5);
+
+    /// Let the loop task and the task it spawns for each run both finish what they can do now.
+    async fn settle() {
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
+        }
+    }
+
+    /// A tick that only counts its runs.
+    fn counter() -> (Arc<AtomicUsize>, impl Fn() + Send + Sync + 'static) {
+        let runs = Arc::new(AtomicUsize::new(0));
+        let seen = Arc::clone(&runs);
+        (runs, move || {
+            seen.fetch_add(1, Ordering::SeqCst);
+        })
+    }
+
+    #[test]
+    fn the_three_tiers_keep_their_decided_cadence() {
+        assert_eq!(HOT_TICK_SECS, 5, "D-114's hot tier");
+        assert_eq!(COLD_TICK_SECS, 60, "D-114's cold tier");
+        assert_eq!(FETCH_INTERVAL_SECS, 300, "D-116's fetch");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_first_run_is_one_full_period_after_the_start() {
+        let (runs, tick) = counter();
+        let task = spawn_every("test", PERIOD, tick);
+        settle().await;
+        assert_eq!(runs.load(Ordering::SeqCst), 0, "nothing at the start");
+
+        advance(PERIOD - Duration::from_millis(1)).await;
+        settle().await;
+        assert_eq!(runs.load(Ordering::SeqCst), 0, "not one millisecond early");
+
+        advance(Duration::from_millis(1)).await;
+        settle().await;
+        assert_eq!(runs.load(Ordering::SeqCst), 1);
+        task.abort();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn it_runs_again_every_period() {
+        let (runs, tick) = counter();
+        let task = spawn_every("test", PERIOD, tick);
+        for expected in 1..=4 {
+            advance(PERIOD).await;
+            settle().await;
+            assert_eq!(runs.load(Ordering::SeqCst), expected);
+        }
+        task.abort();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_stalled_clock_costs_one_slot_not_a_burst_of_catch_up_runs() {
+        let (runs, tick) = counter();
+        let task = spawn_every("test", PERIOD, tick);
+        advance(PERIOD * 3 + PERIOD / 2).await;
+        settle().await;
+        assert_eq!(
+            runs.load(Ordering::SeqCst),
+            1,
+            "three periods missed, one run"
+        );
+
+        advance(PERIOD).await;
+        settle().await;
+        assert_eq!(runs.load(Ordering::SeqCst), 2, "and the cadence goes on");
+        task.abort();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_run_that_panics_does_not_stop_the_later_runs() {
+        let runs = Arc::new(AtomicUsize::new(0));
+        let seen = Arc::clone(&runs);
+        let task = spawn_every("test", PERIOD, move || {
+            if seen.fetch_add(1, Ordering::SeqCst) == 0 {
+                panic!("the first run fails, on purpose");
+            }
+        });
+        for expected in 1..=3 {
+            advance(PERIOD).await;
+            settle().await;
+            assert_eq!(runs.load(Ordering::SeqCst), expected);
+        }
+        task.abort();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn tiers_with_different_periods_run_on_their_own_cadence() {
+        let (hot_runs, hot) = counter();
+        let (cold_runs, cold) = counter();
+        let hot_task = spawn_every("hot", Duration::from_secs(5), hot);
+        let cold_task = spawn_every("cold", Duration::from_secs(60), cold);
+        for _ in 0..12 {
+            advance(Duration::from_secs(5)).await;
+            settle().await;
+        }
+        assert_eq!(hot_runs.load(Ordering::SeqCst), 12);
+        assert_eq!(cold_runs.load(Ordering::SeqCst), 1);
+        hot_task.abort();
+        cold_task.abort();
+    }
+
+    /// Real time on purpose: overlap needs a run that takes longer than its period, and a paused
+    /// clock does not move while a thread sleeps. The test can only fail by seeing two runs at once.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn runs_never_overlap_when_a_run_outlasts_its_period() {
+        let running = Arc::new(AtomicUsize::new(0));
+        let most = Arc::new(AtomicUsize::new(0));
+        let runs = Arc::new(AtomicUsize::new(0));
+        let (r, m, n) = (Arc::clone(&running), Arc::clone(&most), Arc::clone(&runs));
+        let task = spawn_every("test", Duration::from_millis(5), move || {
+            let now = r.fetch_add(1, Ordering::SeqCst) + 1;
+            m.fetch_max(now, Ordering::SeqCst);
+            std::thread::sleep(Duration::from_millis(30));
+            r.fetch_sub(1, Ordering::SeqCst);
+            n.fetch_add(1, Ordering::SeqCst);
+        });
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        while runs.load(Ordering::SeqCst) < 3 && std::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        task.abort();
+        assert!(
+            runs.load(Ordering::SeqCst) >= 3,
+            "the schedule kept running"
+        );
+        assert_eq!(most.load(Ordering::SeqCst), 1, "never two runs at once");
+    }
 }

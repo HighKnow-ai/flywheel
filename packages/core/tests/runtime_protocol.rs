@@ -52,7 +52,7 @@ fn touch_heartbeat_writes_a_parseable_rfc3339_timestamp() {
         assert_eq!(outcome, RuntimeIo::Written);
         let contents =
             fs::read_to_string(dir.join("heartbeat")).expect("heartbeat file should exist");
-        chrono::DateTime::parse_from_rfc3339(contents.trim())
+        flywheel_core::timestamp::parse_rfc3339(contents.trim())
             .expect("heartbeat contents should parse as RFC3339");
     });
 }
@@ -255,4 +255,40 @@ fn no_panicking_calls_survive_in_the_runtime_protocol_module() {
             "found a database reference in: {line}"
         );
     }
+}
+
+/// A heartbeat file written by a build from before #1728 (`chrono`'s `Utc::now().to_rfc3339()`)
+/// still reads as an age: the fraction widths it wrote, a trailing newline, and `Z`, which
+/// another writer used.
+#[test]
+fn a_heartbeat_written_by_an_older_build_still_reads_as_an_age() {
+    for legacy in [
+        "2026-10-19T10:00:00+00:00",
+        "2026-10-19T10:00:00.123+00:00",
+        "2026-10-19T10:00:00.123456+00:00",
+        "2026-10-19T10:00:00.123456789+00:00\n",
+        "2026-10-19T10:00:00Z",
+    ] {
+        with_scratch_runtime_dir(|dir| {
+            fs::write(dir.join("heartbeat"), legacy).expect("failed to seed the heartbeat");
+            let age = read_heartbeat_age()
+                .unwrap_or_else(|| panic!("{legacy:?} should read as a heartbeat age"));
+            assert!(
+                age > Duration::from_secs(3600),
+                "{legacy:?} is long past, so its age is large: {age:?}"
+            );
+        });
+    }
+}
+
+/// The writer's output is what the reader parses, in the stored spelling.
+#[test]
+fn the_heartbeat_is_written_in_the_stored_spelling_and_reads_as_fresh() {
+    with_scratch_runtime_dir(|dir| {
+        assert_eq!(touch_heartbeat(), RuntimeIo::Written);
+        let text = fs::read_to_string(dir.join("heartbeat")).expect("heartbeat file");
+        assert!(text.ends_with("+00:00"), "{text:?}");
+        let age = read_heartbeat_age().expect("a heartbeat just written has an age");
+        assert!(age < Duration::from_secs(60), "{age:?}");
+    });
 }

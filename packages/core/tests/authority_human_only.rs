@@ -709,7 +709,7 @@ fn an_empty_actor_id_is_refused_as_not_found_never_defaulted_to_the_local_human(
 fn a_passing_check_run_does_not_accept_its_criterion() {
     let (mut conn, human, _, criterion_id) = criterion_fixture();
     let check = set_check(&mut conn, &human, &criterion_id, "true", None).expect("set_check");
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = flywheel_core::timestamp::now_rfc3339();
     flywheel_core::domain::check::record_check_run(
         &mut conn,
         &check.id,

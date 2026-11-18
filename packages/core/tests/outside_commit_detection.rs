@@ -5,7 +5,7 @@
 //! identically, agent-made or hand-typed, so trailer presence cannot distinguish them).
 //!
 //! Boundary timestamps are plain RFC3339 literals, not values read back from `git log` — D-129's
-//! coverage comparison parses both sides as `chrono` instants (`git_facts.rs::is_covered_by_session`),
+//! coverage comparison parses both sides as instants (`git_facts.rs::is_covered_by_session`),
 //! so `"...+00:00"` and the `%cI`-normalized `"...Z"` git itself emits for the same instant compare
 //! equal regardless of their literal spelling; committer timestamps are pinned via
 //! `GIT_COMMITTER_DATE`/`GIT_AUTHOR_DATE` so every boundary case (strictly inside, exactly at

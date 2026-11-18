@@ -15,8 +15,8 @@
 //! means the row was already answered (or never existed), and that path writes nothing and
 //! appends no second event.
 
+use crate::timestamp::now_rfc3339;
 use anyhow::{bail, Context};
-use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use crate::destructive::DestructiveCategory;
@@ -175,7 +175,7 @@ pub fn create_pending_request(
         }
     }
 
-    let now = Utc::now().to_rfc3339();
+    let now = now_rfc3339();
     let id = new_id();
 
     let tx = conn.transaction()?;
@@ -274,7 +274,7 @@ pub fn answer_request(
     decision: &str,
     actor_id: &str,
 ) -> anyhow::Result<PermissionRequest> {
-    let now = Utc::now().to_rfc3339();
+    let now = now_rfc3339();
     let tx = conn.transaction()?;
 
     // Issue #100: a question is answered with answers (`domain::question::answer_question`), never

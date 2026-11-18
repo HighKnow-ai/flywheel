@@ -76,8 +76,8 @@ pub fn current(conn: &Connection) -> anyhow::Result<Environment> {
 /// choice persisted per install. Compiled only under `debug_assertions` (see the module comment).
 #[cfg(debug_assertions)]
 pub mod dev {
+    use crate::timestamp::now_rfc3339;
     use anyhow::Context;
-    use chrono::Utc;
     use rusqlite::Connection;
 
     use super::{production, Environment, PRODUCTION};
@@ -187,7 +187,7 @@ pub mod dev {
         choice: &Choice,
     ) -> anyhow::Result<Environment> {
         let environment = resolve(choice).map_err(anyhow::Error::msg)?;
-        let now = Utc::now().to_rfc3339();
+        let now = now_rfc3339();
         let tx = conn.transaction()?;
         upsert_setting(&tx, SETTING_KEY, environment.name(), actor_id, &now)?;
         tx.commit()

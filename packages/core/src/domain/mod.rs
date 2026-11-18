@@ -105,5 +105,5 @@ pub(crate) fn allocate_key(tx: &Transaction, project_id: &str) -> anyhow::Result
 
 /// The current time as the RFC 3339 text every timestamp column holds.
 pub(crate) fn now() -> String {
-    chrono::Utc::now().to_rfc3339()
+    crate::timestamp::now_rfc3339()
 }

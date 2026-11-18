@@ -42,7 +42,10 @@ rusqlite = { version = "0.41", features = ["bundled"] }
 tokio = { version = "1", features = ["process", "signal", "rt-multi-thread", "macros", "time"] }
 tauri-plugin-shell = "2"
 anyhow = "1"
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# The waiting-request notifier's clock (`notify.rs`) is a `jiff::Timestamp`, the type
+# `flywheel_core::timestamp` reads and writes. Same features as `flywheel-core`: UTC only, so no
+# time-zone database. Replaces `chrono` (RUSTSEC-2026-0543, issue #1728).
+jiff = { version = "0.2", default-features = false, features = ["std"] }
 
 # The package is `flywheel-core` (decision 202 of the HighKnow monorepo, which names both trees'
 # crates by product). A dependency literally named `core` would shadow the sysroot `core` crate in
@@ -57,11 +60,6 @@ tauri-plugin-dialog = "2.8.3"
 # requires `tauri ^2.10` and so runs on the 2.12 line; it has no JS half, so Tauri's JS/Rust minor
 # check does not pair it. The window is granted nothing from this plugin (D-175).
 tauri-plugin-notification = "=2.8.1"
-# D-113: the Rust core's periodic git-truth tick needs a tokio runtime and `app.emit`, which
-# `packages/core` (sync, no `AppHandle`) does not have — so the desktop crate, which already owns
-# the tokio runtime, starts the scheduler, and is the one crate that depends on it: `packages/core`
-# declared it unused ("vendored now, wired later") until cargo-machete found it.
-tokio-cron-scheduler = "0.15"
 # Only for the `headless` feature: the localhost WebSocket the end-to-end harness's browser drives.
 tokio-tungstenite = { version = "0.30", optional = true }
 futures-util = { version = "0.3", optional = true }
@@ -71,5 +69,7 @@ futures-util = { version = "0.3", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
+# `scheduler.rs`'s tests run on a paused clock, so a 5-minute fetch period is proven in no time.
+tokio = { version = "1", features = ["test-util"] }
 # Issue #220: `tauri::test::mock_app` gives a test the managed `AppState` a command takes as `State`.
 tauri = { version = "=2.12.5", features = ["test"] }

@@ -9,8 +9,8 @@
 //! stored rule the classifier now says could cover one. Pattern syntax, matching and the classifier
 //! call live in [`crate::permission_pattern`].
 
+use crate::timestamp::now_rfc3339;
 use anyhow::Context;
-use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use crate::domain::event::{append_event, next_sequence};
@@ -134,7 +134,7 @@ pub fn upsert_rule(
 ) -> anyhow::Result<PermissionRule> {
     let pattern = pattern.trim();
     check_rule(conn, project_id, tool, pattern)?;
-    let now = Utc::now().to_rfc3339();
+    let now = now_rfc3339();
     let tx = conn.transaction()?;
 
     if let Some(existing) = tx
@@ -200,7 +200,7 @@ pub fn upsert_rule(
 /// Delete a rule and append a `permission_rule.revoked` event. Revoking an id that no longer
 /// exists is a no-op.
 pub fn revoke_rule(conn: &mut Connection, rule_id: &str, actor_id: &str) -> anyhow::Result<()> {
-    let now = Utc::now().to_rfc3339();
+    let now = now_rfc3339();
     let tx = conn.transaction()?;
 
     let existing: Option<(String, String, String)> = tx

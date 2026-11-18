@@ -85,7 +85,7 @@ If you build those three things now — which you must build anyway for the even
 | `portable-pty` (Rust) | latest (WezTerm project) | Cross-platform PTY for anything the Rust core itself needs to terminal-drive directly | Rare in this architecture — prefer keeping PTY-consuming logic in the sidecar. Reach for this only if a Rust-native tool (not an agent CLI) needs PTY semantics. |
 | `git2` (git2-rs / libgit2 bindings) | current | Fast reads: diff, status, log, blob/tree walks for the diff-review UI | Hot-path, read-heavy git operations where shelling out has real per-call overhead. **Not** for worktree lifecycle operations — see decision below. |
 | System `git` CLI, shelled via `tokio::process::Command` | whatever the developer has installed (document a minimum, e.g. git >= 2.44) | Worktree create/remove/list/prune, branch topology (task → epic-integration-branch → main), merges | libgit2/git2-rs worktree support measurably lags the git CLI (e.g. no relative-worktree support matching git >=2.48 as of a still-open 2026 libgit2 issue) — for worktree operations, the CLI's behavior *is* the spec you want to match exactly. Do not use NodeGit (stale/unmaintained) or isomorphic-git (no real worktree support, pure-JS, wrong runtime) for this. |
-| `tokio-cron-scheduler` | 0.15.x | In-core scheduling primitive for the generic trigger abstraction | Not wired to a UI feature in v1 (scheduled automations are out of scope), but the crate should be vendored and the "cron tick" trigger type stubbed now, so schedule-as-trigger-source is a drop-in later, per the architecture constraint. Runs in-process in the Rust core (not the sidecar) because trigger evaluation belongs next to the event log, and must not depend on sidecar lifecycle. |
+| ~~`tokio-cron-scheduler`~~ | 0.15.x (dropped, #1728) | In-core scheduling primitive for the generic trigger abstraction | Researched as the scheduling primitive and used for the git-truth ticks until #1728. It depends on `chrono` and `chrono-tz`, which RustSec marks unmaintained (RUSTSEC-2026-0543, -0555), and the ticks are fixed intervals, so they now run on `tokio::time::interval_at` (`packages/desktop/src-tauri/src/scheduler.rs`). Trigger evaluation still runs in-process in the Rust core, not the sidecar, because it belongs next to the event log and must not depend on sidecar lifecycle. A future cron-expression trigger needs a cron crate that does not use `chrono`. |
 | `rusqlite_migration` | current | Versioned SQLite schema migrations | From the first migration — do not hand-roll schema versioning for a database that will accumulate agent-generated data you can't afford to lose. |
 | `@tanstack/react-virtual` | 3.14.x | Virtualized fleet/board list rendering | Board views and fleet-status views with potentially hundreds of cards; headless model gives full control over custom board-card layout (vs. `react-virtuoso`'s more opinionated components). |
 | `react-diff-view` | 3.3.x | Git-style unified/split diff rendering for the diff-review UI | Purpose-built for unidiff parsing, has a decoration API useful for "turn this diff line into a new issue" interactions. |
@@ -109,9 +109,9 @@ If you build those three things now — which you must build anyway for the even
 npm create tauri-app@latest -- --template react-ts
 
 # Rust core dependencies (Cargo.toml)
-cargo add rusqlite --features bundled,serde,chrono
+cargo add rusqlite --features bundled,serde
 cargo add rusqlite_migration
-cargo add tokio-cron-scheduler
+cargo add jiff --no-default-features --features std
 cargo add git2
 cargo add tokio --features full
 

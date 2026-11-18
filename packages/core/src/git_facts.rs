@@ -21,6 +21,7 @@ use serde::Serialize;
 use crate::domain::event::{append_event, next_sequence};
 use crate::domain::worktree::PorcelainEntry;
 use crate::git;
+use crate::timestamp::parse_rfc3339;
 
 /// D-114's hot-tier interval: about as long as a person will stare at a card before re-reading
 /// it.
@@ -89,11 +90,11 @@ fn session_windows(
 /// timezone offset (`git log --format=%cI`) compares correctly against a session row's UTC
 /// timestamp regardless of offset.
 fn is_covered_by_session(committed_at: &str, windows: &[(String, Option<String>)]) -> bool {
-    let Ok(committed) = chrono::DateTime::parse_from_rfc3339(committed_at) else {
+    let Some(committed) = parse_rfc3339(committed_at) else {
         return false;
     };
     windows.iter().any(|(started_at, ended_at)| {
-        let Ok(started) = chrono::DateTime::parse_from_rfc3339(started_at) else {
+        let Some(started) = parse_rfc3339(started_at) else {
             return false;
         };
         if committed < started {
@@ -101,9 +102,9 @@ fn is_covered_by_session(committed_at: &str, windows: &[(String, Option<String>)
         }
         match ended_at {
             None => true,
-            Some(ended_at) => match chrono::DateTime::parse_from_rfc3339(ended_at) {
-                Ok(ended) => committed <= ended,
-                Err(_) => false,
+            Some(ended_at) => match parse_rfc3339(ended_at) {
+                Some(ended) => committed <= ended,
+                None => false,
             },
         }
     })
@@ -391,4 +392,80 @@ pub fn record_outside_commits_in(
     }
 
     Ok(appended)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A `sessions`-shaped table holding rows in the text the pre-#1728 build wrote (`chrono`'s
+    /// `Utc::now().to_rfc3339()`: `+00:00`, and a fraction of 0, 3, 6 or 9 digits), read back
+    /// through the same `rusqlite` calls `session_windows` makes.
+    fn legacy_windows() -> Vec<(String, Option<String>)> {
+        let conn = Connection::open_in_memory().expect("in-memory database");
+        conn.execute_batch(
+            "CREATE TABLE sessions (story_id TEXT, started_at TEXT, ended_at TEXT);
+             INSERT INTO sessions VALUES
+               ('s', '2026-10-19T10:00:00+00:00', '2026-10-19T10:30:00+00:00'),
+               ('s', '2026-10-19T11:00:00.123+00:00', '2026-10-19T11:30:00.456789+00:00'),
+               ('s', '2026-10-19T12:00:00.123456789+00:00', NULL);",
+        )
+        .expect("seed rows");
+        session_windows(&conn, "s").expect("rows written by the old build still read")
+    }
+
+    #[test]
+    fn rows_written_in_the_old_format_still_decide_coverage() {
+        let windows = legacy_windows();
+        assert_eq!(windows.len(), 3);
+        // Inside the first window, whatever offset git spells the commit time in.
+        assert!(is_covered_by_session("2026-10-19T10:15:00+00:00", &windows));
+        assert!(is_covered_by_session("2026-10-19T18:15:00+08:00", &windows));
+        assert!(is_covered_by_session("2026-10-19T10:15:00Z", &windows));
+        // Both edges of a whole-second window are inside it.
+        assert!(is_covered_by_session("2026-10-19T10:00:00+00:00", &windows));
+        assert!(is_covered_by_session("2026-10-19T10:30:00+00:00", &windows));
+        // Outside every window: after the first, before the second.
+        assert!(!is_covered_by_session(
+            "2026-10-19T10:30:01+00:00",
+            &windows
+        ));
+        assert!(!is_covered_by_session(
+            "2026-10-19T10:59:59+00:00",
+            &windows
+        ));
+        // Fractions are compared as instants: one nanosecond before the start is outside, the
+        // start itself is inside; the end of a 6-digit window is inside, a microsecond later is not.
+        assert!(!is_covered_by_session(
+            "2026-10-19T10:59:59.999999999+00:00",
+            &windows
+        ));
+        assert!(is_covered_by_session(
+            "2026-10-19T11:00:00.123+00:00",
+            &windows
+        ));
+        assert!(is_covered_by_session(
+            "2026-10-19T11:30:00.456789+00:00",
+            &windows
+        ));
+        assert!(!is_covered_by_session(
+            "2026-10-19T11:30:00.456790+00:00",
+            &windows
+        ));
+        // The still-live run's right edge is open.
+        assert!(!is_covered_by_session(
+            "2026-10-19T12:00:00.123456788+00:00",
+            &windows
+        ));
+        assert!(is_covered_by_session("2026-11-30T00:00:00+00:00", &windows));
+    }
+
+    #[test]
+    fn a_commit_time_or_window_that_is_not_a_timestamp_is_never_covered() {
+        let windows = legacy_windows();
+        assert!(!is_covered_by_session("not a date", &windows));
+        assert!(!is_covered_by_session("2026-10-19T10:15:00", &windows));
+        let broken = vec![("garbage".to_string(), None)];
+        assert!(!is_covered_by_session("2026-10-19T10:15:00+00:00", &broken));
+    }
 }

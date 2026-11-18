@@ -23,6 +23,8 @@ use std::collections::{HashSet, VecDeque};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use flywheel_core::timestamp::{elapsed_between, parse_rfc3339};
+use jiff::Timestamp;
 use rusqlite::Connection;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_notification::NotificationExt;
@@ -284,7 +286,7 @@ impl WaitingWatch {
     pub fn take_due(
         &mut self,
         waiting: &[WaitingRequest],
-        now: chrono::DateTime<chrono::Utc>,
+        now: Timestamp,
         window_focused: bool,
         enabled: bool,
     ) -> Option<Banner> {
@@ -331,15 +333,10 @@ impl WaitingWatch {
 
 /// Whether a request raised at `created_at` has waited [`WAITING_NOTIFY_AFTER`] by `now`. A
 /// timestamp that does not parse counts as old enough: announcing a request is better than missing it.
-fn has_waited_long_enough(created_at: &str, now: chrono::DateTime<chrono::Utc>) -> bool {
-    match chrono::DateTime::parse_from_rfc3339(created_at) {
-        Ok(at) => {
-            now.signed_duration_since(at.with_timezone(&chrono::Utc))
-                .to_std()
-                .unwrap_or(Duration::ZERO)
-                >= WAITING_NOTIFY_AFTER
-        }
-        Err(_) => true,
+fn has_waited_long_enough(created_at: &str, now: Timestamp) -> bool {
+    match parse_rfc3339(created_at) {
+        Some(at) => elapsed_between(at, now).unwrap_or(Duration::ZERO) >= WAITING_NOTIFY_AFTER,
+        None => true,
     }
 }
 
@@ -349,7 +346,7 @@ fn has_waited_long_enough(created_at: &str, now: chrono::DateTime<chrono::Utc>) 
 pub fn waiting_tick(
     watch: &Mutex<WaitingWatch>,
     db: &Mutex<Connection>,
-    now: chrono::DateTime<chrono::Utc>,
+    now: Timestamp,
     window_focused: bool,
 ) -> Option<Banner> {
     if window_focused {
@@ -468,7 +465,7 @@ fn show_waiting_banner(app: &AppHandle) {
         .get_webview_window("main")
         .and_then(|w| w.is_focused().ok())
         .unwrap_or(false);
-    let Some(banner) = waiting_tick(waiting_watch(), &state.db, chrono::Utc::now(), focused) else {
+    let Some(banner) = waiting_tick(waiting_watch(), &state.db, Timestamp::now(), focused) else {
         return;
     };
     let (title, body) = banner.text();
@@ -677,10 +674,8 @@ mod tests {
         }
     }
 
-    fn at(rfc3339: &str) -> chrono::DateTime<chrono::Utc> {
-        chrono::DateTime::parse_from_rfc3339(rfc3339)
-            .unwrap()
-            .with_timezone(&chrono::Utc)
+    fn at(rfc3339: &str) -> Timestamp {
+        parse_rfc3339(rfc3339).unwrap()
     }
 
     const RAISED: &str = "2026-10-19T10:00:00+00:00";

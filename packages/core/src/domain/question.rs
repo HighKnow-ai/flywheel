@@ -13,8 +13,8 @@
 //!   relays them to the agent as `allow` with the questions and answers (see the sidecar's
 //!   `permissionPromptResponse`).
 
+use crate::timestamp::now_rfc3339;
 use anyhow::{anyhow, bail, Context};
-use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::BTreeMap;
 
@@ -126,7 +126,7 @@ pub fn answer_question(
     picks: &BTreeMap<String, Vec<String>>,
     actor_id: &str,
 ) -> anyhow::Result<AnsweredQuestion> {
-    let now = Utc::now().to_rfc3339();
+    let now = now_rfc3339();
     let tx = conn.transaction()?;
 
     /// `(session_id, story_id, project_id, tool_name, input_payload, status, expired_at)` of the request.

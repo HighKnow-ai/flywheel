@@ -15,8 +15,8 @@
 
 use std::collections::HashMap;
 
+use crate::timestamp::now_rfc3339;
 use anyhow::{anyhow, Context};
-use chrono::Utc;
 use rusqlite::Connection;
 
 use crate::domain::settings::{delete_setting, read_setting, upsert_setting};
@@ -107,7 +107,7 @@ pub fn store_api_key(conn: &mut Connection, actor_id: &str, value: &str) -> anyh
         .set_password(value)
         .context("failed to store the API key in the macOS Keychain")?;
 
-    let now = Utc::now().to_rfc3339();
+    let now = now_rfc3339();
     let tx = conn.transaction()?;
     upsert_setting(&tx, SETTING_API_KEY_CONFIGURED_AT, &now, actor_id, &now)?;
     tx.commit()

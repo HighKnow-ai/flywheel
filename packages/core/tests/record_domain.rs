@@ -289,7 +289,9 @@ fn a_check_result_is_not_run_until_recorded_and_resets_when_the_check_is_edited(
         CheckResult::NotRun
     );
 
-    let later = (chrono::Utc::now() + chrono::Duration::seconds(1)).to_rfc3339();
+    let later = flywheel_core::timestamp::format_rfc3339(
+        jiff::Timestamp::now() + jiff::SignedDuration::from_secs(1),
+    );
     let run = |result| CheckRunRecord {
         commit_sha: "abc",
         result,

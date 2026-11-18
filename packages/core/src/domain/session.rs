@@ -25,8 +25,8 @@
 //! The Rust names keep the `session` spelling of the plumbing this module was kept from; the
 //! table they read and write is `sessions`.
 
+use crate::timestamp::now_rfc3339;
 use anyhow::Context;
-use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 use crate::domain::event::{append_event, next_sequence};
@@ -208,7 +208,7 @@ pub fn start_shaping_session(
     human_actor_id: &str,
 ) -> anyhow::Result<ShapingSession> {
     let agent_id = agent_actor_id(conn)?;
-    let now = Utc::now().to_rfc3339();
+    let now = now_rfc3339();
     let run_id = new_id();
     let log_path = session_log_path(&run_id)?.to_string_lossy().into_owned();
 
@@ -411,7 +411,7 @@ pub fn start_session(
         .with_context(|| format!("failed to ensure a worktree for Story {story_id:?}"))?;
 
     let agent_id = agent_actor_id(conn)?;
-    let now = Utc::now().to_rfc3339();
+    let now = now_rfc3339();
     let run_id = new_id();
     let log_path = session_log_path(&run_id)?.to_string_lossy().into_owned();
 
@@ -494,7 +494,7 @@ fn close_session_in_tx(
     tokens_in: Option<i64>,
     tokens_out: Option<i64>,
 ) -> anyhow::Result<()> {
-    let now = Utc::now().to_rfc3339();
+    let now = now_rfc3339();
 
     let Some(SessionSubject {
         project_id,
@@ -589,7 +589,7 @@ pub fn record_lock_exhaustion(
     attempts: u32,
     actor_id: &str,
 ) -> anyhow::Result<()> {
-    let now = Utc::now().to_rfc3339();
+    let now = now_rfc3339();
     let tx = conn.transaction()?;
 
     let Some(SessionSubject {
@@ -762,7 +762,7 @@ pub fn acknowledge_run(conn: &Connection, session_id: &str) -> anyhow::Result<bo
         .execute(
             "UPDATE sessions SET acknowledged_at = ?1
              WHERE id = ?2 AND acknowledged_at IS NULL AND status IN (?3, ?4, ?5, ?6)",
-            params![Utc::now().to_rfc3339(), session_id, a, b, c, d],
+            params![now_rfc3339(), session_id, a, b, c, d],
         )
         .context("failed to acknowledge the session")?;
     Ok(changed == 1)
@@ -808,7 +808,7 @@ pub fn interrupt_session_in_tx(
     session_id: &str,
     actor_id: &str,
 ) -> anyhow::Result<()> {
-    let now = Utc::now().to_rfc3339();
+    let now = now_rfc3339();
 
     let existing = session_subject(tx, session_id)
         .context("failed to read the sessions row before interrupt")?;
@@ -897,7 +897,7 @@ pub fn mark_abandoned(
     actor_id: &str,
     reason: Option<&str>,
 ) -> anyhow::Result<bool> {
-    let now = Utc::now().to_rfc3339();
+    let now = now_rfc3339();
     let tx = conn.transaction()?;
 
     let existing = session_subject(&tx, run_id)

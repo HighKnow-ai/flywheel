@@ -8,8 +8,8 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::timestamp::now_rfc3339;
 use anyhow::Context;
-use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
@@ -155,7 +155,7 @@ pub fn ensure_worktree(
     .with_context(|| format!("failed to create worktree for Story {story_id:?}"))?;
 
     let id = new_id();
-    let now = Utc::now().to_rfc3339();
+    let now = now_rfc3339();
     let worktree_path_str = worktree_path.to_string_lossy().into_owned();
 
     let tx = conn.transaction()?;
@@ -356,7 +356,7 @@ pub(crate) fn record_worktree_removed(
     story_key: &str,
     actor_id: &str,
 ) -> anyhow::Result<()> {
-    let now = Utc::now().to_rfc3339();
+    let now = now_rfc3339();
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     record_worktree_removed_in_tx(&tx, worktree, story_id, story_key, actor_id, &now)?;
     tx.commit()
@@ -445,7 +445,7 @@ pub fn reconcile_worktrees(conn: &mut Connection, actor_id: &str) -> anyhow::Res
             .context("failed to read an active worktree row during reconciliation")?
     };
 
-    let now = Utc::now().to_rfc3339();
+    let now = now_rfc3339();
 
     for worktree in active_worktrees {
         // Any read failure (a permissions error, a genuinely absent path) reads as "not present"
@@ -575,7 +575,7 @@ pub fn recreate_worktree_for_story(
         .with_context(|| format!("failed to recreate worktree for Story {story_id:?}"))?;
     }
 
-    let now = Utc::now().to_rfc3339();
+    let now = now_rfc3339();
     let tx = conn.transaction()?;
     tx.execute(
         "UPDATE worktrees SET status = 'active' WHERE id = ?1",
@@ -636,7 +636,7 @@ pub fn forget_worktree_record(
         );
     }
 
-    let now = Utc::now().to_rfc3339();
+    let now = now_rfc3339();
     let tx = conn.transaction()?;
 
     // Same FK hazard as `remove_worktree_for_story` above: `sessions.worktree_id` is nullable
@@ -756,7 +756,7 @@ pub fn set_open_command_template(
         );
     }
 
-    let now = Utc::now().to_rfc3339();
+    let now = now_rfc3339();
     let tx = conn.transaction()?;
     crate::domain::settings::upsert_setting(&tx, surface.settings_key(), template, actor_id, &now)?;
     tx.commit()

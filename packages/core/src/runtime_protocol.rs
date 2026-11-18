@@ -18,9 +18,11 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
-use chrono::Utc;
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use sysinfo::{Pid, ProcessesToUpdate, System};
+
+use crate::timestamp::{elapsed_between, now_rfc3339, parse_rfc3339};
 
 /// How often the Rust core's own heartbeat-writer thread (`packages/desktop/src-tauri/src/
 /// sidecar.rs`'s `spawn_sidecar`) touches the heartbeat file. Tunable in one place; see
@@ -190,7 +192,7 @@ pub fn touch_heartbeat() -> RuntimeIo {
         Ok(dir) => dir,
         Err(err) => return RuntimeIo::WriteFailed(format!("{err:#}")),
     };
-    let now = Utc::now().to_rfc3339();
+    let now = now_rfc3339();
     match atomic_write(&heartbeat_path(&dir), now.as_bytes()) {
         Ok(()) => RuntimeIo::Written,
         Err(err) => RuntimeIo::WriteFailed(format!("{err}")),
@@ -208,9 +210,8 @@ pub fn read_heartbeat_age() -> Option<std::time::Duration> {
     if trimmed.is_empty() {
         return None;
     }
-    let recorded = chrono::DateTime::parse_from_rfc3339(trimmed).ok()?;
-    let elapsed = Utc::now().signed_duration_since(recorded.with_timezone(&Utc));
-    elapsed.to_std().ok()
+    let recorded = parse_rfc3339(trimmed)?;
+    elapsed_between(recorded, Timestamp::now())
 }
 
 /// Write `<runtime>/kills/<run_id>.json` (D-50) — called by a watchdog (or, in tests, directly)
@@ -226,7 +227,7 @@ pub fn write_kill_record(run_id: &str, pid: i32, start_time: u64, reason: &str) 
         pid,
         start_time,
         reason: reason.to_string(),
-        killed_at: Utc::now().to_rfc3339(),
+        killed_at: now_rfc3339(),
     };
     let body = match serde_json::to_vec_pretty(&record) {
         Ok(body) => body,
@@ -272,7 +273,7 @@ pub fn write_run_descriptor(run_id: &str, pid: i32, start_time: u64) -> RuntimeI
         run_id: run_id.to_string(),
         pid,
         start_time,
-        started_at: Utc::now().to_rfc3339(),
+        started_at: now_rfc3339(),
     };
     let body = match serde_json::to_vec_pretty(&descriptor) {
         Ok(body) => body,

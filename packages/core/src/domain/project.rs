@@ -4,8 +4,8 @@
 //! desktop UI derives the default from the repository directory name — 01-UI-SPEC.md Open
 //! Decisions #11) and is validated here as short, uppercase, typeable and greppable.
 
+use crate::timestamp::now_rfc3339;
 use anyhow::{anyhow, Context};
-use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use std::path::Path;
 
@@ -75,7 +75,7 @@ pub fn create_project(
     validate_key_prefix(key_prefix)?;
 
     let id = new_id();
-    let now = Utc::now().to_rfc3339();
+    let now = now_rfc3339();
 
     let tx = conn.transaction()?;
     tx.execute(
@@ -308,7 +308,7 @@ pub fn register_project(
     // transaction below, and never a source of a second path to visit (T-01-03).
     let existing_marker = marker::read_marker(&canonical)?;
 
-    let now = Utc::now().to_rfc3339();
+    let now = now_rfc3339();
     let tx = conn.transaction()?;
 
     let (project_id, marker_key) = match &existing_marker {
@@ -418,7 +418,7 @@ pub fn register_project(
 /// running this twice with no filesystem change writes no row and appends no second event.
 pub fn reconcile_projects(conn: &mut Connection, actor_id: &str) -> anyhow::Result<()> {
     let projects = list_projects(conn)?;
-    let now = Utc::now().to_rfc3339();
+    let now = now_rfc3339();
 
     for project in projects {
         // Any read failure (a malformed marker, a permissions error, a genuinely missing
@@ -533,7 +533,7 @@ fn set_hidden(
 /// worktrees, runs and events all stay in SQLite. Idempotent; errors on an unknown project id.
 pub fn hide_project(conn: &mut Connection, actor_id: &str, project_id: &str) -> anyhow::Result<()> {
     let tx = conn.transaction()?;
-    set_hidden(&tx, project_id, true, actor_id, &Utc::now().to_rfc3339())?;
+    set_hidden(&tx, project_id, true, actor_id, &now_rfc3339())?;
     tx.commit()
         .context("failed to commit hide_project transaction")
 }
@@ -546,7 +546,7 @@ pub fn restore_project(
     project_id: &str,
 ) -> anyhow::Result<()> {
     let tx = conn.transaction()?;
-    set_hidden(&tx, project_id, false, actor_id, &Utc::now().to_rfc3339())?;
+    set_hidden(&tx, project_id, false, actor_id, &now_rfc3339())?;
     tx.commit()
         .context("failed to commit restore_project transaction")
 }
@@ -585,7 +585,7 @@ pub fn relocate_project(
         ));
     }
 
-    let now = Utc::now().to_rfc3339();
+    let now = now_rfc3339();
     let tx = conn.transaction()?;
 
     let before_path: String = tx

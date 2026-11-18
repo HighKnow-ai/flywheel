@@ -716,7 +716,7 @@ fn write_contention_record(repository: &str, command: &str, attempts: u32) {
         "repository": repository,
         "command": command,
         "attempts": attempts,
-        "at": chrono::Utc::now().to_rfc3339(),
+        "at": flywheel_core::timestamp::now_rfc3339(),
     });
     let Ok(mut line) = serde_json::to_string(&record) else {
         return;

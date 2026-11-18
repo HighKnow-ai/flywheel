@@ -6,6 +6,8 @@
 pub mod backup;
 
 use anyhow::Context;
+use jiff::tz::TimeZone;
+use jiff::Timestamp;
 use once_cell::sync::Lazy;
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use rusqlite_migration::{
@@ -241,17 +243,17 @@ fn legacy_target(db_path: &Path) -> PathBuf {
         .extension()
         .map(|e| e.to_string_lossy().into_owned())
         .unwrap_or_else(|| "db".into());
-    let now = chrono::Utc::now();
+    let now = Timestamp::now().to_zoned(TimeZone::UTC);
     let candidate = db_path.with_file_name(format!(
         "{stem}{LEGACY_SUFFIX}{}.{ext}",
-        now.format("%Y%m%dT%H%M%SZ")
+        now.strftime("%Y%m%dT%H%M%SZ")
     ));
     if !candidate.exists() {
         return candidate;
     }
     db_path.with_file_name(format!(
         "{stem}{LEGACY_SUFFIX}{}.{ext}",
-        now.format("%Y%m%dT%H%M%S%.3fZ")
+        now.strftime("%Y%m%dT%H%M%S%.3fZ")
     ))
 }
 

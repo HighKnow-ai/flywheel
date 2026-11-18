@@ -513,7 +513,7 @@ pub async fn worktree_measure(
     .await
     .map_err(|e| ipc_error("worktree_measure:join", e))?;
 
-    let measured_at = chrono::Utc::now().to_rfc3339();
+    let measured_at = flywheel_core::timestamp::now_rfc3339();
     let mut out = Vec::with_capacity(walked.len());
     {
         let conn = state

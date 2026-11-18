@@ -39,7 +39,7 @@ name = "uat_review_ops"
 path = "tests/bin/uat_review_ops.rs"
 
 [dependencies]
-rusqlite = { version = "0.41", features = ["bundled", "serde_json", "chrono"] }
+rusqlite = { version = "0.41", features = ["bundled", "serde_json"] }
 rusqlite_migration = "2.7"
 ulid = { version = "3.0", features = ["serde"] }
 fractional_index = { version = "2.0", features = ["serde"] }
@@ -48,7 +48,10 @@ dirs = "7"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# Every timestamp this workspace writes or compares (`timestamp.rs`). Only UTC instants are used, so
+# no time-zone database is compiled in: `std` alone gives `Timestamp::now`. Replaces `chrono`, which
+# RustSec marks unmaintained (RUSTSEC-2026-0543, issue #1728).
+jiff = { version = "0.2", default-features = false, features = ["std"] }
 keyring = { version = "4.2.0", features = ["apple-native-keyring-store"] }
 # Pid-reuse-safe liveness for the launch reconciler (plan 03-06, PROC-05): pid alone is never
 # enough to identify "the same process" across a restart, since the OS recycles pids. Pinned to

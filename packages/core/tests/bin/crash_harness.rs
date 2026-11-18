@@ -84,7 +84,7 @@ fn main() {
             let tx = conn.transaction().expect("failed to open the transaction");
             let milestone_id = flywheel_core::ids::new_id();
             let event_id = flywheel_core::ids::new_id();
-            let now = chrono::Utc::now().to_rfc3339();
+            let now = flywheel_core::timestamp::now_rfc3339();
 
             tx.execute(
                 "INSERT INTO milestones (

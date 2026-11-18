@@ -17,12 +17,6 @@ path = "src/main.rs"
 flywheel-core = { path = "../core" }
 anyhow = "1"
 serde_json = "1"
-# Only for the `at` timestamp field of the D-53 contention record, formatted RFC3339 to match
-# every other on-disk timestamp this workspace writes (runtime_protocol.rs's `started_at`/
-# `killed_at`) — not listed in the plan's own dependency triple, added because the exhaustion
-# record's own JSON shape names an `at` field this crate's chrono dependency already exists to
-# produce consistently.
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [dev-dependencies]
 tempfile = "3"

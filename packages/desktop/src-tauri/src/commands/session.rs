@@ -977,7 +977,7 @@ pub fn process_inbound_permission_request(
     };
 
     if let Some(rule) = rule {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = flywheel_core::timestamp::now_rfc3339();
         let tx = conn.transaction().map_err(|e| e.to_string())?;
         let sequence = flywheel_core::domain::event::next_sequence(&tx, &project_id, "local")
             .map_err(|e| e.to_string())?;
@@ -2653,12 +2653,10 @@ pub(crate) mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        let raised = chrono::DateTime::parse_from_rfc3339(&raised)
-            .unwrap()
-            .with_timezone(&chrono::Utc);
+        let raised = flywheel_core::timestamp::parse_rfc3339(&raised).unwrap();
         let db = std::sync::Mutex::new(conn);
         let watch = std::sync::Mutex::new(crate::notify::WaitingWatch::new());
-        let after = |secs| raised + chrono::Duration::seconds(secs);
+        let after = |secs| raised + jiff::SignedDuration::from_secs(secs);
 
         assert_eq!(
             crate::notify::waiting_tick(&watch, &db, after(5), false),

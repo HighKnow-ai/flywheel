@@ -81,12 +81,11 @@ pub fn boot(app: &AppHandle) -> anyhow::Result<()> {
 
     // D-113/D-114/D-116: the git-truth scheduler starts AFTER `AppState` is managed, so every tick
     // can reach it. Spawned, not awaited: the board's git facts are display freshness, not a startup
-    // precondition. A start failure still crashes loudly (LINK-10), inside the spawned task.
+    // precondition. It runs inside a spawned task because that is how the call gets a Tokio runtime
+    // to start the three tier loops on; nothing in it can fail.
     let scheduler_handle = app.clone();
     tauri::async_runtime::spawn(async move {
-        scheduler::start_git_truth_scheduler(scheduler_handle)
-            .await
-            .expect("failed to start the git-truth scheduler");
+        scheduler::start_git_truth_scheduler(scheduler_handle);
     });
 
     Ok(())

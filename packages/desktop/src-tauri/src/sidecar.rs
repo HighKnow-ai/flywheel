@@ -656,7 +656,7 @@ fn emit_persistence_failure_notice(app: &AppHandle, run_id: &str, detail: &str) 
     let payload = serde_json::json!({
         "runId": run_id,
         "seq": -1,
-        "at": chrono::Utc::now().to_rfc3339(),
+        "at": flywheel_core::timestamp::now_rfc3339(),
         "raw": text.clone(),
         "type": "system_notice",
         "text": text,
