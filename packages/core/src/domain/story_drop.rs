@@ -108,5 +108,14 @@ pub fn drop_story(conn: &mut Connection, actor_id: &str, story_id: &str) -> anyh
     );
 
     wipe_worktree_and_branch(conn, story_id, actor_id)?;
-    set_story_state(conn, actor_id, story_id, StoryState::Dropped)
+    set_story_state(conn, actor_id, story_id, StoryState::Dropped)?;
+    // Drop does not close the request on the forge (ADR 0042): it may still merge with auto-merge on.
+    // Say so on the Story's landing row, which stays readable.
+    conn.execute(
+        "UPDATE landings SET note = 'The Story was dropped, but its request is still open on the forge with auto-merge on, and it can still merge. Close it there if it must not.'
+         WHERE story_id = ?1 AND request_url IS NOT NULL AND request_state IN ('open', 'unknown')",
+        params![story_id],
+    )
+    .context("failed to note the open request on the dropped Story")?;
+    Ok(())
 }

@@ -791,6 +791,35 @@ pub fn delete_merged_branch(
     Ok(())
 }
 
+/// The URL of the remote called `name`, or `None` when the repository has no such remote.
+pub fn remote_url(repo_path: &Path, name: &str) -> anyhow::Result<Option<String>> {
+    let out = git_output_at(
+        repo_path,
+        &["config", "--get", &format!("remote.{name}.url")],
+    )?;
+    if !out.status.success() {
+        return Ok(None);
+    }
+    let url = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    Ok((!url.is_empty()).then_some(url))
+}
+
+/// Delete `refs/heads/<branch>` by compare-and-swap on `expected`, with no ancestry check. For a
+/// branch the forge merged by squash or rebase: its commits are not on the base branch, and the
+/// forge's word that the request merged is the safety (ADR 0042).
+pub fn delete_branch_at(repo_path: &Path, branch: &str, expected: &str) -> anyhow::Result<()> {
+    git_at(
+        repo_path,
+        &[
+            "update-ref",
+            "-d",
+            &format!("refs/heads/{branch}"),
+            expected,
+        ],
+    )?;
+    Ok(())
+}
+
 /// Check out an already-existing `branch` into a new worktree at `worktree_path`. Copies
 /// [`worktree_add`]'s three refusals; [`worktree_add`] itself cannot be reused because it always
 /// creates a branch and refuses one that exists. Prunes first so a stale registration (directory

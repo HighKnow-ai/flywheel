@@ -25,7 +25,7 @@ A thin vertical slice of user-visible behaviour within an Epic; the unit of work
 _Avoid_: Ticket, task (for the executable unit)
 
 **Story state**:
-Where a Story is in its life: Shaping, Ready, Running, In review, then Merged or Dropped. What its session is doing is not part of the state.
+Where a Story is in its life: Shaping, Ready, Running, In review, then Landing (only when the project lands by request) and Merged, or Dropped. What its session is doing is not part of the state.
 _Avoid_: Status (for the lifecycle), column
 
 **Make Ready**:
@@ -65,8 +65,14 @@ The developer's act, from the review card, of running every Check of an In revie
 _Avoid_: Retest, rerun (for an agent's own `checks_run`)
 
 **Merge**:
-The developer's act that ends a review: Flywheel writes a merge commit on the project's local base branch, removes the worktree and the branch, links each new ADR to the Story by path, and moves the Story to Merged. It needs every criterion accepted and no new ADR marked Not an ADR or Wrong decision, and a Check failed, timed out, not run or stale needs "Merge with failing Check". Flywheel never pushes (ADR 0009).
+The developer's act that ends a review. It needs every criterion accepted and no new ADR marked Not an ADR or Wrong decision, and a Check failed, timed out, not run or stale needs "Merge with failing Check". What it writes depends on the project's Landing mode: a pull request, a landing command, or (with no forge) a merge commit on the local base branch that removes the worktree and the branch and moves the Story to Merged (ADR 0009, ADR 0042).
 _Avoid_: Ship, land
+
+**Landing mode**:
+The project's setting for what Merge does: **pull request** (the default: push the Story's branch and open a pull request with auto-merge on), **command** (run the project's landing command in the worktree) or, for a project with no remote on a known forge, the local merge. ADR 0042.
+
+**Landing**:
+The Story state after Merge pushed or ran the landing command and before the request merged. The worktree stays. Flywheel asks the forge for the request's state and moves the Story to Merged when it merged, or back to In review when it was closed without merging. ADR 0042.
 
 **Request changes**:
 The developer's act that ends a review without merging: the review closes with the developer's comments, the Story moves back to Running, and a fresh session starts in the same worktree from a Context packet that carries the comments. The Task checklist is kept, and the agent adds one Task per review point before going on. The review's ADR decisions and its Renumber and Supersession line missing flags go with the comments as "ADR review points", so the comments may be left empty when there are any. A launch that fails leaves the Story Stopped, with Resume.

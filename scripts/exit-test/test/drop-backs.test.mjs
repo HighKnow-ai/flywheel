@@ -84,7 +84,7 @@ test("finds a worktree that git still knows, outside the repo", () => {
       assert.equal(r.status, 0, r.stderr);
     };
     git("init", "-q", "-b", "main", repo);
-    git("-C", repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init");
+    git("-C", repo, "-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "init");
     git("-C", repo, "worktree", "add", "-q", "-b", "feature", worktree);
 
     const projects = path.join(scratch, "projects");
@@ -115,7 +115,7 @@ test("a project in a subdirectory counts only that subdirectory, in the repo and
     fs.writeFileSync(path.join(repo, "flywheel", "a.txt"), "a");
     fs.writeFileSync(path.join(repo, "apps", "b.txt"), "b");
     git("-C", repo, "add", ".");
-    git("-C", repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "init");
+    git("-C", repo, "-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "init");
     git("-C", repo, "worktree", "add", "-q", "-b", "feature", worktree);
 
     const projects = path.join(scratch, "projects");

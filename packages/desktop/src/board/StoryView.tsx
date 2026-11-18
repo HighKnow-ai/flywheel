@@ -37,6 +37,7 @@ import { useBoardChangedSubscription, useSessionFeed } from "./useBoardQuery";
 import { WriteStoryDialog } from "./WriteStoryDialog";
 import { ReviewCard } from "../review/ReviewCard";
 import { MoveToEpicControl } from "./MoveToEpic";
+import { LandingPanel } from "./LandingPanel";
 import { ReadError } from "../components/ReadError";
 import { StateBadge } from "../components/StateBadge";
 import { StoryKey } from "../components/StoryKey";
@@ -510,8 +511,14 @@ function StoryBody({ projectId, story }: { projectId: string; story: StoryDto })
 
       <AgentStation projectId={projectId} story={story} waitingOnYou={waitingOnYou} />
 
+      <LandingPanel projectId={projectId} story={story} />
+
       {inReview && (
-        <ReviewCard projectId={projectId} story={story} onMerged={(outcome) => setError(outcome.cleanupWarning)} />
+        <ReviewCard
+          projectId={projectId}
+          story={story}
+          onMerged={(outcome) => setError(outcome.cleanupWarning ?? outcome.landingNote)}
+        />
       )}
 
       <div className={cn("grid grid-cols-1 items-start gap-4", !inReview && "lg:grid-cols-2")}>

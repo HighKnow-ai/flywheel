@@ -624,7 +624,7 @@ export interface StoryDto {
   key: string;
   title: string;
   description: string | null;
-  /** `shaping`, `ready`, `running`, `in_review`, `merged` or `dropped`. */
+  /** `shaping`, `ready`, `running`, `in_review`, `landing`, `merged` or `dropped`. */
   state: string;
   runsAfterStoryId: string | null;
   /** The one-line constraint behind the runs-after marker (issue #127). Optional for older fixtures. */
@@ -1178,13 +1178,67 @@ export interface StoryReviewDto {
 export interface MergeDto {
   mergeCommit: string;
   baseBranch: string;
-  /** `checkout` or `plumbing` (ADR 0009). */
+  /** `checkout` or `plumbing` (ADR 0009), `pull_request` or `command` (ADR 0042). */
   method: string;
   failingChecksOverridden: number;
   /** The worktree or branch Merge could not remove after the commit landed. */
   cleanupWarning: string | null;
   /** The new ADRs Merge linked to the Story, by path. */
   adrsLinked: string[];
+  /** `true` when Merge started a landing (ADR 0042): the Story is Landing, not Merged. */
+  landing: boolean;
+  /** The pull request Merge opened, when it opened one. */
+  requestUrl: string | null;
+  /** A step of the landing the developer should read, for example auto-merge that could not be turned on. */
+  landingNote: string | null;
+}
+
+/** What a Landing Story waits for (ADR 0042) — mirrors `commands/landing.rs`'s `StoryLandingDto`. */
+export interface StoryLandingDto {
+  /** `pull_request` or `command`. */
+  mode: string;
+  forge: string | null;
+  requestUrl: string | null;
+  /** `unknown`, `open`, `merged` or `closed`. */
+  requestState: string;
+  /** A missing or signed-out CLI, a request closed without merging: what the developer reads. */
+  note: string | null;
+}
+
+/** A project's landing setting (ADR 0042) — mirrors `commands/landing.rs`'s `ProjectLandingDto`. */
+export interface ProjectLandingDto {
+  /** `pull_request` or `command`. */
+  mode: "pull_request" | "command";
+  command: string | null;
+  /** `github` or `gitlab`; `null` means "detect it from the remote". */
+  forge: "github" | "gitlab" | null;
+  /** `squash`, `merge` or `rebase`. */
+  method: "squash" | "merge" | "rebase";
+  /** The forge the URL of `origin` names, `null` when there is no remote or its host is unknown. */
+  detectedForge: "github" | "gitlab" | null;
+}
+
+/** The request a Story waits for, or `null` when it never landed. Read-only. */
+export async function storyLanding(storyId: string): Promise<StoryLandingDto | null> {
+  return invokeCommand<StoryLandingDto | null>("story_landing", { storyId });
+}
+
+/** "Check now": ask the forge about a Landing Story at once. Merged moves it to Merged, closed back to In review. */
+export async function storyLandingRefresh(storyId: string): Promise<StoryLandingDto | null> {
+  return invokeCommand<StoryLandingDto | null>("story_landing_refresh", { storyId });
+}
+
+/** A project's landing setting and the forge its remote names. Read-only. */
+export async function projectLandingGet(projectId: string): Promise<ProjectLandingDto> {
+  return invokeCommand<ProjectLandingDto>("project_landing_get", { projectId });
+}
+
+/** Set a project's landing mode. The core refuses a `command` mode with no command, in words the dialog shows. */
+export async function projectLandingSet(
+  projectId: string,
+  setting: Pick<ProjectLandingDto, "mode" | "command" | "forge" | "method">,
+): Promise<ProjectLandingDto> {
+  return invokeCommand<ProjectLandingDto>("project_landing_set", { projectId, ...setting });
 }
 
 /** The review card of one Story. Read-only. */

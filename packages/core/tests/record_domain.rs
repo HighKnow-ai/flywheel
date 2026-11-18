@@ -197,10 +197,14 @@ fn the_story_transition_table_is_the_spec_table() {
         (Running, InReview),
         (InReview, Running),
         (InReview, Merged),
+        (InReview, Landing),
+        (Landing, Merged),
+        (Landing, InReview),
         (Shaping, Dropped),
         (Ready, Dropped),
         (Running, Dropped),
         (InReview, Dropped),
+        (Landing, Dropped),
     ];
     for from in StoryState::ALL {
         for to in StoryState::ALL {

@@ -11,7 +11,7 @@ import { cn } from "@highknow/design";
 
 const badge = (container: HTMLElement) => container.querySelector("[data-slot=badge]") as HTMLElement;
 
-const STORY_STATES = ["shaping", "ready", "running", "in_review", "merged", "dropped"] as const;
+const STORY_STATES = ["shaping", "ready", "running", "in_review", "landing", "merged", "dropped"] as const;
 const ATTENTION = ["waiting_on_you", "stopped"] as const;
 
 describe("the state vocabulary", () => {
@@ -29,6 +29,7 @@ describe("the state vocabulary", () => {
       "Circle",
       "LoaderCircle",
       "GitPullRequest",
+      "GitPullRequestArrow",
       "GitMerge",
       "CircleSlash",
     ]);

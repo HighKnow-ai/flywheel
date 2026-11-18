@@ -131,7 +131,7 @@ fn epics_of(conn: &Connection, milestone_id: &str) -> anyhow::Result<Vec<EpicRow
     let mut stmt = conn.prepare(
         "SELECT e.id, e.key, e.title,
             CASE WHEN e.state = 'ready' AND EXISTS (SELECT 1 FROM stories s WHERE s.epic_id = e.id
-                    AND s.state IN ('running', 'in_review', 'merged'))
+                    AND s.state IN ('running', 'in_review', 'landing', 'merged'))
                  THEN 'in_progress' ELSE e.state END,
             e.exit_test
          FROM epics e WHERE e.milestone_id = ?1 ORDER BY e.rank, e.id",

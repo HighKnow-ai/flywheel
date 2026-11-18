@@ -531,10 +531,24 @@ function MergeControl({
     storyMerge(story.id, withFailingChecks)
       .then((outcome) => {
         setConfirming(false);
-        notify.success(`${story.key} merged into ${outcome.baseBranch}`, {
-          description: outcome.cleanupWarning ?? "Worktree cleaned.",
-          action: { label: "Open board", onClick: () => useUiStore.getState().setCurrentProjectId(projectId) },
-        });
+        if (outcome.landing) {
+          // ADR 0042: the request is open and the Story waits for the forge, so it is not Merged yet.
+          notify.success(
+            outcome.requestUrl
+              ? `${story.key} is landing: pull request opened`
+              : `${story.key} is landing: the landing command ran`,
+            {
+              description:
+                outcome.landingNote ?? outcome.requestUrl ?? "Flywheel moves it to Merged when the request merges.",
+              action: { label: "Open board", onClick: () => useUiStore.getState().setCurrentProjectId(projectId) },
+            },
+          );
+        } else {
+          notify.success(`${story.key} merged into ${outcome.baseBranch}`, {
+            description: outcome.cleanupWarning ?? "Worktree cleaned.",
+            action: { label: "Open board", onClick: () => useUiStore.getState().setCurrentProjectId(projectId) },
+          });
+        }
         onMerged?.(outcome);
       })
       .catch((err: unknown) => setError(errorText(err)))

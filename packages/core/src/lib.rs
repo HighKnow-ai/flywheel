@@ -11,6 +11,7 @@ pub mod db;
 pub mod destructive;
 pub mod domain;
 pub mod environment;
+pub mod forge;
 pub mod git;
 pub mod git_facts;
 pub mod git_hooks;

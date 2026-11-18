@@ -25,18 +25,21 @@ use std::fmt;
 use std::path::Path;
 
 use anyhow::Context;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
 
 use crate::domain::actor::assert_human_actor;
 use crate::domain::adr_link::{is_linked, link_adr_in_tx, AdrLinkTarget};
+use crate::domain::landing;
 use crate::domain::review::{
-    close_review_in_tx, open_review_in_tx, read_review_diff, review_for_story, StoryReview,
+    close_review_in_tx, open_review_in_tx, read_review_diff, review_for_story, ReviewDiff,
+    StoryReview,
 };
 use crate::domain::review_decisions::{accepted_epic_adrs, new_adr_paths, stored_adr_decisions};
-use crate::domain::story::{get_story, set_story_state_in_tx, StoryState};
+use crate::domain::story::{get_story, set_story_state_in_tx, Story, StoryState};
 use crate::domain::worktree::{record_worktree_removed_in_tx, worktree_for_story, Worktree};
 use crate::domain::{now, record_event, EventScope};
+use crate::forge::ForgeCli;
 use crate::git::{self, MergePrecheck};
 
 /// The developer's choices at Merge.
@@ -55,6 +58,10 @@ pub enum MergeMethod {
     /// `merge-tree`, `commit-tree` and a compare-and-swap `update-ref`: no checkout has the base
     /// branch.
     Plumbing,
+    /// The forge merged the Story's request (ADR 0042); the commit is on the remote base branch.
+    PullRequest,
+    /// The project's landing command landed the branch (ADR 0042).
+    Command,
 }
 
 impl MergeMethod {
@@ -62,7 +69,15 @@ impl MergeMethod {
         match self {
             MergeMethod::Checkout => "checkout",
             MergeMethod::Plumbing => "plumbing",
+            MergeMethod::PullRequest => "pull_request",
+            MergeMethod::Command => "command",
         }
+    }
+
+    /// The commit was not written by Flywheel in a local checkout: the branch's own commits need
+    /// not be on the local base branch.
+    pub fn is_request(self) -> bool {
+        matches!(self, MergeMethod::PullRequest | MergeMethod::Command)
     }
 }
 
@@ -79,6 +94,19 @@ pub struct MergeOutcome {
     pub cleanup_warning: Option<String>,
     /// The new ADRs Merge linked to the Story, by path.
     pub adrs_linked: Vec<String>,
+    /// `Some` when the Story is Landing, not Merged: the request Merge opened, or the landing
+    /// command's own run (ADR 0042).
+    pub landing: Option<LandingStarted>,
+}
+
+/// What Merge started instead of a local merge.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LandingStarted {
+    pub mode: String,
+    pub request_url: Option<String>,
+    /// A step that did not stop the landing but the developer should read, for example auto-merge
+    /// that could not be turned on.
+    pub note: Option<String>,
 }
 
 /// A Merge refused before anything was written, with a reason meant for the developer. Its text
@@ -94,7 +122,7 @@ impl fmt::Display for MergeRefused {
 
 impl std::error::Error for MergeRefused {}
 
-fn refuse<T>(reason: impl Into<String>) -> anyhow::Result<T> {
+pub(crate) fn refuse<T>(reason: impl Into<String>) -> anyhow::Result<T> {
     Err(MergeRefused(reason.into()).into())
 }
 
@@ -163,6 +191,28 @@ fn guard_owned(worktree: &Worktree, repo: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The ADRs the branch adds between `base_tip` and `head`, relative to the project, as ADR links
+/// are, also for a project in a subdirectory of its repository. One accepted in shaping keeps its
+/// Epic Proposal and is left out.
+pub(crate) fn new_adrs_of(
+    conn: &Connection,
+    story: &Story,
+    repo: &Path,
+    base_tip: &str,
+    head: &str,
+) -> anyhow::Result<Vec<String>> {
+    let shaped: Vec<String> = accepted_epic_adrs(conn, &story.epic_id)?
+        .into_iter()
+        .map(|(_, d)| d.path)
+        .collect();
+    Ok(
+        new_adr_paths(&git::project_review_files(repo, base_tip, head)?)
+            .into_iter()
+            .filter(|p| !shaped.contains(p))
+            .collect(),
+    )
+}
+
 /// Merge `story_id` into its base branch. See the module documentation for every refusal and for
 /// how the commit is written.
 pub fn merge_story(
@@ -170,6 +220,18 @@ pub fn merge_story(
     actor_id: &str,
     story_id: &str,
     options: MergeOptions,
+) -> anyhow::Result<MergeOutcome> {
+    merge_story_with(conn, actor_id, story_id, options, &ForgeCli::from_env())
+}
+
+/// [`merge_story`] with the forge CLIs looked up on `cli`'s search path: a test gives it a directory
+/// of stub `gh` binaries.
+pub fn merge_story_with(
+    conn: &mut Connection,
+    actor_id: &str,
+    story_id: &str,
+    options: MergeOptions,
+    cli: &ForgeCli,
 ) -> anyhow::Result<MergeOutcome> {
     assert_human_actor(conn, actor_id)?;
     let story =
@@ -219,6 +281,40 @@ pub fn merge_story(
             story.key
         ));
     }
+    // The project's landing mode (ADR 0042): a request or a landing command replaces everything from
+    // here to the commit; only a project with no forge to land on keeps the local merge.
+    let settings = landing::read_settings(conn, &story.project_id)?;
+    let remote_url = git::remote_url(repo, "origin")?;
+    let route = landing::route_for(&settings, remote_url.as_deref())?;
+    if route != landing::Route::Local {
+        let overridden: Vec<Value> = review
+            .failing_checks
+            .iter()
+            .map(|k| k.override_record())
+            .collect();
+        let diff = if review.review.is_none() {
+            Some(read_review_diff(worktree_path, &base, &head)?)
+        } else {
+            None
+        };
+        return landing::start_landing(
+            conn,
+            actor_id,
+            landing::LandingInput {
+                story: &story,
+                worktree: &worktree,
+                repo,
+                head: &head,
+                base: &base,
+                overridden,
+                diff,
+                remote_url: remote_url.as_deref(),
+            },
+            &settings,
+            route,
+            cli,
+        );
+    }
     if let MergePrecheck::Conflicts(paths) = git::merge_tree_check(repo, &base_tip, &head)? {
         return refuse(format!(
             "Merging {} into {base} would conflict in {}. Rebase needed: request changes so the agent rebases.",
@@ -248,17 +344,8 @@ pub fn merge_story(
     } else {
         None
     };
-    // The ADRs the branch adds, read now: the worktree is gone after the git step. One accepted in
-    // shaping keeps its Epic Proposal.
-    let shaped: Vec<String> = accepted_epic_adrs(conn, &story.epic_id)?
-        .into_iter()
-        .map(|(_, d)| d.path)
-        .collect();
-    // Relative to the project, as ADR links are, also for a project in a subdirectory of its repository.
-    let new_adrs: Vec<String> = new_adr_paths(&git::project_review_files(repo, &base_tip, &head)?)
-        .into_iter()
-        .filter(|p| !shaped.contains(p))
-        .collect();
+    // The ADRs the branch adds, read now: the worktree is gone after the git step.
+    let new_adrs = new_adrs_of(conn, &story, repo, &base_tip, &head)?;
 
     // The git step. Everything above wrote nothing.
     let message = format!(
@@ -279,6 +366,62 @@ pub fn merge_story(
         ),
     };
 
+    finish_merge(
+        conn,
+        actor_id,
+        MergeDone {
+            story: &story,
+            worktree: &worktree,
+            repo,
+            head: &head,
+            base: &base,
+            merge_commit,
+            method,
+            overridden,
+            diff,
+            new_adrs,
+        },
+    )
+}
+
+/// Everything the board step of a merge needs, however the commit reached the base branch.
+pub(crate) struct MergeDone<'a> {
+    pub story: &'a Story,
+    pub worktree: &'a Worktree,
+    pub repo: &'a Path,
+    pub head: &'a str,
+    pub base: &'a str,
+    pub merge_commit: String,
+    pub method: MergeMethod,
+    pub overridden: Vec<Value>,
+    pub diff: Option<ReviewDiff>,
+    pub new_adrs: Vec<String>,
+}
+
+/// The step after the commit is on the base branch (or the forge says the request merged): remove
+/// the worktree and the branch, then one board transaction moves the Story to Merged, closes its
+/// review and links the new ADRs. `actor_id` is the developer for a local merge and the system
+/// actor for a request that merged on the forge.
+pub(crate) fn finish_merge(
+    conn: &mut Connection,
+    actor_id: &str,
+    done: MergeDone<'_>,
+) -> anyhow::Result<MergeOutcome> {
+    let MergeDone {
+        story,
+        worktree,
+        repo,
+        head,
+        base,
+        merge_commit,
+        method,
+        overridden,
+        diff,
+        new_adrs,
+    } = done;
+    let story_id = story.id.as_str();
+    let worktree_path = Path::new(&worktree.path);
+    let base = base.to_string();
     // The commit is on the base branch: the Story is Merged from here on.
     let mut warnings = Vec::new();
     let removed = match git::worktree_remove(repo, worktree_path) {
@@ -290,7 +433,14 @@ pub fn merge_story(
         }
     };
     if removed {
-        if let Err(e) = git::delete_merged_branch(repo, &worktree.branch, &head, &merge_commit) {
+        let deleted = if method.is_request() {
+            // A squash or rebase merge leaves the branch's commits off the base branch: the forge said it
+            // merged, so the branch goes by compare-and-swap on its tip alone (ADR 0042).
+            git::delete_branch_at(repo, &worktree.branch, head)
+        } else {
+            git::delete_merged_branch(repo, &worktree.branch, head, &merge_commit)
+        };
+        if let Err(e) = deleted {
             eprintln!("merge of {}: branch deletion failed: {e:#}", story.key);
             warnings.push("its branch could not be deleted");
         }
@@ -317,9 +467,21 @@ pub fn merge_story(
         )?;
     }
     if removed {
-        record_worktree_removed_in_tx(&tx, &worktree, story_id, &story.key, actor_id, &now)?;
+        record_worktree_removed_in_tx(&tx, worktree, story_id, &story.key, actor_id, &now)?;
     }
     set_story_state_in_tx(&tx, actor_id, story_id, StoryState::Merged)?;
+    let request_url: Option<String> = tx
+        .query_row(
+            "SELECT request_url FROM landings WHERE story_id = ?1",
+            params![story_id],
+            |r| r.get(0),
+        )
+        .optional()?
+        .flatten();
+    tx.execute(
+        "UPDATE landings SET request_state = 'merged', note = NULL, updated_at = ?1 WHERE story_id = ?2",
+        params![now, story_id],
+    )?;
     let overridden_json = Value::Array(overridden.clone());
     close_review_in_tx(
         &tx,
@@ -371,6 +533,7 @@ pub fn merge_story(
             "failing_checks_overridden": overridden_json,
             "cleanup_warning": cleanup_warning,
             "adrs_linked": adrs_linked,
+            "request_url": request_url,
             "label": label,
         }),
         &now,
@@ -379,12 +542,13 @@ pub fn merge_story(
         .context("the merge commit is on the base branch, but the board could not record it")?;
 
     Ok(MergeOutcome {
-        project_id: story.project_id,
+        project_id: story.project_id.clone(),
         merge_commit,
         base_branch: base,
         method,
         failing_checks_overridden: overridden,
         cleanup_warning,
         adrs_linked,
+        landing: None,
     })
 }

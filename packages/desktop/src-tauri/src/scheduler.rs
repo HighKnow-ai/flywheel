@@ -75,7 +75,13 @@ fn run_cold_tick(app: &AppHandle) {
         return;
     };
     let story_ids = git_tick::cold_story_ids(&state.db);
-    let changed = git_tick::git_facts_tick(&state.db, &story_ids, digests(), "cold");
+    let mut changed = git_tick::git_facts_tick(&state.db, &story_ids, digests(), "cold");
+    // Landing Stories wait for their request (ADR 0042): the same minute asks the forge, with the
+    // board mutex released while the CLI runs.
+    changed.extend(flywheel_core::domain::landing::landing_tick(
+        &state.db,
+        &flywheel_core::forge::ForgeCli::from_env(),
+    ));
     emit_git_facts_changed(app, changed);
 }
 

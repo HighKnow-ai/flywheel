@@ -316,7 +316,7 @@ pub fn epic_state(conn: &Connection, epic_id: &str) -> anyhow::Result<EpicState>
         return Ok(state);
     }
     let started: bool = conn.query_row(
-        "SELECT EXISTS (SELECT 1 FROM stories WHERE epic_id = ?1 AND state IN ('running', 'in_review', 'merged'))",
+        "SELECT EXISTS (SELECT 1 FROM stories WHERE epic_id = ?1 AND state IN ('running', 'in_review', 'landing', 'merged'))",
         params![epic_id],
         |r| r.get(0),
     )?;

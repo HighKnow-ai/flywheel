@@ -47,6 +47,8 @@ pub const TABLE_CLASSES: &[(&str, TableClass)] = &[
     ("event_sequence_counters", TableClass::Infrastructure),
     // The append-only event log.
     ("events", TableClass::Infrastructure),
+    // What a Landing Story waits for: its request, the forge's last answer and a note (ADR 0042).
+    ("landings", TableClass::Runtime),
     // The Milestone: an outcome with an exit test; the Roadmap is their rank order.
     ("milestones", TableClass::Canonical),
     // A tool-permission request a session raised and a human answers.

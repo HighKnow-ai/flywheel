@@ -45,6 +45,9 @@ vi.mock("../../adapters/tauri", () => ({
   openFolderDialog: () => Promise.resolve(null),
   projectHide: (projectId: string) => invokeCommandMock("project_hide", { projectId }),
   projectRename: (projectId: string, name: string) => invokeCommandMock("project_rename", { projectId, name }),
+  projectLandingGet: (projectId: string) => invokeCommandMock("project_landing_get", { projectId }),
+  projectLandingSet: (projectId: string, setting: Record<string, unknown>) =>
+    invokeCommandMock("project_landing_set", { projectId, ...setting }),
   storyGet: (storyId: string) => storyGetMock(storyId),
   needsYouList: (projectId: string) => needsYouListMock(projectId),
 }));
@@ -825,7 +828,7 @@ describe("ProjectRail's Rename (issue #1762)", () => {
     const trigger = screen.getByRole("button", { name: "Project actions for HighKnow-harness" });
     fireEvent.keyDown(trigger, { key: "Enter" });
     const items = (await screen.findAllByRole("menuitem")).map((item) => item.textContent);
-    expect(items).toEqual(["Rename…", "Remove from Flywheel…"]);
+    expect(items).toEqual(["Rename…", "Landing…", "Remove from Flywheel…"]);
   });
 
   it("opens on the current name, names the key that stays, and keeps Rename off until the name changes", async () => {
@@ -877,5 +880,71 @@ describe("ProjectRail's Rename (issue #1762)", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(invokeCommandMock).not.toHaveBeenCalledWith("project_rename", expect.anything());
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+});
+
+describe("ProjectRail's Landing (issue #1757, ADR 0042)", () => {
+  const alpha = project({ id: "p1", name: "HighKnow-harness", keyPrefix: "FLY" });
+  const stored = { mode: "pull_request", command: null, forge: null, method: "squash", detectedForge: "github" };
+
+  async function openDialog() {
+    const trigger = screen.getByRole("button", { name: "Project actions for HighKnow-harness" });
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Landing…" }));
+    return screen.findByRole("dialog");
+  }
+
+  beforeEach(() => {
+    invokeCommandMock.mockImplementation((command: string) =>
+      command === "project_landing_get" ? Promise.resolve(stored) : Promise.resolve(undefined),
+    );
+  });
+
+  it("opens on the stored mode and says which forge the remote names", async () => {
+    renderWithClient(<ProjectRail projects={[alpha]} currentProjectId="p1" onSelect={() => {}} />);
+    const dialog = await openDialog();
+    await waitFor(() => expect(within(dialog).getByRole("radio", { name: "Pull request" })).toBeChecked());
+    expect(within(dialog).getByRole("radio", { name: "Landing command" })).not.toBeChecked();
+    expect(within(dialog).queryByRole("textbox", { name: "Landing command" })).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("option", { name: "Detect from the remote (GitHub)" })).toBeInTheDocument();
+  });
+
+  it("needs a command in command mode and sends the mode, the command and the stored method once", async () => {
+    renderWithClient(<ProjectRail projects={[alpha]} currentProjectId="p1" onSelect={() => {}} />);
+    const dialog = await openDialog();
+    fireEvent.click(await within(dialog).findByRole("radio", { name: "Landing command" }));
+    const save = within(dialog).getByRole("button", { name: "Save" });
+    expect(save).toBeDisabled();
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Landing command" }), {
+      target: { value: "pnpm hk land" },
+    });
+    expect(save).toBeEnabled();
+    fireEvent.click(save);
+    await waitFor(() =>
+      expect(invokeCommandMock).toHaveBeenCalledWith("project_landing_set", {
+        projectId: "p1",
+        mode: "command",
+        command: "pnpm hk land",
+        forge: null,
+        method: "squash",
+      }),
+    );
+    expect(invokeCommandMock.mock.calls.filter(([command]) => command === "project_landing_set")).toHaveLength(1);
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("shows the core's refusal and keeps the dialog open", async () => {
+    invokeCommandMock.mockImplementation((command: string) =>
+      command === "project_landing_get"
+        ? Promise.resolve(stored)
+        : Promise.reject("The landing command must be one line of at most 500 characters."),
+    );
+    renderWithClient(<ProjectRail projects={[alpha]} currentProjectId="p1" onSelect={() => {}} />);
+    const dialog = await openDialog();
+    fireEvent.click(await within(dialog).findByRole("radio", { name: "Landing command" }));
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Landing command" }), { target: { value: "x" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("one line");
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 });

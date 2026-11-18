@@ -19,6 +19,7 @@ pub mod fleet;
 pub mod git_identity;
 pub mod git_truth;
 pub mod handoff;
+pub mod landing;
 pub mod menu;
 pub mod needs_you;
 pub mod project;

@@ -3,7 +3,8 @@
 //!
 //! [`set_story_state`] is the one writer of `stories.state`, and it enforces the spec's transition
 //! table. Every transition is the developer's act except the hand-off (Running → In review), which
-//! the Story's session makes and Flywheel records:
+//! the Story's session makes and Flywheel records (and the two exits from Landing, which the forge
+//! decides):
 //!
 //! | Transition | Who |
 //! |---|---|
@@ -12,6 +13,9 @@
 //! | Running → In review | the session hands off |
 //! | In review → Running | the developer requests changes |
 //! | In review → Merged | the developer merges |
+//! | In review → Landing | the developer merges and the project lands by request or command (ADR 0042) |
+//! | Landing → Merged | Flywheel, when the forge says the request merged |
+//! | Landing → In review | Flywheel, when the request was closed without merging |
 //! | any but Merged → Dropped | the developer drops it |
 //!
 //! What a session is doing (Waiting on you, Stopped) is attention, derived from the session and
@@ -34,16 +38,19 @@ pub enum StoryState {
     Ready,
     Running,
     InReview,
+    /// Merge pushed the branch (or ran the landing command) and the request has not merged yet.
+    Landing,
     Merged,
     Dropped,
 }
 
 impl StoryState {
-    pub const ALL: [StoryState; 6] = [
+    pub const ALL: [StoryState; 7] = [
         StoryState::Shaping,
         StoryState::Ready,
         StoryState::Running,
         StoryState::InReview,
+        StoryState::Landing,
         StoryState::Merged,
         StoryState::Dropped,
     ];
@@ -54,6 +61,7 @@ impl StoryState {
             StoryState::Ready => "ready",
             StoryState::Running => "running",
             StoryState::InReview => "in_review",
+            StoryState::Landing => "landing",
             StoryState::Merged => "merged",
             StoryState::Dropped => "dropped",
         }
@@ -82,13 +90,17 @@ pub fn is_allowed_transition(from: StoryState, to: StoryState) -> bool {
             | (Running, InReview)
             | (InReview, Running)
             | (InReview, Merged)
+            | (InReview, Landing)
+            | (Landing, Merged)
+            | (Landing, InReview)
     ) || (to == Dropped && !from.is_closed())
 }
 
 /// Whether `from → to` is the developer's act (so the writer refuses any other actor). Only the
-/// hand-off is not.
+/// hand-off and the two exits from Landing (the forge decides them) are not.
 pub fn is_human_transition(from: StoryState, to: StoryState) -> bool {
     !(from == StoryState::Running && to == StoryState::InReview)
+        && !(from == StoryState::Landing && to != StoryState::Dropped)
 }
 
 /// A `stories` row.

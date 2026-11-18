@@ -44,6 +44,7 @@ import {
   BellRing,
   Folder,
   FolderMinus,
+  GitPullRequestArrow,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -97,6 +98,7 @@ import {
 } from "@highknow/design";
 import { notify } from "@/lib/notify";
 import { RenameProjectDialog } from "./RenameProjectDialog";
+import { LandingSettingsDialog } from "./LandingSettingsDialog";
 import { useRegisterProjectFlow, useRegistrationErrorToast } from "./RegisterProjectFlow";
 import { agentCount, lampsFromFleet } from "../shell/AndonStrip";
 import { useUiStore } from "../state/uiStore";
@@ -446,6 +448,7 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
   const [removing, setRemoving] = useState<Project | null>(null);
   // The project being renamed, if any (issue #1762).
   const [renaming, setRenaming] = useState<Project | null>(null);
+  const [landingFor, setLandingFor] = useState<Project | null>(null);
   const queryClient = useQueryClient();
   const { state: sidebarState } = useSidebar();
   const collapsed = sidebarState === "collapsed";
@@ -716,6 +719,10 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
                           <Pencil aria-hidden="true" />
                           Rename…
                         </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => setLandingFor(project)}>
+                          <GitPullRequestArrow aria-hidden="true" />
+                          Landing…
+                        </DropdownMenuItem>
                         <DropdownMenuItem variant="destructive" onSelect={() => setRemoving(project)}>
                           <FolderMinus aria-hidden="true" />
                           Remove from Flywheel…
@@ -766,6 +773,7 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
         </nav>
       </Sidebar>
       <RenameProjectDialog project={renaming} onClose={() => setRenaming(null)} />
+      <LandingSettingsDialog project={landingFor} onClose={() => setLandingFor(null)} />
       <ConfirmDestructive
         open={removing !== null}
         onOpenChange={(open) => {

@@ -241,11 +241,14 @@ const RUNNING_STORIES_SQL: &str = "SELECT id, key, title, updated_at, \
         (SELECT t.title FROM tasks t WHERE t.story_id = stories.id AND t.state = 'doing' LIMIT 1) \
     FROM stories WHERE project_id = ?1 AND state = 'running'";
 
-/// A Story In review has waited since its last session ended (the hand-off), or, moved there by hand,
+/// A Landing Story that carries a failure note (a CLI signed out, a request that never appeared) is
+/// listed with the Stories In review: only the developer can clear it. A Story In review has waited since its last session ended (the hand-off), or, moved there by hand,
 /// since the Story last changed.
 const REVIEW_SQL: &str = "SELECT s.id, s.key, s.title, \
         COALESCE((SELECT MAX(r.ended_at) FROM sessions r WHERE r.story_id = s.id), s.updated_at) \
-    FROM stories s WHERE s.project_id = ?1 AND s.state = 'in_review'";
+    FROM stories s WHERE s.project_id = ?1 AND (s.state = 'in_review' \
+        OR (s.state = 'landing' AND EXISTS \
+            (SELECT 1 FROM landings l WHERE l.story_id = s.id AND l.note IS NOT NULL)))";
 
 /// A pending judged-on change (`judged_on_proposal!`), with what it changes as the board holds it now:
 /// the criterion, its Story and its Check, or the Epic and its spec; and the Story that filed it.

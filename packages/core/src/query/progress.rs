@@ -132,7 +132,7 @@ macro_rules! count_columns {
          COALESCE(SUM(m.state = 'running' AND m.attention IS NULL), 0), \
          COALESCE(SUM(m.attention = 'waiting_on_you'), 0), \
          COALESCE(SUM(m.attention = 'stopped'), 0), \
-         COALESCE(SUM(m.state = 'in_review'), 0), \
+         COALESCE(SUM(m.state IN ('in_review', 'landing')), 0), \
          COALESCE(SUM(m.state = 'merged'), 0), \
          COALESCE(SUM(m.state = 'dropped'), 0), \
          COALESCE(SUM(m.state <> 'dropped'), 0)"
@@ -149,7 +149,7 @@ pub const MILESTONE_PROGRESS_SQL: &str = concat!(
      SELECT cur.id, cur.title, cur.exit_test, \
         CASE WHEN cur.state = 'ready' AND EXISTS (SELECT 1 FROM epics e WHERE e.milestone_id = cur.id AND ( \
                 e.state = 'done' OR EXISTS (SELECT 1 FROM stories s WHERE s.epic_id = e.id \
-                    AND s.state IN ('running', 'in_review', 'merged')))) \
+                    AND s.state IN ('running', 'in_review', 'landing', 'merged')))) \
              THEN 'in_progress' ELSE cur.state END, \
         (SELECT n.title FROM milestones n WHERE n.project_id = cur.project_id \
             AND n.state NOT IN ('done', 'dropped') AND (n.rank > cur.rank OR (n.rank = cur.rank AND n.id > cur.id)) \
@@ -166,7 +166,7 @@ pub const EPIC_PROGRESS_SQL: &str = concat!(
     ") \
      SELECT e.id, e.key, e.title, \
         CASE WHEN e.state = 'ready' AND EXISTS (SELECT 1 FROM stories s WHERE s.epic_id = e.id \
-                AND s.state IN ('running', 'in_review', 'merged')) \
+                AND s.state IN ('running', 'in_review', 'landing', 'merged')) \
              THEN 'in_progress' ELSE e.state END, ",
     count_columns!(),
     ", CASE WHEN EXISTS (SELECT 1 FROM rounds r JOIN stages st ON st.id = r.stage_id WHERE st.epic_id = e.id AND ",

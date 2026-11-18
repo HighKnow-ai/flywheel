@@ -155,6 +155,9 @@ export function installReviewMergeBackend() {
       failingChecksOverridden: 0,
       cleanupWarning: null,
       adrsLinked: ["docs/adr/0010-the-andon-is-the-visual-world.md"],
+      landing: false,
+      requestUrl: null,
+      landingNote: null,
     };
     story.state = "merged";
     return merged;

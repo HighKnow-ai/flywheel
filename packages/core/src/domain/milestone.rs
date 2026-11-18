@@ -300,7 +300,7 @@ pub fn milestone_state(conn: &Connection, milestone_id: &str) -> anyhow::Result<
                 SELECT 1 FROM epics e WHERE e.milestone_id = ?1 AND (
                     e.state = 'done' OR EXISTS (
                         SELECT 1 FROM stories s WHERE s.epic_id = e.id
-                        AND s.state IN ('running', 'in_review', 'merged'))))",
+                        AND s.state IN ('running', 'in_review', 'landing', 'merged'))))",
             params![milestone_id],
             |r| r.get(0),
         )

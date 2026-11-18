@@ -469,7 +469,7 @@ fn sibling_epics(
     let mut stmt = conn.prepare(
         "SELECT e.key, e.title,
             CASE WHEN e.state = 'ready' AND EXISTS (SELECT 1 FROM stories s WHERE s.epic_id = e.id
-                    AND s.state IN ('running', 'in_review', 'merged'))
+                    AND s.state IN ('running', 'in_review', 'landing', 'merged'))
                  THEN 'in_progress' ELSE e.state END
          FROM epics e WHERE e.milestone_id = ?1 AND e.id != ?2 ORDER BY e.rank, e.id",
     )?;
@@ -704,7 +704,7 @@ fn milestone_epics(conn: &Connection, milestone_id: &str) -> anyhow::Result<Vec<
     let mut stmt = conn.prepare(
         "SELECT e.key, e.title,
             CASE WHEN e.state = 'ready' AND EXISTS (SELECT 1 FROM stories s WHERE s.epic_id = e.id
-                    AND s.state IN ('running', 'in_review', 'merged'))
+                    AND s.state IN ('running', 'in_review', 'landing', 'merged'))
                  THEN 'in_progress' ELSE e.state END,
             e.exit_test
          FROM epics e WHERE e.milestone_id = ?1 ORDER BY e.rank, e.id",

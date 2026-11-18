@@ -28,6 +28,8 @@ test("a template under TMPDIR, a comment and a message are not flagged", () => {
     "# mktemp -d is bare here",
     'echo "mktemp failed" >&2',
     "the mktemp call is below",
+    "      - name: mktemp templates",
+    "        name: mktemp templates",
   ]) {
     assert.equal(scanText(line).found.length, 0, line);
   }

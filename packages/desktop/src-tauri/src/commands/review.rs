@@ -431,7 +431,7 @@ impl From<StoryReview> for StoryReviewDto {
 pub struct MergeDto {
     pub merge_commit: String,
     pub base_branch: String,
-    /// `checkout` or `plumbing` (ADR 0009).
+    /// `checkout`, `plumbing` (ADR 0009), `pull_request` or `command` (ADR 0042).
     pub method: String,
     /// How many failing Checks "Merge with failing Check" overrode.
     pub failing_checks_overridden: usize,
@@ -439,6 +439,12 @@ pub struct MergeDto {
     pub cleanup_warning: Option<String>,
     /// The new ADRs Merge linked to the Story, by path.
     pub adrs_linked: Vec<String>,
+    /// `true` when Merge started a landing (ADR 0042): the Story is Landing, not Merged.
+    pub landing: bool,
+    /// The pull request Merge opened, when it opened one.
+    pub request_url: Option<String>,
+    /// A step of the landing the developer should read (auto-merge that could not be turned on).
+    pub landing_note: Option<String>,
 }
 
 impl From<MergeOutcome> for MergeDto {
@@ -450,6 +456,9 @@ impl From<MergeOutcome> for MergeDto {
             failing_checks_overridden: o.failing_checks_overridden.len(),
             cleanup_warning: o.cleanup_warning,
             adrs_linked: o.adrs_linked,
+            landing: o.landing.is_some(),
+            request_url: o.landing.as_ref().and_then(|l| l.request_url.clone()),
+            landing_note: o.landing.and_then(|l| l.note),
         }
     }
 }

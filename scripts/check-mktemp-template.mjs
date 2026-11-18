@@ -9,8 +9,9 @@
  * THE FIX: a template the caller builds on $TMPDIR, `mktemp -d "${TMPDIR:-/tmp}/name.XXXXXX"`.
  *
  * WHAT IS FLAGGED. A `mktemp` that is run (at the start of a line or after `$(`, a backtick, a pipe,
- * `&&`, `||`, `;` or `:`) and has no `XXXX` template on its line, or uses `-t`. A comment line, or a
- * mention in a message, is not run and is left alone. It reads the tracked `*.sh`, `*.yml` and
+ * `&&`, `||`, `;` or `:`) and has no `XXXX` template on its line, or uses `-t`. A comment line, a
+ * mention in a message, and a workflow step's `name:` are not run and are left alone (ci.yml's
+ * step "mktemp templates" failed its own check on main). It reads the tracked `*.sh`, `*.yml` and
  * `package.json` files of this folder. `# mktemp-ok: <reason>` on a line allows it, and the reason is printed.
  *
  * Usage: node scripts/check-mktemp-template.mjs     exit 0 = clean, 1 = a bare mktemp
@@ -28,7 +29,7 @@ export function scanText(text) {
   const allowed = [];
   text.split("\n").forEach((raw, i) => {
     const line = raw.trim();
-    if (line.startsWith("#")) return;
+    if (line.startsWith("#") || /^(- )?name:/.test(line)) return;
     const ok = /# mktemp-ok: (.*)$/.exec(raw);
     const m = RUN.exec(raw);
     if (!m) return;

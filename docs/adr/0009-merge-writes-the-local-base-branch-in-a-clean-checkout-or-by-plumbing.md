@@ -1,5 +1,7 @@
 # Merge writes the local base branch, in a clean checkout or by plumbing, and never pushes
 
+**Amended by [ADR-0042](0042-merge-lands-by-pull-request-by-default-and-keeps-the-local-merge-without-a-forge.md):** this is the route of a project with no remote on a known forge. A project with a forge lands by pull request or by a landing command, and Merge pushes there.
+
 Decided by Claude under Cyril's delegation in [Merge an In review Story for real from its review card](https://github.com/HighKnow-ai/flywheel/issues/155). Relates to ADR-0002. Clicking Merge writes a `--no-ff` merge commit (the base branch's tip first, the Story branch second) on the project's **local** base branch. Merged means that commit is on the local base branch and the worktree is removed. Flywheel never pushes. How the commit is written depends on the developer's own checkout of the base branch, found with `git worktree list --porcelain`:
 
 - **Checked out and clean** (no tracked file changed): `git merge --no-ff` runs in that checkout, so its working tree, index and commit hooks see the merge exactly as a hand merge. A failure is aborted and proved clean (`git::merge_no_ff`).

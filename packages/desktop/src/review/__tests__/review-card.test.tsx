@@ -194,6 +194,30 @@ describe("the review card", () => {
     await waitFor(() => expect(storyMerge).toHaveBeenCalledWith("s1", false));
   });
 
+  it("says the Story is landing, not merged, when Merge opened a pull request (ADR 0042)", async () => {
+    storyReview.mockResolvedValue(review({ criteria: review().criteria.map((c) => ({ ...c, accepted: true })) }));
+    storyMerge.mockResolvedValue({
+      mergeCommit: "def",
+      baseBranch: "main",
+      method: "pull_request",
+      failingChecksOverridden: 0,
+      cleanupWarning: null,
+      adrsLinked: [],
+      landing: true,
+      requestUrl: "https://github.com/acme/app/pull/7",
+      landingNote: null,
+    });
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Merge FLY-7" }));
+    await waitFor(() =>
+      expect(notifySuccess).toHaveBeenCalledWith(
+        "FLY-7 is landing: pull request opened",
+        expect.objectContaining({ description: "https://github.com/acme/app/pull/7" }),
+      ),
+    );
+    expect(notifySuccess).not.toHaveBeenCalledWith(expect.stringContaining("merged into"), expect.anything());
+  });
+
   it("lists failing Checks first, and Merge with failing Check confirms naming them", async () => {
     const failed = check("npm test", "failed", false, "1 test failed: parses_empty");
     const stale = check("cargo test config", "passed", true);

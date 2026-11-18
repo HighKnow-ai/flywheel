@@ -81,6 +81,7 @@ export const STORY_STATE_WORDS: Record<string, string> = {
   ready: "Ready",
   running: "Running",
   in_review: "In review",
+  landing: "Landing",
   merged: "Merged",
   dropped: "Dropped",
 };
@@ -528,7 +529,11 @@ export function DropControl({ story }: { story: StoryDto }) {
         </Button>
       }
       title={`Drop ${story.key}?`}
-      description="This removes its worktree and branch, uncommitted work included. The Story's record stays readable."
+      description={
+        story.state === "landing"
+          ? "This removes its worktree and branch, uncommitted work included. Its request stays open on the forge with auto-merge on, so it can still merge; close it there if it must not. The Story's record stays readable."
+          : "This removes its worktree and branch, uncommitted work included. The Story's record stays readable."
+      }
       cancelLabel="Keep"
       confirmLabel="Drop the Story"
       icon={<Trash2 aria-hidden="true" />}

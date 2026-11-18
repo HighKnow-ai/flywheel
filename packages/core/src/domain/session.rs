@@ -732,7 +732,7 @@ pub fn apply_session_closed(
     // A shaping session has no Story, so it never hands off.
     let handed_off: bool = tx
         .query_row(
-            "SELECT s.state IN ('in_review', 'merged') FROM sessions r JOIN stories s ON s.id = r.story_id WHERE r.id = ?1",
+            "SELECT s.state IN ('in_review', 'landing', 'merged') FROM sessions r JOIN stories s ON s.id = r.story_id WHERE r.id = ?1",
             params![run_id],
             |row| row.get(0),
         )

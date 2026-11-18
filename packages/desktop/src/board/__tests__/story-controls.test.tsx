@@ -183,6 +183,13 @@ describe("Stop and Drop confirm in ConfirmDestructive", () => {
     await waitFor(() => expect(storyDrop).toHaveBeenCalledWith("s12"));
     await waitFor(() => expect(notifySuccess).toHaveBeenCalledWith("Dropped FLY-12", expect.anything()));
   });
+
+  it("Drop of a Landing Story says its request stays open and can still merge", async () => {
+    wrap(<DropControl story={{ ...STORY, state: "landing" }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Drop FLY-12" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Drop FLY-12?" });
+    expect(dialog).toHaveTextContent("can still merge");
+  });
 });
 
 describe("One filled primary per region", () => {

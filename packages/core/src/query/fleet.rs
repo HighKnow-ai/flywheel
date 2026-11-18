@@ -116,7 +116,7 @@ pub const FLEET_SQL: &str = "SELECT * FROM ( \
                 WHERE pr.session_id = ar.id AND pr.status = 'pending' AND pr.expired_at IS NULL) \
                 THEN 'blocked' \
             WHEN ar.status = 'blocked' THEN 'running' \
-            WHEN ar.status = 'completed' AND s.state NOT IN ('merged', 'dropped') \
+            WHEN ar.status = 'completed' AND s.state NOT IN ('landing', 'merged', 'dropped') \
                 THEN 'awaiting_review' \
             ELSE ar.status \
         END AS fleet_state, \

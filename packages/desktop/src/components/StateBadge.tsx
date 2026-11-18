@@ -33,6 +33,8 @@ export const STATE_VOCABULARY = {
   ready: { tone: "neutral", icon: "Circle", label: "Ready" },
   running: { tone: "running", icon: "LoaderCircle", label: "Running" },
   in_review: { tone: "neutral", icon: "GitPullRequest", label: "In review" },
+  // The request is open and the forge has not merged it (ADR 0042): not In review, not yet Merged.
+  landing: { tone: "neutral", icon: "GitPullRequestArrow", label: "Landing" },
   merged: { tone: "neutral", icon: "GitMerge", label: "Merged", quiet: true },
   dropped: { tone: "neutral", icon: "CircleSlash", label: "Dropped", quiet: true },
   // Epic and Milestone states: In progress is derived (Shaping, Ready, Done and Dropped are shared above and below).
