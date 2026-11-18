@@ -12,7 +12,7 @@ import { expect, test } from "@playwright/test";
 import { startCore } from "./core";
 import { flow } from "./fixtures";
 import { HEADLESS_BIN } from "./stage.mjs";
-import { removeScratch } from "./scratch";
+import { parseProcessTable, removeScratch } from "./scratch";
 import { seedFleetBoard } from "./seed";
 import { FLEET_AGENT, FLEET_ENV } from "./agents/fleet-agent";
 
@@ -94,11 +94,33 @@ function groupOf(pid: number): string[] {
 }
 
 /** The pid of the grandchild a stubborn fake agent forks (`fake-claude.mjs`), which carries no scratch folder in its command line. */
-function stubbornGrandchild(): number | null {
-  const line = execFileSync("ps", ["-axo", "pid=,command="], { encoding: "utf8" })
-    .split("\n")
-    .find((l) => l.includes("process.on('SIGINT', () => {}); console.log('ready')") && !/\bps -axo\b/.test(l));
-  return line ? Number(line.trim().split(/\s+/)[0]) : null;
+function stubbornGrandchild(tmp: string): number | null {
+  // THIS core's: its parent is the fake agent, whose command line carries the scratch folder. Any other
+  // process with the same command line is another flow's, or the sidecar's own tests on the same runner
+  // (they fork the same grandchild), and is not ours to expect gone.
+  const rows = parseProcessTable(execFileSync("ps", ["-axo", "pid=,ppid=,pgid=,stat=,command="], { encoding: "utf8" }));
+  const marker = path.basename(tmp);
+  const mine = new Set(rows.filter((r) => r.command.includes(marker)).map((r) => r.pid));
+  return (
+    rows.find(
+      (r) =>
+        r.command.includes("process.on('SIGINT', () => {}); console.log('ready')") &&
+        !/\bps -axo\b/.test(r.command) &&
+        mine.has(r.ppid),
+    )?.pid ?? null
+  );
+}
+
+/** The process-table line of `pid` (pid, ppid, pgid, stat, command), or what `ps` said when it is not there. */
+function lineOf(pid: number): string {
+  try {
+    return (
+      execFileSync("ps", ["-o", "pid=,ppid=,pgid=,stat=,command=", "-p", String(pid)], { encoding: "utf8" }).trim() ||
+      "(no such process)"
+    );
+  } catch {
+    return "(no such process)";
+  }
 }
 
 /** Whether `pid` runs now, and is no zombie (a zombie holds nothing). */
@@ -143,8 +165,9 @@ for (const ending of ["stop", "crash"] as const) {
     const board = await seedFleetBoard(core);
     await core.call("story_start", { storyId: board.stories[0]!.id });
     // The agent has made its commits and is stubborn now: its grandchild runs.
-    await expect.poll(stubbornGrandchild, { timeout: 60_000 }).not.toBeNull();
-    const grandchild = stubbornGrandchild()!;
+    await expect.poll(() => stubbornGrandchild(tmp), { timeout: 60_000 }).not.toBeNull();
+    const grandchild = stubbornGrandchild(tmp)!;
+    const before = lineOf(grandchild);
     expect(processesOn(tmp).some((l) => l.includes("fake-claude.mjs"))).toBe(true);
     expect(groupOf(core.pid).length).toBeGreaterThan(1); // the core, its sidecar and more
     const writer = spawn(process.execPath, ["-e", LATE_WRITER, core.root], { stdio: "ignore" });
@@ -159,7 +182,10 @@ for (const ending of ["stop", "crash"] as const) {
     }
     expect(processesOn(tmp)).toEqual([]);
     expect(groupOf(core.pid)).toEqual([]);
-    expect(runs(grandchild)).toBe(false);
+    expect(
+      runs(grandchild),
+      `the stubborn agent's grandchild outlived ${ending}(). Before: ${before}. Now: ${lineOf(grandchild)}.\nThe reap:\n${core.reapLog.join("\n")}`,
+    ).toBe(false);
     expect(await removeScratch(tmp)).toBeNull();
     expect(fs.existsSync(tmp)).toBe(false);
   });

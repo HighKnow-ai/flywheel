@@ -137,7 +137,11 @@ export async function reapProcesses(by: {
   /** From `snapshotGroups`, taken before the core was ended. */
   groups?: ReadonlySet<number>;
   waitMs?: number;
+  /** Receives one line for each signal sent, so a failed check can say what the reap did. */
+  log?: string[];
 }): Promise<string[]> {
+  const log = by.log ?? [];
+  log.push(`reap: group ${by.group}, snapshot groups [${[...(by.groups ?? [])].join(", ")}]`);
   const deadline = Date.now() + (by.waitMs ?? 10_000);
   for (;;) {
     let left: ProcessRow[];
@@ -154,7 +158,10 @@ export async function reapProcesses(by: {
     } catch (err) {
       return [`could not read the process table: ${String(err)}`];
     }
-    if (left.length === 0) return [];
+    if (left.length === 0) {
+      log.push("reap: nothing of the core left in the process table");
+      return [];
+    }
     if (Date.now() >= deadline) return left.map(describe);
     // The group first: one signal reaches what forks while the rows are read.
     if (by.group !== undefined) {
@@ -167,6 +174,7 @@ export async function reapProcesses(by: {
     for (const g of killGroups) {
       try {
         process.kill(-g, "SIGKILL");
+        log.push(`reap: SIGKILL group ${g}`);
       } catch {
         // No such group any more.
       }
@@ -174,6 +182,7 @@ export async function reapProcesses(by: {
     for (const r of left) {
       try {
         process.kill(r.pid, "SIGKILL");
+        log.push(`reap: SIGKILL ${describe(r)} ppid ${r.ppid} pgid ${r.pgid} stat ${r.stat}`);
       } catch {
         // Gone already.
       }

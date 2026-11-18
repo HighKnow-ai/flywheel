@@ -40,6 +40,8 @@ export interface Core {
   trace(): TraceStep[];
   /** Kill -9 every agent process of this core, as a crash would: the session ends, the board keeps its answers. */
   killAgents(): number;
+  /** What the reaps of `stop()` and `crash()` did: the groups and processes they signalled. */
+  reapLog: string[];
   /**
    * End the core the way a crash or a power cut does: SIGKILL, so it runs no exit step and the
    * database keeps every session it called running. A power cut ends the sidecar and the agents too, so
@@ -196,8 +198,9 @@ export async function startCore(options: {
    * the scratch folder's unique name, with their children. The core's exit does not end them, and a flow
    * that removes the root while one still writes fails its teardown with ENOTEMPTY (`scratch.ts`).
    */
+  const reapLog: string[] = [];
   const reap = async (groups: ReadonlySet<number>) => {
-    const left = await reapProcesses({ group: child.pid, marker: path.basename(tmp), groups });
+    const left = await reapProcesses({ group: child.pid, marker: path.basename(tmp), groups, log: reapLog });
     if (left.length > 0) console.warn(`the core's processes could not be ended: ${left.join("; ")}`);
   };
   const tracePath = path.join(ready.root, "trace.jsonl");
@@ -216,6 +219,7 @@ export async function startCore(options: {
         .slice(0, -1)
         .filter(Boolean)
         .map((line) => JSON.parse(line) as TraceStep),
+    reapLog,
     killAgents() {
       // Only this run's own agents: their command lines carry this run's scratch root.
       const table = execFileSync("ps", ["-axo", "pid=,command="], { encoding: "utf8" });
