@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { after, test } from "node:test";
 
 import { ClaudeCodeAdapter } from "../dist/claude-code-adapter.js";
+import { recordStubbornChildren } from "./stubborn-children.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FAKE_CLAUDE = path.join(__dirname, "fake-claude.mjs");
@@ -29,6 +30,10 @@ process.env.FLYWHEEL_CLAUDE_BIN = FAKE_CLAUDE;
 // observed directly: `permission.test.mjs`'s own 25-second held-open session was torn down by
 // this file's OLD broad pkill mid-suite before this fix.
 const trackedGrandchildPids = [];
+
+/** Every stubborn process this file's sessions start (the fixture records its own pid and its
+ * grandchild's), ended in the `after()` below even when a test never tracked the pid it needs. */
+const stubborn = recordStubbornChildren(import.meta.url);
 
 /** The POSIX process GROUP id for `pid`, or `undefined` if `pid` is no longer alive — mirrors
  * `shutdown.test.mjs`'s own identical helper. The grandchild shares its process group with the
@@ -61,6 +66,7 @@ after(() => {
       // Exited in the gap between the pgid lookup and this signal — nothing to do.
     }
   }
+  stubborn.reap(); // the fixture's own record: ends what the pids above did not reach.
 });
 
 /** Poll `predicate` until it is true or `timeoutMs` elapses. The default is wider than every caller's `withTimeout`, so

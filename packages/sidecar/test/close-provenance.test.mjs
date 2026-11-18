@@ -20,6 +20,7 @@ import { after, test } from "node:test";
 
 import { ClaudeCodeAdapter, resolveCloseOrigin } from "../dist/claude-code-adapter.js";
 import { startPermissionServer } from "../dist/mcp-permission-server.js";
+import { recordStubbornChildren } from "./stubborn-children.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FAKE_CLAUDE = path.join(__dirname, "fake-claude.mjs");
@@ -147,6 +148,10 @@ function sessionSocketNames(wrapperPid) {
  * a backstop against a failed assertion leaving a session running, not the primary teardown. */
 const trackedWrapperPids = [];
 
+/** Every stubborn process this file's sessions start (the fixture records its own pid and its
+ * grandchild's), ended in the `after()` below even when a test never tracked the pid it needs. */
+const stubborn = recordStubbornChildren(import.meta.url);
+
 after(() => {
   for (const pid of trackedWrapperPids) {
     try {
@@ -155,6 +160,7 @@ after(() => {
       // Already gone — nothing to clean up.
     }
   }
+  stubborn.reap(); // the fixture's own record: ends what the pids above did not reach.
 });
 
 /** The three origins Tests 1, 3 and 4 observe, filled in as each runs — `node:test` runs this

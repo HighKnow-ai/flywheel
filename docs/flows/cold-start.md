@@ -20,7 +20,7 @@ sequenceDiagram
 
 The agent is a script (`packages/desktop/e2e/agents/cold-start-agent.ts`). It stays alive until the test kills it.
 
-1. S1: The developer starts a Ready Story. The core makes a worktree and a session, and the session is `running`.
+1. S1: The developer selects Start on a Ready Story on the board. The core makes a worktree and a session, and the session is `running`.
 2. S2: The agent writes a Task.
 3. The test kills the core with SIGKILL, so no exit step runs, and kills the agent. The database still says the session is `running`.
 4. S3: The test starts a new core on the same data. The core runs the same start path as the app: it reads the login `PATH`, opens the database, reconciles projects, worktrees and sessions, starts the sidecar and starts the scheduler. The session is now `abandoned`. It is not a live orphan, because its process is dead.
@@ -32,6 +32,7 @@ S3 and S4 are not commands. The headless core writes them to the trace: S3 when 
 
 | Step | Path | Symbol |
 |---|---|---|
+| S1 | `packages/desktop/src/board/StoryControls.tsx` | `StartControl` |
 | S1 | `packages/desktop/src-tauri/src/commands/session.rs` | `story_start` |
 | S2 | `packages/desktop/src-tauri/src/commands/task.rs` | `handle_inbound_board_tool_request` |
 | S3 | `packages/desktop/src-tauri/src/startup.rs` | `boot` |
@@ -41,7 +42,7 @@ S3 and S4 are not commands. The headless core writes them to the trace: S3 when 
 
 | What it proves | Test path | Covers steps |
 |---|---|---|
-| A session that was running when the app died is `abandoned` after the next start, and the scheduler ticks. | `packages/desktop/e2e/flows/cold-start.spec.ts` | S1-S4 |
+| A session that was running when the app died is `abandoned` after the next start, and the scheduler ticks. The developer starts the Story with the Start button in the real UI. | `packages/desktop/e2e/flows/cold-start.spec.ts` | S1-S4 |
 
 ## Design
 

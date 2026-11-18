@@ -16,6 +16,7 @@ import { createInterface } from "node:readline";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, test } from "node:test";
+import { recordStubbornChildren } from "./stubborn-children.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SIDECAR_ENTRY = path.join(__dirname, "..", "dist", "index.js");
@@ -29,6 +30,10 @@ const FAKE_CLAUDE = path.join(__dirname, "fake-claude.mjs");
 // not just anything this file leaked. Scoping to specific, individually-verified pids sidesteps
 // that cross-file collision entirely.
 const trackedGrandchildPids = [];
+
+/** Every stubborn process this file's sessions start (the fixture records its own pid and its
+ * grandchild's), ended in the `after()` below even when a test never tracked the pid it needs. */
+const stubborn = recordStubbornChildren(import.meta.url);
 
 /** The POSIX process GROUP id for `pid`, or `undefined` if `pid` is no longer alive. The
  * grandchild is spawned WITHOUT its own `detached` flag (`fake-claude.mjs`'s own comment), so its
@@ -60,6 +65,7 @@ after(() => {
       // Exited in the gap between the pgid lookup and this signal — nothing to do.
     }
   }
+  stubborn.reap(); // the fixture's own record: ends what the pids above did not reach.
 });
 
 /** Poll `predicate` until it is true or `timeoutMs` elapses. The default is wider than every caller's `withTimeout`, so

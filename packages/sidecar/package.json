@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc",
     "build:dist": "tsc && node scripts/stage-runtime.mjs",
-    "test": "npm run build && FLYWHEEL_RUNTIME_DIR=\"${FLYWHEEL_RUNTIME_DIR:-$(mktemp -d \"${TMPDIR:-/tmp}/flywheel-sidecar.XXXXXX\")}\" FLYWHEEL_HEARTBEAT_STALE_MS=\"${FLYWHEEL_HEARTBEAT_STALE_MS:-120000}\" node --test ${FLYWHEEL_TEST_CONCURRENCY:+--test-concurrency=$FLYWHEEL_TEST_CONCURRENCY} test/*.test.mjs"
+    "test": "npm run build && export FLYWHEEL_STUBBORN_DIR=\"${FLYWHEEL_STUBBORN_DIR:-$(mktemp -d \"${TMPDIR:-/tmp}/flywheel-stubborn.XXXXXX\")}\" && FLYWHEEL_RUNTIME_DIR=\"${FLYWHEEL_RUNTIME_DIR:-$(mktemp -d \"${TMPDIR:-/tmp}/flywheel-sidecar.XXXXXX\")}\" FLYWHEEL_HEARTBEAT_STALE_MS=\"${FLYWHEEL_HEARTBEAT_STALE_MS:-120000}\" node --test ${FLYWHEEL_TEST_CONCURRENCY:+--test-concurrency=$FLYWHEEL_TEST_CONCURRENCY} test/*.test.mjs; status=$?; node scripts/check-no-stubborn-left.mjs || status=1; exit $status"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

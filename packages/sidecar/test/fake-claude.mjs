@@ -352,7 +352,15 @@ if (CHECK_ENV_VAR) {
   printLine({ type: "env_check_result", varName: CHECK_ENV_VAR, matches: actual === expected, present: actual !== undefined });
 }
 
+/** Append `pid` to the pid file the test file named in FLYWHEEL_STUBBORN_PIDFILE (see
+ * `stubborn-children.mjs`), so the file's teardown and the check after the suite can end a
+ * stubborn process this fixture left behind. A no-op when no test file named one. */
+function recordStubbornPid(pid) {
+  if (process.env.FLYWHEEL_STUBBORN_PIDFILE) fs.appendFileSync(process.env.FLYWHEEL_STUBBORN_PIDFILE, `${pid}\n`);
+}
+
 if (STUBBORN) {
+  recordStubbornPid(process.pid);
   // A plain (non-detached) spawn from here inherits THIS process's process group — exactly the
   // group the adapter's negative-pid signal targets, so the grandchild dies from the OS group
   // delivery itself, never from a signal this script relays. The grandchild ALSO ignores SIGINT
@@ -374,6 +382,7 @@ if (STUBBORN) {
     ["-e", "process.on('SIGINT', () => {}); console.log('ready'); setInterval(() => {}, 1000);"],
     { stdio: ["ignore", "pipe", "ignore"] },
   );
+  recordStubbornPid(grandchild.pid);
   createInterface({ input: grandchild.stdout }).once("line", () => {
     printLine({ type: "grandchild_pid", pid: grandchild.pid });
   });

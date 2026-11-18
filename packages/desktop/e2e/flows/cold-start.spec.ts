@@ -35,8 +35,10 @@ flow(
     const storyKey = board.storyKey!;
     const storyId = board.storyId!;
 
-    // Life one: the Story starts, its session runs and the agent writes a Task.
-    await core.call("story_start", { storyId });
+    // Life one: the developer starts the Story with its Start button, its session runs and the agent writes
+    // a Task.
+    await open();
+    await page.getByRole("button", { name: `Start ${storyKey}` }).click();
     await expect.poll(() => core.trace().some((s) => s.label === "task_add"), { timeout: 60_000 }).toBe(true);
     const before = await core.call<RunSummary[]>("sessions_for_story", { storyId });
     expect(before.map((r) => r.status)).toEqual(["running"]);

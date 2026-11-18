@@ -18,6 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, test } from "node:test";
+import { recordStubbornChildren } from "./stubborn-children.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WATCHDOG_ENTRY = path.join(__dirname, "..", "dist", "watchdog.js");
@@ -28,6 +29,10 @@ const FAKE_CLAUDE = path.join(__dirname, "fake-claude.mjs");
  * never a broad `pkill -f`, which can tear down a sibling test file's still-legitimate session). */
 const trackedWatchdogPids = [];
 
+/** Every stubborn process this file's sessions start (the fixture records its own pid and its
+ * grandchild's), ended in the `after()` below even when a test never tracked the pid it needs. */
+const stubborn = recordStubbornChildren(import.meta.url);
+
 after(() => {
   for (const pid of trackedWatchdogPids) {
     try {
@@ -36,6 +41,7 @@ after(() => {
       // Already gone — nothing to clean up.
     }
   }
+  stubborn.reap(); // the fixture's own record: ends what the pids above did not reach.
 });
 
 /** `true` if `pid` answers a zero-signal probe, `false` otherwise (including "never existed" and
