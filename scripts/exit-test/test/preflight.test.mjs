@@ -11,6 +11,7 @@ import {
   checkBoard,
   checkBuild,
   checkClaude,
+  checkClaudeConfigDir,
   checkDropBacks,
   checkProjects,
   checkShim,
@@ -191,6 +192,27 @@ export const probeClaudeBinary = async () => {
   const bad = checkClaude({ flywheelDir: dir, env: { ...process.env, FLYWHEEL_CLAUDE_BIN: path.join(dir, "absent") } });
   assert.equal(bad.status, "red");
   assert.match(bad.detail, /FLYWHEEL_CLAUDE_BIN/);
+});
+
+test("checkClaudeConfigDir warns when a login shell would give the app another config folder than the terminal's", () => {
+  const shellSays = (value, seen = []) => (cmd, args, opts) => {
+    seen.push(opts.env);
+    return { status: 0, stdout: `noise__FLYWHEEL_CONFIG_DIR__${value}__FLYWHEEL_CONFIG_DIR__` };
+  };
+  const seen = [];
+  const same = checkClaudeConfigDir({ env: { SHELL: "/bin/zsh", CLAUDE_CONFIG_DIR: "/c/.claude" }, run: shellSays("/c/.claude", seen) });
+  assert.equal(same.status, "green");
+  assert.equal("CLAUDE_CONFIG_DIR" in seen[0], false, "the asked shell starts as the Finder starts the app: without the variable");
+
+  const differs = checkClaudeConfigDir({ env: { SHELL: "/bin/zsh", CLAUDE_CONFIG_DIR: "/c/.claude" }, run: shellSays("") });
+  assert.equal(differs.status, "warn");
+  assert.match(differs.detail, /\/c\/\.claude.*\(unset\)/);
+  assert.equal(checkClaudeConfigDir({ env: { SHELL: "/bin/zsh" }, run: shellSays("") }).status, "green");
+  // A relative or tilde value is ignored by the app, so it counts as unset there.
+  const rel = checkClaudeConfigDir({ env: { SHELL: "/bin/zsh", CLAUDE_CONFIG_DIR: "/c/.claude" }, run: shellSays("~/x") });
+  assert.equal(rel.status, "warn");
+  assert.match(rel.detail, /~\/x is not an absolute path/);
+  assert.equal(checkClaudeConfigDir({ env: {}, run: () => ({ status: 1, stdout: "" }) }).status, "warn");
 });
 
 test("renderTable prints one aligned row per check", () => {

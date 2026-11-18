@@ -13,7 +13,7 @@ import {
   sampleProcess,
   snapshotProcesses,
   SNAPSHOT_EVERY_MS,
-  START_LIMIT_MS,
+  startLimitMs,
   StartTimeline,
 } from "./core-start";
 import { reapProcesses } from "./scratch";
@@ -133,7 +133,7 @@ export async function startCore(options: {
   let ready: { port: number; token: string; repo: string; project: string; root: string };
   try {
     ready = await waitForReady(child, timeline, {
-      limitMs: options.readyLimitMs ?? START_LIMIT_MS,
+      limitMs: options.readyLimitMs ?? startLimitMs(),
       readLog,
       saveReport,
       samplePath: path.join(tmp, "core-start-sample.txt"),

@@ -8,6 +8,9 @@
  * - "Remove from Flywheel…" (D-200) asks first, naming the board, worktrees, runs and trail as
  *   kept; calls `project_hide` exactly once and only after the confirmation; a hidden project is
  *   absent from the rail; and the rail selects another project afterwards.
+ * - "Rename…" (issue #1762) opens a dialog with the current name; Rename is off while the field is blank
+ *   or unchanged; `project_rename` is called once with the typed name; a refusal from the core is shown
+ *   under the field with the dialog and the draft kept; nothing is called when it is cancelled.
  * - `ProjectUnreachable` offers exactly one action, and nothing that tries again on its own,
  *   searches the disk, or fixes the mismatch without the user's explicit choice.
  */
@@ -41,6 +44,7 @@ vi.mock("../../adapters/tauri", () => ({
   subscribeMenuAction: () => Promise.resolve(() => {}),
   openFolderDialog: () => Promise.resolve(null),
   projectHide: (projectId: string) => invokeCommandMock("project_hide", { projectId }),
+  projectRename: (projectId: string, name: string) => invokeCommandMock("project_rename", { projectId, name }),
   storyGet: (storyId: string) => storyGetMock(storyId),
   needsYouList: (projectId: string) => needsYouListMock(projectId),
 }));
@@ -803,5 +807,75 @@ describe("the rail's All agents figure is the strip's agent count (issues #199, 
     renderWithClient(<ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />);
     const fleet = screen.getByRole("button", { name: "Open fleet" });
     await waitFor(() => expect(fleet.querySelector('[data-count="agents"]')).toHaveTextContent("3"));
+  });
+});
+
+describe("ProjectRail's Rename (issue #1762)", () => {
+  const alpha = project({ id: "p1", name: "HighKnow-harness", keyPrefix: "FLY" });
+
+  async function openDialog() {
+    const trigger = screen.getByRole("button", { name: "Project actions for HighKnow-harness" });
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Rename…" }));
+    return screen.findByRole("dialog");
+  }
+
+  it("offers Rename in the project's own menu, before Remove", async () => {
+    renderWithClient(<ProjectRail projects={[alpha]} currentProjectId="p1" onSelect={() => {}} />);
+    const trigger = screen.getByRole("button", { name: "Project actions for HighKnow-harness" });
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    const items = (await screen.findAllByRole("menuitem")).map((item) => item.textContent);
+    expect(items).toEqual(["Rename…", "Remove from Flywheel…"]);
+  });
+
+  it("opens on the current name, names the key that stays, and keeps Rename off until the name changes", async () => {
+    renderWithClient(<ProjectRail projects={[alpha]} currentProjectId="p1" onSelect={() => {}} />);
+    const dialog = await openDialog();
+    const field = within(dialog).getByRole("textbox", { name: "Project name" });
+    expect(field).toHaveValue("HighKnow-harness");
+    expect(dialog).toHaveTextContent("FLY");
+    const rename = within(dialog).getByRole("button", { name: "Rename" });
+    expect(rename).toBeDisabled();
+    fireEvent.change(field, { target: { value: "   " } });
+    expect(rename).toBeDisabled();
+    fireEvent.change(field, { target: { value: "  HighKnow-harness " } });
+    expect(rename).toBeDisabled();
+    fireEvent.change(field, { target: { value: "Flywheel" } });
+    expect(rename).toBeEnabled();
+  });
+
+  it("calls project_rename once with the typed name and closes", async () => {
+    invokeCommandMock.mockResolvedValue({ ...alpha, name: "Flywheel" });
+    renderWithClient(<ProjectRail projects={[alpha]} currentProjectId="p1" onSelect={() => {}} />);
+    const dialog = await openDialog();
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Project name" }), {
+      target: { value: "Flywheel" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Rename" }));
+    await waitFor(() =>
+      expect(invokeCommandMock).toHaveBeenCalledWith("project_rename", { projectId: "p1", name: "Flywheel" }),
+    );
+    expect(invokeCommandMock.mock.calls.filter(([command]) => command === "project_rename")).toHaveLength(1);
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("shows the core's refusal under the field and keeps the dialog and the draft", async () => {
+    invokeCommandMock.mockRejectedValue('another project is already named "Beta"');
+    renderWithClient(<ProjectRail projects={[alpha]} currentProjectId="p1" onSelect={() => {}} />);
+    const dialog = await openDialog();
+    const field = within(dialog).getByRole("textbox", { name: "Project name" });
+    fireEvent.change(field, { target: { value: "beta" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Rename" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent('another project is already named "Beta"');
+    expect(field).toHaveValue("beta");
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("calls nothing when cancelled", async () => {
+    renderWithClient(<ProjectRail projects={[alpha]} currentProjectId="p1" onSelect={() => {}} />);
+    const dialog = await openDialog();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(invokeCommandMock).not.toHaveBeenCalledWith("project_rename", expect.anything());
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 });

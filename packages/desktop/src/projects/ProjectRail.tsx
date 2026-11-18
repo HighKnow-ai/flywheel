@@ -27,6 +27,8 @@
  * An unreachable project (D-16) carries a warning glyph AND the word "Unreachable", never a colour alone, and
  * a Tooltip saying where Flywheel looked; `App.tsx` decides that selecting it opens `ProjectUnreachable`.
  *
+ * "Rename…" (issue #1762) opens `RenameProjectDialog`: the name changes, the key prefix never does.
+ *
  * "Remove from Flywheel…" (D-200) lives in each project's own menu, never in the always-visible footer, and
  * is a reversible soft-hide confirmed with ConfirmDestructive. The confirmation names what is kept (the
  * board, worktrees, runs and activity trail); removing the project on screen selects another, so the
@@ -43,6 +45,7 @@ import {
   Folder,
   FolderMinus,
   MoreHorizontal,
+  Pencil,
   Plus,
   Settings,
   SquareStack,
@@ -93,6 +96,7 @@ import {
   cn,
 } from "@highknow/design";
 import { notify } from "@/lib/notify";
+import { RenameProjectDialog } from "./RenameProjectDialog";
 import { useRegisterProjectFlow, useRegistrationErrorToast } from "./RegisterProjectFlow";
 import { agentCount, lampsFromFleet } from "../shell/AndonStrip";
 import { useUiStore } from "../state/uiStore";
@@ -440,6 +444,8 @@ function plural(count: number, one: string, many: string): string {
 export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRailProps) {
   // The project whose removal is being confirmed, if any.
   const [removing, setRemoving] = useState<Project | null>(null);
+  // The project being renamed, if any (issue #1762).
+  const [renaming, setRenaming] = useState<Project | null>(null);
   const queryClient = useQueryClient();
   const { state: sidebarState } = useSidebar();
   const collapsed = sidebarState === "collapsed";
@@ -706,6 +712,10 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
                         </SidebarMenuAction>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent side="right" align="start" className="min-w-52">
+                        <DropdownMenuItem onSelect={() => setRenaming(project)}>
+                          <Pencil aria-hidden="true" />
+                          Rename…
+                        </DropdownMenuItem>
                         <DropdownMenuItem variant="destructive" onSelect={() => setRemoving(project)}>
                           <FolderMinus aria-hidden="true" />
                           Remove from Flywheel…
@@ -755,6 +765,7 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
           </SidebarFooter>
         </nav>
       </Sidebar>
+      <RenameProjectDialog project={renaming} onClose={() => setRenaming(null)} />
       <ConfirmDestructive
         open={removing !== null}
         onOpenChange={(open) => {

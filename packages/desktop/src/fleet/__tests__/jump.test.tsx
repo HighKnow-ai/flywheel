@@ -455,7 +455,14 @@ describe("AppShell: where a fleet row takes you", () => {
     ]);
     fireEvent.click(rowFor(container, "run-f"));
     await waitFor(() => expect(sessionBack()).not.toBeNull());
-    expect(await screen.findByText(/This run has ended/)).toBeInTheDocument();
+    // Wait for whichever of the two texts the session settles on, then assert. `findByText(/This run has
+    // ended/)` alone waited the whole async-util budget (5 s, 15 s at the gate's time scale) for a text the
+    // bug never shows, and an expected failure has no reason to spend it (#1732). When the bug is fixed the
+    // ended text comes first, nothing here throws, and `it.fails` turns red as the comment above asks.
+    await waitFor(() =>
+      expect(screen.queryByText(/This run has ended/) ?? screen.queryByText("Starting session\u2026")).not.toBeNull(),
+    );
+    expect(screen.queryByText(/This run has ended/)).toBeInTheDocument();
     expect(screen.queryByText("Starting session\u2026")).toBeNull();
   });
 });

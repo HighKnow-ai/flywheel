@@ -290,6 +290,41 @@ export function checkClaude({ flywheelDir, env = process.env, run = spawnSync })
   return green(name, `${out.bin} ${out.version ?? ""}`.trim());
 }
 
+const CONFIG_MARKER = "__FLYWHEEL_CONFIG_DIR__";
+
+/**
+ * 7. The terminal's `CLAUDE_CONFIG_DIR` is what the app's `claude` will use (issue #1758). The app, opened from
+ * the Finder, has no such variable and takes the one a login shell reports (`login_path.rs`). So ask a login shell,
+ * started without the variable, what it sets, and compare with this terminal. Claude Code keys its stored login to
+ * the config folder, so a difference means the app reads another login than the one `/login` just refreshed.
+ */
+export function checkClaudeConfigDir({ env = process.env, run = spawnSync } = {}) {
+  const name = "claude config folder";
+  const shell = env.SHELL || "/bin/zsh";
+  const { CLAUDE_CONFIG_DIR: _own, ...finderLike } = env;
+  const r = run(shell, ["-l", "-i", "-c", `printf '${CONFIG_MARKER}%s${CONFIG_MARKER}' "$CLAUDE_CONFIG_DIR"`], {
+    encoding: "utf8",
+    env: finderLike,
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout: 5000,
+  });
+  const m = new RegExp(`${CONFIG_MARKER}(.*)${CONFIG_MARKER}`, "s").exec(r.stdout ?? "");
+  if (r.status !== 0 || !m) {
+    return warn(name, `could not ask ${shell} -l -i for CLAUDE_CONFIG_DIR${r.error ? ` (${r.error.message})` : ""}; the app may not see it either`);
+  }
+  // The app ignores a relative or tilde value (login_path.rs), so it would run without the variable.
+  const reported = m[1].trim();
+  const app = path.isAbsolute(reported) ? reported : "";
+  const terminal = (env.CLAUDE_CONFIG_DIR ?? "").trim();
+  if (app === terminal) return green(name, terminal ? `CLAUDE_CONFIG_DIR=${terminal} in the terminal and in the app` : "CLAUDE_CONFIG_DIR unset in both");
+  return warn(
+    name,
+    `the terminal has CLAUDE_CONFIG_DIR=${terminal || "(unset)"} but the app's claude would use ${app || "(unset)"}${reported && !app ? ` (the login shell's ${reported} is not an absolute path, so the app ignores it)` : ""}. ` +
+      "Claude Code keeps its login per config folder, so /login in this terminal does not refresh the app's login. " +
+      "Set the variable in ~/.zshenv, or log in once with the app's value",
+  );
+}
+
 /** Renders results as a table; `red` rows make the run fail. */
 export function renderTable(results) {
   const mark = { green: "GREEN", warn: "WARN ", red: "RED  " };

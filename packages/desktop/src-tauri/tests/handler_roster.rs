@@ -59,6 +59,7 @@ const ROSTER: &[&str] = &[
     "project::project_reconcile",
     "project::project_register",
     "project::project_relocate",
+    "project::project_rename",
     "project::project_restore",
     "proposal::proposal_accept",
     "proposal::proposal_amend",

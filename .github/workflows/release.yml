@@ -170,7 +170,7 @@ jobs:
       - name: The bundle is locked to production, and every Mach-O in it would load
         run: |
           set -euo pipefail
-          mnt=$(mktemp -d)
+          mnt=$(mktemp -d "${TMPDIR:-/tmp}/flywheel-dmg.XXXXXX")
           hdiutil attach "signed/Flywheel_${TAG#v}_aarch64.dmg" -nobrowse -readonly -mountpoint "$mnt" -quiet
           trap 'hdiutil detach "$mnt" -quiet' EXIT
           node scripts/release/check-release-bundle.mjs "$mnt/Flywheel.app"

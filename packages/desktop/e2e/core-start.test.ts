@@ -3,8 +3,8 @@
  * in, put the core's own lines among the harness's in time order, and read the process table and the
  * `sample` report without a machine to run them on.
  */
-import { describe, expect, it } from "vitest";
-import { callGraph, parseCoreLog, processTree, StartTimeline } from "./core-start";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { callGraph, parseCoreLog, processTree, START_LIMIT_MS, startLimitMs, StartTimeline } from "./core-start";
 
 const SPAWN_EPOCH = 1_000_000;
 const line = (offsetMs: number, sinceMainMs: number, phase: string) =>
@@ -147,5 +147,24 @@ describe("callGraph", () => {
 
   it("returns a short report that is no call graph as it is", () => {
     expect(callGraph("sample: process is not responding")).toBe("sample: process is not responding");
+  });
+});
+
+describe("startLimitMs", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("keeps the 60 s of a developer's machine when no factor is set", () => {
+    vi.stubEnv("FLYWHEEL_TEST_TIME_SCALE", "");
+    expect(startLimitMs()).toBe(START_LIMIT_MS);
+  });
+
+  it("waits three times as long on the gate runner, which sets the factor 3 (the slow path of #1743)", () => {
+    vi.stubEnv("FLYWHEEL_TEST_TIME_SCALE", "3");
+    expect(startLimitMs()).toBe(180_000);
+  });
+
+  it("ignores a factor that is not a positive number", () => {
+    vi.stubEnv("FLYWHEEL_TEST_TIME_SCALE", "-2");
+    expect(startLimitMs()).toBe(START_LIMIT_MS);
   });
 });

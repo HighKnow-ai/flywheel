@@ -2049,6 +2049,14 @@ export async function worktreeReclaim(storyIds: string[]): Promise<ReclaimOutcom
 // Projects.
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * Rename a project (issue #1762). The core trims and checks the name and refuses an empty, over-long or
+ * taken one with a message; the key prefix does not change. Resolves to the project as committed.
+ */
+export async function projectRename(projectId: string, name: string): Promise<Project> {
+  return invokeCommand<Project>("project_rename", { projectId, name });
+}
+
 /** Remove a project from every list (D-200). A reversible soft-hide, never a delete. */
 export async function projectHide(projectId: string): Promise<void> {
   return invokeCommand<void>("project_hide", { projectId });

@@ -21,9 +21,22 @@
 import { execFile } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
+import { testTimeScale } from "../src/test/time-scale";
 
-/** How long the harness waits for the core's ready line. Raising it hides a stall; read the report instead. */
+/** How long the harness waits for the core's ready line on a developer's machine. */
 export const START_LIMIT_MS = 60_000;
+
+/**
+ * The wait for the core's ready line on THIS machine: `START_LIMIT_MS` times `FLYWHEEL_TEST_TIME_SCALE`
+ * (issue #1743). The gate runner keeps background priority, where a start that takes 3 s at normal
+ * priority can take 14 times that, and one WebKit run missed the fixed 60 s at a load average of 38. Every
+ * other budget of the suite scales the same way (src/test/time-scale.ts). A core that never starts still
+ * fails, only later, and with the same report, so a stall is not hidden: read the report before you
+ * raise the factor.
+ */
+export function startLimitMs(): number {
+  return START_LIMIT_MS * testTimeScale();
+}
 /** How often a snapshot of the core and its children joins the timeline while the harness waits. */
 export const SNAPSHOT_EVERY_MS = 5_000;
 

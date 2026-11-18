@@ -551,6 +551,133 @@ pub fn restore_project(
         .context("failed to commit restore_project transaction")
 }
 
+/// The longest project name, in characters. The command layer's registration limit is the same.
+pub const PROJECT_NAME_MAX_LEN: usize = 200;
+
+/// Why a project name is refused (issue #1762). Each variant is a message the developer can act on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProjectNameError {
+    /// Nothing but whitespace, or nothing at all.
+    Empty,
+    /// More than [`PROJECT_NAME_MAX_LEN`] characters after trimming.
+    TooLong { chars: usize },
+    /// Another listed project already carries the name (compared ignoring case).
+    Taken { other: String },
+}
+
+impl std::fmt::Display for ProjectNameError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Empty => write!(f, "project name must not be empty"),
+            Self::TooLong { chars } => write!(
+                f,
+                "project name must be 1-{PROJECT_NAME_MAX_LEN} characters, got {chars}"
+            ),
+            Self::Taken { other } => {
+                write!(f, "another project is already named {other:?}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ProjectNameError {}
+
+/// Check a new project name against the names of the other listed projects and return it trimmed.
+/// Pure, so the rules are tested without a database: whitespace around the name is dropped, an
+/// empty result and an over-long one are refused, and a name another project already holds is
+/// refused, ignoring case, so two rail rows can never read the same.
+pub fn validate_project_name<'a>(
+    name: &str,
+    other_names: impl IntoIterator<Item = &'a str>,
+) -> Result<String, ProjectNameError> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err(ProjectNameError::Empty);
+    }
+    let chars = trimmed.chars().count();
+    if chars > PROJECT_NAME_MAX_LEN {
+        return Err(ProjectNameError::TooLong { chars });
+    }
+    let folded = trimmed.to_lowercase();
+    for other in other_names {
+        if other.trim().to_lowercase() == folded {
+            return Err(ProjectNameError::Taken {
+                other: other.to_string(),
+            });
+        }
+    }
+    Ok(trimmed.to_string())
+}
+
+/// Rename a project (issue #1762). Writes `projects.name` and appends one `project.renamed` event
+/// on the project's own stream, in one transaction, like the other project changes. The key prefix,
+/// the key counter, the id and the repository path are not touched: Story keys are permanent
+/// (D-10), and the marker in the repository names the id and the key, never the name.
+///
+/// A name equal to the current one after trimming changes nothing and appends no event. A refused
+/// name (see [`validate_project_name`]) writes nothing. Only listed projects count for the
+/// duplicate check: a project removed from Flywheel (D-200) does not hold its name. Errors on an
+/// unknown project id. Returns the project as committed.
+pub fn rename_project(
+    conn: &mut Connection,
+    actor_id: &str,
+    project_id: &str,
+    new_name: &str,
+) -> anyhow::Result<Project> {
+    let tx = conn.transaction()?;
+    let before: String = tx
+        .query_row(
+            "SELECT name FROM projects WHERE id = ?1",
+            params![project_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .context("failed to read the project")?
+        .ok_or_else(|| anyhow!("project {project_id:?} not found"))?;
+
+    let others = {
+        let mut stmt = tx.prepare("SELECT name FROM projects WHERE hidden = 0 AND id != ?1")?;
+        let rows = stmt
+            .query_map(params![project_id], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()
+            .context("failed to read the other project names")?;
+        rows
+    };
+    let after = validate_project_name(new_name, others.iter().map(String::as_str))?;
+
+    if after != before {
+        tx.execute(
+            "UPDATE projects SET name = ?1 WHERE id = ?2",
+            params![after, project_id],
+        )
+        .context("failed to update project name")?;
+        let sequence = next_sequence(&tx, project_id, "local")?;
+        let payload = serde_json::json!({
+            "field": "name",
+            "before": before,
+            "after": after,
+            "label": format!("Renamed {before} to {after}"),
+        });
+        append_event(
+            &tx,
+            project_id,
+            "local",
+            sequence,
+            "project",
+            project_id,
+            None,
+            None,
+            actor_id,
+            "project.renamed",
+            &payload,
+            &now_rfc3339(),
+        )?;
+    }
+    tx.commit()
+        .context("failed to commit rename_project transaction")?;
+    get_project(conn, project_id)
+}
+
 /// Explicitly relocate a project to `new_repo_path` — the ONLY recovery action offered for an
 /// unreachable project (D-16, 01-UI-SPEC.md "Project unreachable"). Verifies the marker AT the
 /// new path names `project_id` and rejects a mismatch rather than adopting it (T-01-29): this

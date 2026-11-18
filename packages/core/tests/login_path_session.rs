@@ -4,6 +4,10 @@
 //! (`FLYWHEEL_CLAUDE_BIN` unset), and the session's own shell sees the shim directory in front of
 //! the same login-shell `PATH`.
 //!
+//! Issue #1758 rides on the same test: the profile also sets `CLAUDE_CONFIG_DIR`, which Finder's
+//! environment lacks, and the `claude` the sidecar spawns must see it, and no other variable the
+//! profile exports.
+//!
 //! One test in this binary on purpose: it rewrites the process's `PATH`, `SHELL` and `ZDOTDIR`.
 
 use std::io::{BufRead, BufReader, Write};
@@ -48,7 +52,7 @@ fn a_session_spawns_claude_found_only_on_the_login_profile_path() {
     std::fs::write(
         &stub,
         format!(
-            "#!/bin/sh\n{{ printf '%s\\n' \"$PATH\"; command -v git; }} > '{}'\nexec '{}' '{}' \"$@\"\n",
+            "#!/bin/sh\n{{ printf '%s\\n' \"$PATH\"; command -v git; printf '%s\\n' \"${{CLAUDE_CONFIG_DIR-unset}}\" \"${{FLYWHEEL_PROFILE_ONLY-unset}}\"; }} > '{}'\nexec '{}' '{}' \"$@\"\n",
             record_file.display(),
             node.display(),
             fake_claude.display()
@@ -57,9 +61,14 @@ fn a_session_spawns_claude_found_only_on_the_login_profile_path() {
     .unwrap();
     std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
     let profile = tempfile::tempdir().unwrap();
+    let config_dir = tempfile::tempdir().unwrap();
     std::fs::write(
         profile.path().join(".zprofile"),
-        format!("export PATH=\"{}:$PATH\"\n", profile_bin.path().display()),
+        format!(
+            "export PATH=\"{}:$PATH\"\nexport CLAUDE_CONFIG_DIR=\"{}\"\nexport FLYWHEEL_PROFILE_ONLY=leaked\n",
+            profile_bin.path().display(),
+            config_dir.path().display()
+        ),
     )
     .unwrap();
     let runtime = tempfile::tempdir().unwrap();
@@ -70,6 +79,9 @@ fn a_session_spawns_claude_found_only_on_the_login_profile_path() {
     std::env::set_var("ZDOTDIR", profile.path());
     std::env::set_var("FLYWHEEL_RUNTIME_DIR", runtime.path());
     std::env::remove_var("FLYWHEEL_CLAUDE_BIN");
+    // Finder's environment: no config folder, and nothing the profile exports.
+    std::env::remove_var("CLAUDE_CONFIG_DIR");
+    std::env::remove_var("FLYWHEEL_PROFILE_ONLY");
 
     let login = adopt(Duration::from_secs(30));
     assert_eq!(login.warning, None);
@@ -154,5 +166,15 @@ fn a_session_spawns_claude_found_only_on_the_login_profile_path() {
         lines.next().map(PathBuf::from),
         Some(shim_dir.join("git")),
         "the session's git is the shim"
+    );
+    assert_eq!(
+        lines.next().map(PathBuf::from),
+        Some(config_dir.path().to_path_buf()),
+        "the spawned claude carries the login shell's CLAUDE_CONFIG_DIR"
+    );
+    assert_eq!(
+        lines.next(),
+        Some("unset"),
+        "no other variable of the login shell reaches the spawn"
     );
 }

@@ -15,6 +15,7 @@ Write in ASD-STE100 Simplified Technical English. Cover one flow in each doc.
 | The blocked queue is answered | [blocked-queue.md](blocked-queue.md) | `packages/desktop/e2e/flows/blocked-queue.spec.ts` |
 | A Story of a monorepo folder runs and merges | [monorepo-layout.md](monorepo-layout.md) | `packages/desktop/e2e/flows/monorepo-layout.spec.ts` |
 | A session lives past the watchdog window | [session-supervision.md](session-supervision.md) | `packages/desktop/e2e/flows/session-supervision.spec.ts` |
+| A project is renamed from its menu | [project-rename.md](project-rename.md) | `packages/desktop/e2e/flows/project-rename.spec.ts` |
 
 ## Participants
 

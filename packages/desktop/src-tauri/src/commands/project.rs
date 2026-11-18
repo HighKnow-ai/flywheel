@@ -1,11 +1,13 @@
-//! `project_register` / `project_list` / `project_hide` / `project_restore` — project registration,
-//! listing and reversible removal.
+//! `project_register` / `project_list` / `project_rename` / `project_hide` / `project_restore` — project
+//! registration, listing, renaming and reversible removal.
 
 use serde::Serialize;
 use std::path::Path;
 use tauri::State;
 
+use super::emit_board_changed;
 use crate::state::AppState;
+use crate::AppHandle;
 
 const MAX_NAME_LEN: usize = 200;
 const MAX_REPO_PATH_LEN: usize = 4096;
@@ -175,6 +177,33 @@ pub async fn project_relocate(
     })
     .await
     .map_err(|e| super::ipc_error("project_relocate:join", e))?
+}
+
+/// Rename a project (issue #1762). Takes a project id and the new name; the actor is resolved here,
+/// never accepted from the renderer (T-01-04). The core trims and checks the name (empty, too long,
+/// held by another listed project) and refuses with a message the dialog shows as it stands. The key
+/// prefix and the Story keys do not change. Emits `board:changed` for the project, so every view that
+/// shows its name reads it again, and returns the project as committed.
+#[tauri::command]
+pub fn project_rename(
+    state: State<AppState>,
+    app: AppHandle,
+    project_id: String,
+    name: String,
+) -> Result<ProjectDto, String> {
+    let project_id = project_id.trim();
+    if project_id.is_empty() {
+        return Err("project id is required".to_string());
+    }
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    let project =
+        flywheel_core::domain::project::rename_project(&mut conn, &actor_id, project_id, &name)
+            .map_err(|e| e.to_string())?;
+    drop(conn);
+    emit_board_changed(&app, Some(&project.id), "project", Some(&project.id));
+    Ok(project.into())
 }
 
 /// Remove a project from every list (D-200, closes D-REV-29) — a reversible soft-hide, never a

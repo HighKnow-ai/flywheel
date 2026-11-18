@@ -183,6 +183,12 @@ jobs:
       - name: Release script tests
         run: node --test scripts/release/test/*.test.mjs
 
+      # A bare mktemp ignores TMPDIR on macOS and fails in a sandbox (#1766): plain Node.
+      - name: mktemp templates
+        run: |
+          node --test scripts/test/check-mktemp-template.test.mjs
+          node scripts/check-mktemp-template.mjs
+
       # Every HighKnow host in the code is a row of docs/hosted-calls.md (ADR 0041): plain Node.
       - name: Hosted-calls allowlist
         run: |
@@ -408,7 +414,7 @@ jobs:
       - name: Every Mach-O in the bundle would load
         run: |
           bundle=target/release/bundle
-          mnt=$(mktemp -d)
+          mnt=$(mktemp -d "${TMPDIR:-/tmp}/flywheel-dmg.XXXXXX")
           hdiutil attach "$bundle"/dmg/*.dmg -nobrowse -readonly -mountpoint "$mnt" -quiet
           trap 'hdiutil detach "$mnt" -quiet' EXIT
           node scripts/release/check-macho.mjs "$bundle/macos/Flywheel.app" "$mnt/Flywheel.app"

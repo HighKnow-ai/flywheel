@@ -69,7 +69,7 @@ See `ARCHITECTURE.md` at the repo root.
 - To accept a new flow, run `e2e -- --update` and read the diff of the doc.
 - The agent is always the script `fake-claude.mjs`. Never use a real `claude` binary, a token or the keychain in a test.
 - Playwright runs two workers, so two flows run at once. A flow shares nothing with another: its own core, scratch root, ports and agent. Never give a flow a fixed port, a fixed path or a write to `$HOME`. `run.mjs` picks the Vite port for each run, and `--update` runs one worker.
-- A core that is not ready in 60 s fails with a timeline of its start: the core's phase lines, the harness's events and a `sample` of its stacks. Every test attaches the same report as `core-start.txt`. Read it before you change a limit.
+- A core that is not ready in 60 s (times `FLYWHEEL_TEST_TIME_SCALE`) fails with a timeline of its start: the core's phase lines, the harness's events and a `sample` of its stacks. Every test attaches the same report as `core-start.txt`. Read it before you change a limit.
 - `stop()` and `crash()` end every process of the core before the root is removed. A root that cannot be removed stays, and the test's annotation names the process that holds it.
 - CI runs the command in the `e2e` job of `.github/workflows/ci.yml`. The `build` job needs it, so a red flow blocks `main`.
 

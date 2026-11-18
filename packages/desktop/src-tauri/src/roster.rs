@@ -22,6 +22,7 @@ macro_rules! command_roster {
             commands::project::project_list,
             commands::project::project_reconcile,
             commands::project::project_relocate,
+            commands::project::project_rename,
             commands::project::project_hide,
             commands::project::project_restore,
             commands::roadmap::milestone_create,

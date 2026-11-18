@@ -12,8 +12,13 @@
 //!
 //! A shell that is slow, broken or prints no `PATH` cannot hang startup: past the timeout, or on
 //! any failure, the next attempt runs, and after the last the inherited `PATH` is kept. Every
-//! fallback carries a warning naming what was used. The Checks run with the adopted `PATH`. Only `PATH` is taken from the
-//! login shell, nothing else.
+//! fallback carries a warning naming what was used. The Checks run with the adopted `PATH`.
+//!
+//! Two variables are taken from the login shell and no others: `PATH`, and `CLAUDE_CONFIG_DIR`
+//! (issue #1758). Claude Code keys its stored login to the config folder when that variable is set,
+//! so a `claude` spawned without the variable the developer's terminal has reads a different login,
+//! which may have expired. `CLAUDE_CONFIG_DIR` is adopted only when this process has none: a value
+//! the app was opened with is the developer's explicit choice.
 
 use std::ffi::{OsStr, OsString};
 use std::os::unix::fs::PermissionsExt;
@@ -30,10 +35,18 @@ pub const RESOLVE_TIMEOUT: Duration = Duration::from_secs(5);
 /// it is ignored.
 const MARKER: &str = "__FLYWHEEL_LOGIN_PATH__";
 
+/// The markers around `CLAUDE_CONFIG_DIR`, on the same line as the `PATH`.
+const CONFIG_MARKER: &str = "__FLYWHEEL_LOGIN_CLAUDE_CONFIG_DIR__";
+
+/// The one variable besides `PATH` that Flywheel takes from the login shell (issue #1758).
+pub const CLAUDE_CONFIG_DIR: &str = "CLAUDE_CONFIG_DIR";
+
 /// The `PATH` Flywheel runs with, and the warning to show when it is not the login shell's.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoginPath {
     pub path: String,
+    /// The login shell's `CLAUDE_CONFIG_DIR`, `None` when it sets none or could not be read.
+    pub claude_config_dir: Option<String>,
     /// `Some` when the login shell's `PATH` could not be read and the inherited one was kept.
     pub warning: Option<String>,
 }
@@ -44,10 +57,48 @@ static ADOPTED: OnceLock<LoginPath> = OnceLock::new();
 /// in `main`, before any thread is started: it writes the process environment.
 pub fn adopt(timeout: Duration) -> LoginPath {
     let inherited = std::env::var("PATH").unwrap_or_default();
-    let resolved = resolve_with(&login_shell(), &[], &inherited, timeout);
+    let mut resolved = resolve_with(&login_shell(), &[], &inherited, timeout);
     std::env::set_var("PATH", &resolved.path);
+    let (dir, ignored) = config_dir_to_adopt(
+        std::env::var_os(CLAUDE_CONFIG_DIR).as_deref(),
+        resolved.claude_config_dir.as_deref(),
+    );
+    if let Some(dir) = dir {
+        std::env::set_var(CLAUDE_CONFIG_DIR, dir);
+    }
+    if let Some(ignored) = ignored {
+        resolved.warning = Some(match resolved.warning {
+            Some(earlier) => format!("{earlier} {ignored}"),
+            None => ignored,
+        });
+    }
     let _ = ADOPTED.set(resolved.clone());
     resolved
+}
+
+/// The `CLAUDE_CONFIG_DIR` to put in this process's environment, and a warning when the login
+/// shell's value is ignored. The shell's value is adopted only when the process has none (or an
+/// empty one) and the value is an absolute path: a relative path, or an unexpanded `~/x`, would
+/// resolve against the app's working directory (`/` from the Finder), never the shell's, so it can
+/// not be what the terminal meant.
+pub(crate) fn config_dir_to_adopt(
+    current: Option<&OsStr>,
+    from_shell: Option<&str>,
+) -> (Option<String>, Option<String>) {
+    if current.is_some_and(|c| !c.is_empty()) {
+        return (None, None);
+    }
+    match from_shell.filter(|d| !d.is_empty()) {
+        Some(dir) if Path::new(dir).is_absolute() => (Some(dir.to_string()), None),
+        Some(dir) => (
+            None,
+            Some(format!(
+                "Flywheel ignored your login shell's {CLAUDE_CONFIG_DIR} ({dir}) because it is not an \
+                 absolute path. claude will use its default config folder, which may hold a different login."
+            )),
+        ),
+        None => (None, None),
+    }
 }
 
 /// What [`adopt`] resolved, or `None` when it was never called (tests, tools).
@@ -64,16 +115,18 @@ pub(crate) fn resolve_with(
     timeout: Duration,
 ) -> LoginPath {
     let interactive = match ask_path(shell, &["-l", "-i"], env, timeout) {
-        Ok(path) => {
+        Ok((path, claude_config_dir)) => {
             return LoginPath {
                 path,
+                claude_config_dir,
                 warning: None,
             }
         }
         Err(why) => why,
     };
     match ask_path(shell, &["-l"], env, timeout) {
-        Ok(path) => LoginPath {
+        Ok((path, claude_config_dir)) => LoginPath {
+            claude_config_dir,
             warning: Some(format!(
                 "Flywheel could not read your interactive login shell's PATH ({interactive}), so it used \
                  {} -l, which skips ~/.zshrc: {path}. Tools set up in ~/.zshrc may not be found.",
@@ -83,6 +136,7 @@ pub(crate) fn resolve_with(
         },
         Err(login) => LoginPath {
             path: inherited.to_string(),
+            claude_config_dir: None,
             warning: Some(format!(
                 "Flywheel could not read your login shell's PATH ({interactive}; then {login}), so it \
                  kept the PATH it was opened with: {inherited}. claude, npm, cargo or gh may not be found."
@@ -97,9 +151,11 @@ fn ask_path(
     flags: &[&str],
     env: &[(&str, &Path)],
     timeout: Duration,
-) -> Result<String, String> {
+) -> Result<(String, Option<String>), String> {
     let how = format!("{} {}", shell.display(), flags.join(" "));
-    let command = format!("printf '{MARKER}%s{MARKER}' \"$PATH\"");
+    let command = format!(
+        "printf '{MARKER}%s{MARKER}{CONFIG_MARKER}%s{CONFIG_MARKER}' \"$PATH\" \"$CLAUDE_CONFIG_DIR\""
+    );
     let run = run_in_shell(shell, flags, env, Path::new("/"), &command, timeout)
         .map_err(|e| format!("{how} could not be started: {e}"))?;
     match run.outcome {
@@ -113,12 +169,17 @@ fn ask_path(
         }
     }
     let tail = run.output_tail.as_str();
-    let path = tail.rfind(MARKER).and_then(|end| {
-        let start = tail[..end].rfind(MARKER)? + MARKER.len();
+    let between = |marker: &str| {
+        let end = tail.rfind(marker)?;
+        let start = tail[..end].rfind(marker)? + marker.len();
         Some(&tail[start..end])
-    });
-    match path {
-        Some(path) if !path.trim().is_empty() => Ok(path.to_string()),
+    };
+    let config_dir = between(CONFIG_MARKER)
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+        .map(str::to_string);
+    match between(MARKER) {
+        Some(path) if !path.trim().is_empty() => Ok((path.to_string(), config_dir)),
         _ => Err(format!("{how} printed no PATH")),
     }
 }
@@ -365,6 +426,97 @@ mod tests {
             assert_eq!(resolved.path, FINDER_PATH, "{}", shell.display());
             assert!(resolved.warning.is_some(), "{}", shell.display());
         }
+    }
+
+    /// Issue #1758: the terminal's `CLAUDE_CONFIG_DIR` (set in `.zshenv`/`.zshrc`) reaches the
+    /// resolved environment, and nothing else the profile exports does.
+    #[test]
+    fn the_login_shell_claude_config_dir_is_resolved_and_no_other_variable() {
+        let bin = tempfile::tempdir().unwrap();
+        let profile = profile_adding(bin.path());
+        std::fs::write(
+            profile.path().join(".zshenv"),
+            "export CLAUDE_CONFIG_DIR=/home/dev/.claude-work\nexport SECRET_TOKEN=hunter2\n",
+        )
+        .unwrap();
+
+        let resolved = resolve_with(
+            Path::new("/bin/zsh"),
+            &[
+                ("ZDOTDIR", profile.path()),
+                ("PATH", Path::new(FINDER_PATH)),
+            ],
+            FINDER_PATH,
+            Duration::from_secs(30),
+        );
+
+        assert_eq!(resolved.warning, None);
+        assert_eq!(
+            resolved.claude_config_dir.as_deref(),
+            Some("/home/dev/.claude-work")
+        );
+        assert!(
+            !format!("{resolved:?}").contains("hunter2"),
+            "only PATH and CLAUDE_CONFIG_DIR are taken from the shell"
+        );
+    }
+
+    #[test]
+    fn a_login_shell_without_claude_config_dir_resolves_none() {
+        let bin = tempfile::tempdir().unwrap();
+        let profile = profile_adding(bin.path());
+        // The test runner's own environment may carry the variable; the shell starts without it.
+        let resolved = resolve_with(
+            Path::new("/bin/zsh"),
+            &[
+                ("ZDOTDIR", profile.path()),
+                ("PATH", Path::new(FINDER_PATH)),
+                ("CLAUDE_CONFIG_DIR", Path::new("")),
+            ],
+            FINDER_PATH,
+            Duration::from_secs(30),
+        );
+        assert_eq!(resolved.warning, None);
+        assert_eq!(resolved.claude_config_dir, None);
+    }
+
+    /// An app opened from Finder has no `CLAUDE_CONFIG_DIR` and gains the shell's; one opened with
+    /// a value (from a terminal) keeps its own; an empty shell value is not adopted.
+    #[test]
+    fn claude_config_dir_is_adopted_only_into_a_process_that_has_none() {
+        let shell = Some("/home/dev/.claude-work");
+        let adopted = Some("/home/dev/.claude-work".to_string());
+        assert_eq!(config_dir_to_adopt(None, shell), (adopted.clone(), None));
+        assert_eq!(
+            config_dir_to_adopt(Some(OsStr::new("")), shell),
+            (adopted, None)
+        );
+        assert_eq!(
+            config_dir_to_adopt(Some(OsStr::new("/mine")), shell),
+            (None, None)
+        );
+        assert_eq!(config_dir_to_adopt(None, None), (None, None));
+        assert_eq!(config_dir_to_adopt(None, Some("")), (None, None));
+    }
+
+    /// A relative path or an unexpanded tilde cannot be what the terminal meant: it is ignored, and
+    /// the warning names the value.
+    #[test]
+    fn a_relative_or_tilde_claude_config_dir_is_ignored_with_a_warning() {
+        for bad in ["rel/.claude", ".claude", "~/x"] {
+            let (dir, warning) = config_dir_to_adopt(None, Some(bad));
+            assert_eq!(dir, None, "{bad}");
+            let warning = warning.unwrap_or_else(|| panic!("no warning for {bad}"));
+            assert!(
+                warning.contains(bad) && warning.contains("absolute"),
+                "{warning}"
+            );
+        }
+        // The process's own value is never replaced, so there is nothing to warn about.
+        assert_eq!(
+            config_dir_to_adopt(Some(OsStr::new("/mine")), Some("~/x")),
+            (None, None)
+        );
     }
 
     #[test]

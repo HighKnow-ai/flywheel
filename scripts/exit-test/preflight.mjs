@@ -14,7 +14,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
-import { checkBoard, checkBuild, checkClaude, checkDropBacks, checkProjects, checkShim, defaultDbPath, renderTable } from "./preflight-checks.mjs";
+import { checkBoard, checkBuild, checkClaude, checkClaudeConfigDir, checkDropBacks, checkProjects, checkShim, defaultDbPath, renderTable } from "./preflight-checks.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const flywheelDir = path.resolve(here, "..", "..");
@@ -38,6 +38,7 @@ results.push(await checkProjects({ projects, flywheelProject: flywheelDir, dbPat
 results.push(checkDropBacks({ flywheelProject: flywheelDir, scriptPath: path.join(here, "drop-backs.mjs") }));
 results.push(checkShim({ flywheelDir }));
 results.push(checkClaude({ flywheelDir }));
+results.push(checkClaudeConfigDir());
 
 console.log(renderTable(results));
 const failed = results.filter((r) => r.status === "red").length;
