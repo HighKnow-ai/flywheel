@@ -14,3 +14,8 @@ We rejected keeping the review as events only (`story.handed_off`, `story.merged
 - Merge links each ADR the branch adds to the Story by path, inside the board transaction that marks it Merged. An ADR accepted in shaping keeps its Epic Proposal and gets no second link, and an ADR that some record already links is left as it is.
 - The related live ADRs are resolved against the base branch's tip from git (`git ls-tree` and one `git grep` for titles and supersession lines), so the Decisions section needs no checkout of the base branch.
 - Keep is the default decision on each new ADR and is not stored. Not an ADR and Wrong decision (#164) are stored on the review.
+
+## Enforced by
+
+- `packages/core/tests/review_decisions.rs` `the_review_lists_adr_and_glossary_changes_apart_and_each_new_adr_carries_its_bar_lines_and_related_live_adrs`
+- `packages/core/tests/handoff.rs` `a_hand_off_opens_a_review_with_the_diff_stats_and_the_tasks_not_done`

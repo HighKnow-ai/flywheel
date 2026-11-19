@@ -15,3 +15,7 @@ We rejected two other options:
 
 - `fleet/WorktreeInventory.tsx` and its tests drop the "no select-all" assertion and test that select-all selects reclaimable rows only, can be partly undone, and submits nothing until confirmed.
 - A reclaim that removed everything reports in a toast; one that left a row behind lists every outcome inline, as before. A call that fails outright keeps the confirmation open with the failure.
+
+## Enforced by
+
+- `packages/desktop/src/fleet/__tests__/worktree-reclaim.test.tsx` `selects every reclaimable row from the header, and lets one be kept before confirming`

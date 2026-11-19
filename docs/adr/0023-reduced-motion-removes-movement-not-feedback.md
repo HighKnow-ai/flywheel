@@ -23,3 +23,8 @@ We rejected two other options:
 
 - `direction.md` rule 7 and DESIGN.md § Motion now say "nothing moves" rather than "nothing animates".
 - A screen that animates layout through something other than these mechanisms (a raw `transition-[height]`, a `transition-[flex-grow]`) is not covered by the block, and has to handle reduced motion itself.
+
+## Enforced by
+
+- `packages/desktop/src/components/__tests__/browser/motion.browser.test.tsx` `keeps colour transitions running in both worlds`
+- `packages/desktop/src/theme/__tests__/contrast.test.ts` `under prefers-reduced-motion takes movement away but keeps the durations`

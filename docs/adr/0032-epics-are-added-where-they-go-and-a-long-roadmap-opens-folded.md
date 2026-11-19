@@ -16,3 +16,8 @@ We rejected:
 
 - `agent-station.test.tsx` and `session-surface.test.tsx`, which pinned #118's "both in every top bar", now pin "+ Story only".
 - The fold is UI state kept in the browser's storage. If storage is unavailable the fold still works and lasts the session.
+
+## Enforced by
+
+- `packages/desktop/src/board/__tests__/agent-station.test.tsx` `offers + Story only`
+- `packages/desktop/src/board/__tests__/roadmap-strip.test.tsx` `opens a Roadmap of more than five Milestones folded` `remembers each project's fold`

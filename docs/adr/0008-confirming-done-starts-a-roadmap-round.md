@@ -9,3 +9,8 @@ We rejected asking first, with a Needs-you item or a toast offering to revisit t
 - A project has at most one open roadmap Round (`idx_rounds_one_open_roadmap`). A trigger that fires while one is open opens no second Round: it is recorded for the open one, whose next packet names it.
 - No Story transition, hand-off or session event starts a roadmap Round. The only triggers are the two confirmations and the "Revisit roadmap" button.
 - Declining an exit test starts no Round. It keeps the record In progress and reopens shaping.
+
+## Enforced by
+
+- `packages/core/tests/roadmap_round_triggers.rs` `confirming_an_epic_done_opens_one_short_round_on_its_milestone_that_names_the_trigger` `declining_the_exit_test_reopens_shaping_and_opens_no_round`
+- `packages/core/src/db/migrations/0009_roadmap_rounds.sql` `idx_rounds_one_open_roadmap`

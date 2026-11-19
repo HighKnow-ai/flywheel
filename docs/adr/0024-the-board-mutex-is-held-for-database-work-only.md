@@ -47,3 +47,7 @@ A wait blocks the dispatch thread just as git does. That covers a `thread::sleep
 - `backend_capability_probe`
 
 The `scheduler_lock` lock lint now counts these waits too. It found one more lock holder: `orphan_kill` slept through its recheck under the board lock. It now runs on a side connection.
+
+## Enforced by
+
+- `packages/desktop/src-tauri/tests/scheduler_lock.rs` `a_board_read_completes_while_the_hot_tick_runs_git_across_several_slow_worktrees` `merge_and_reclaim_wait_for_the_story_work_lock`

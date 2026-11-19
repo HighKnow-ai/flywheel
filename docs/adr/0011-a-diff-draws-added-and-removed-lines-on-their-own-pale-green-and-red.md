@@ -14,3 +14,7 @@ We rejected two other options:
 - The tints are pale grounds, never fills, pills or icons. A state is never green, and passed still reads from its check icon and its word.
 - `theme/__tests__/contrast.test.ts` holds ink and secondary ink on both tints at 4.5:1 in both schemes, so line text and line numbers stay readable.
 - `react-diff-view`'s own colours are overridden under `.review-diff` in `globals.css`. The library's default palette doesn't reach the screen.
+
+## Enforced by
+
+- `packages/desktop/src/theme/__tests__/contrast.test.ts` `diffInsert` `diffDelete`

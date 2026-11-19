@@ -46,3 +46,7 @@ We rejected:
 - A settings file that fails validation for a reason outside `sandbox` still loses its deny rules, while the block Flywheel re-passes holds and the check passes. Flywheel re-passes the sandbox and nothing else.
 - A session with a policy starts up to a second later, and a Stop pressed during the check finds no live session. The session then starts if the check passes.
 - A session with a policy whose `--settings` file can't be written is refused, where one without a policy still degrades to no hook.
+
+## Enforced by
+
+- `packages/sidecar/test/sandbox-policy.test.mjs` `a project with a policy: the session's argv carries it`

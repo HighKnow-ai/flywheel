@@ -11,3 +11,8 @@ We rejected evolving the schema through migrations 0025 onwards. A rename touchi
 - Frozen subsystems are triaged once, during the schema cut. A repair may only re-point a subsystem at Stories, keeping its meaning. Anything that needs its meaning changed, or that costs more than about half a day, is deleted in the same change.
 - A behaviour test of a reshaped subsystem is ported only if it pins an invariant the MVP still holds (for example human-only acceptance, criteria anchored to a Story, termination atomicity). Other tests go with their code.
 - Fields discovered after the cut are added as ordinary migrations on top of the baseline.
+
+## Enforced by
+
+- `packages/core/tests/legacy_database_moved_aside.rs` `a_v01_database_is_moved_aside_and_the_app_starts_with_an_empty_board`
+- `packages/core/tests/table_classification.rs` `every_table_in_the_database_is_classified_and_every_classification_exists`

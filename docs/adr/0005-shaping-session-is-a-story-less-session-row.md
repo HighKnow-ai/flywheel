@@ -11,3 +11,7 @@ We rejected a separate `shaping_sessions` table. Every path that ends a session 
 - A shaping session reads the developer's checkout as it stands, uncommitted changes and current branch included. It is not pinned to the base branch.
 - Story-only board tools and permission requests refuse a shaping session by name, and the MCP server lists each kind only its own tools.
 - `RunSummaryDto.storyId` and `PendingOrphanDto.storyId` are nullable on the wire.
+
+## Enforced by
+
+- `packages/core/tests/shaping_session_lifecycle.rs` `a_shaping_session_starts_on_its_epic_with_no_story_and_no_worktree` `the_schema_ties_a_story_to_a_story_session_and_a_subject_to_a_shaping_one` `a_story_board_tool_called_from_a_shaping_session_is_refused_by_name`

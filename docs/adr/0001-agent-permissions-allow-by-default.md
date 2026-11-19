@@ -10,3 +10,10 @@ The gate defends against a cooperative agent's accidents, not against a hostile 
 - A remembered rule is keyed by project, tool and command pattern, not by whole tool name.
 - Flywheel picks the Claude Code permission mode for each session kind. The per-run mode picker is removed.
 - Hardening against an adversarial agent (sandboxing, a path fence for Bash) can come back later as a separate decision, without undoing this one.
+
+## Enforced by
+
+- `packages/shim/tests/gated_dispatch.rs` `a_push_behind_global_options_is_still_gated`
+- `packages/shim/tests/classify_invocation.rs` `classification_is_idempotent_for_identical_text`
+- `packages/core/tests/permission_rules_by_pattern.rs` `a_prefix_pattern_matches_the_command_and_its_extensions_on_a_word_boundary`
+- `packages/core/tests/destructive_classifier.rs` `create_pending_request_accepts_every_valid_destructive_category`

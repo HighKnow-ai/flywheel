@@ -14,3 +14,7 @@ We corrected DESIGN.md. The Story view takes the whole content area at every wid
 
 - DESIGN.md § Layout describes the Story view as it is built, and no longer lists the split as "not built yet".
 - If the Developer needs to read the roster beside a Story, the place to answer that is the board (a Story preview in a Sheet, say), not a second layout for the Story view.
+
+## Enforced by
+
+- Not machine-enforceable: it corrects a sentence of DESIGN.md about a layout that is absent, and no test can prove that a screen has no element beside it.

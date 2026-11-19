@@ -33,3 +33,9 @@ HighKnow now publishes its design system as an npm package, [`@highknow/design`]
 - A bump is deliberate. Dependabot proposes a new version weekly, in a group of its own, and Flywheel may run a release behind the package on purpose. A release that renames something says so in the package's changelog, and Flywheel moves at the bump that takes it. The 52 px step, Flywheel's lead count, is `text-lead-count` in the package; `lead` there is a 20 px intro step.
 
 We rejected keeping the vendored copy beside the package: two sources of the same values is the drift this ADR set out to stop. We rejected installing the package from a git URL or a local path: the public repository has neither, and only a registry version builds the same everywhere.
+
+## Enforced by
+
+- `packages/desktop/src/theme/__tests__/contrast.test.ts` `imports the package's theme, base styles and fonts, in that order, after Tailwind`
+- `packages/desktop/src/theme/__tests__/face.test.ts` `is the UI family, and the condensed role uses it too`
+- `packages/desktop/src/theme/__tests__/design-package.test.ts` `is pinned to one exact version from the registry` `leaves no vendored token export behind`

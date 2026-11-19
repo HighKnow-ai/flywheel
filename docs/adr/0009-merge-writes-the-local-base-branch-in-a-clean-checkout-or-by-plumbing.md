@@ -17,3 +17,7 @@ We rejected pushing the branch and merging with `gh pr merge`. It needs a remote
 - The Story branch is deleted only when its tip is contained in the base branch, with a compare-and-swap delete on that tip. This is the safety of `git branch -d`, which can't be used itself: it checks the main checkout's HEAD, and in the plumbing case HEAD is not the base branch.
 - Once the commit is on the base branch the Story is Merged, even if removing the worktree or the branch then fails. That failure is reported and left to the worktree reclaim. Retrying Merge would write a second merge commit.
 - Repo knowledge still reaches the repo only through a Story's worktree, review and merge (ADR-0002). This decision only settles which checkout the merge commit is written through.
+
+## Enforced by
+
+- `packages/core/tests/story_merge.rs` `merge_writes_a_no_ff_commit_in_the_clean_checkout_removes_the_worktree_and_branch_and_closes_the_review` `without_a_checkout_of_the_base_branch_merge_builds_the_same_commit_with_plumbing` `a_dirty_checkout_of_the_base_branch_refuses_and_says_so`

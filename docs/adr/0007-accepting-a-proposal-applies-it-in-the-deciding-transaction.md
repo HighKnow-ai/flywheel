@@ -11,3 +11,8 @@ We rejected keeping acceptance as a recorded decision with the effect applied by
 - Deciding a Proposal is always its own act. "Accept all recommended" (`round::accept_all_recommended`) answers a Round's ordinary questions only. It never decides a Proposal and leaves an ADR question open, so the Stage stays open until that question is answered Yes or No.
 - An ADR answered Yes in a Round goes through the same path, never around it: the answer's transaction files a `create adr` Proposal as Cyril and accepts it (`file_proposal_in_tx`, then `decide_in_tx`), and `round_questions.adr_proposal_id` points at it. The Epic's Story packets carry it as full text until the repo holds the file, as ADR-0002 requires.
 - A decision that settles a roadmap Round closes the Round and releases its held `round_wait` call (ADR-0006) inside the same transaction.
+
+## Enforced by
+
+- `packages/core/tests/proposal_apply.rs` `accepting_a_spec_change_rewrites_the_epic_field_with_the_decision`
+- `packages/core/tests/proposal_apply.rs` `a_malformed_spec_change_is_refused_before_anything_is_written`

@@ -11,3 +11,7 @@ We rejected reading each Story's branch head from git on every roster read. That
 - A commit made on an In review Story's branch outside a session isn't seen as making its results stale on the roster until the next hand-off. The review card and Merge still read the live head, so Merge still counts such a result as failing.
 - A Story sent back to Running keeps counting the Checks that passed at its last hand-off until it hands off again, though its branch may have moved since. The count is how far the Story was last judged done, not a live test result.
 - The roster query reads no worktree and runs no process: it is literal SQL over indexes only, checked by `the_roster_query_walks_indexes_only`.
+
+## Enforced by
+
+- `packages/core/tests/roster_query.rs` `the_roster_query_walks_indexes_only` `a_passed_check_counts_until_a_hand_off_moves_the_head_past_it`

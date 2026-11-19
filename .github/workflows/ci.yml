@@ -195,6 +195,12 @@ jobs:
           node --test scripts/hosted-calls/test/*.test.mjs
           node scripts/hosted-calls/check-hosted-calls.mjs
 
+      # Every ADR in docs/adr/ names what keeps it true, and the thing it names exists (#1630): plain Node.
+      - name: ADR enforcers
+        run: |
+          node --test scripts/adr/test/*.test.mjs
+          node scripts/adr/check-adr-enforcers.mjs
+
       # The runner that runs the offline UAT below side by side (scripts/uat/run-offline.mjs, over
       # scripts/lib/side-by-side.mjs, which the browser job's runner uses too).
       - name: UAT runner tests

@@ -17,3 +17,7 @@ We rejected three alternatives:
 - A Wording or supersede? flag is a question for the developer, so it is never sent as a point. If the developer wants a supersession instead, they say so in the comments.
 - Merge's refusal names each marked ADR and its decision, so setting an ADR back to Keep is the way out without a round trip to the agent.
 - A request for changes reads the flags from git on a best-effort basis: when git cannot answer, the stored decisions still go.
+
+## Enforced by
+
+- `packages/core/tests/adr_flags.rs` `not_an_adr_and_wrong_decision_are_stored_on_the_review_and_keep_clears_them` `merge_is_refused_while_an_adr_is_marked_not_an_adr_or_wrong_decision` `request_changes_carries_the_adr_decisions_and_flags_to_the_next_packet_as_review_points`

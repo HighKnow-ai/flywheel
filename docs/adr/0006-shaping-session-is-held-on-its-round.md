@@ -10,3 +10,9 @@ We rejected a fresh session per Round, where the agent posts a Round and exits, 
 - `round_post` is refused while a Round of the Stage is open, and the refusal names `round_wait`. `round_wait` on an answered Round is answered at once.
 - Waiting on you for a Round is derived once (`query::round_waiting_on_you!()`: open, held, its session live). An open Round whose session is dead reads "Shaping Round waiting" instead, with Continue shaping.
 - One session works one Stage. Closing a Stage is Cyril's click (`stage::close_stage`, human-only, refused while any question or Proposal in it is open). In one transaction it closes the Stage, opens the next and interrupts the live session, then starts the next Stage's session from a fresh packet that names that Stage. No Stage advances on its own, and no held call outlives its Stage, because an open Round always has an unanswered question that blocks the close.
+
+## Enforced by
+
+- `packages/core/tests/shaping_round.rs` `the_call_is_answered_only_once_the_last_question_is_answered_each_answer_stored_first`
+- `packages/core/tests/shaping_resume.rs` `round_wait_is_a_shaping_tool_and_takes_no_argument`
+- `packages/core/tests/stage_close.rs` `no_one_but_the_developer_can_close_a_stage`

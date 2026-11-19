@@ -16,3 +16,8 @@ We rejected keeping hand-written CSS with custom properties (`styles/tokens.css`
 ## Amendment, 2026-10-27: the primitives come from `@highknow/design`
 
 The shadcn/ui primitives are no longer copied into `packages/desktop/src/components/ui/`. They come compiled from the published `@highknow/design` package at an exact version ([ADR 0021](0021-highknow-tokens-are-the-source-and-public-sans-is-the-face.md), amendment of 2026-10-27), which generates them with the same `radix-nova` style and carries Flywheel's retheme. `components.json` and the `shadcn` CLI leave this package: a new primitive is added to the design system, not generated here. Flywheel still owns what is Flywheel's: its tones on Button and Badge, `StateBadge`, `StoryKey`, `Icon`, and every screen. The Tailwind, Radix and `cmdk` choices above are unchanged; they now arrive as the package's dependencies.
+
+## Enforced by
+
+- `packages/desktop/src/theme/__tests__/design-package.test.ts` `leaves no shadcn CLI config and no copied primitive in the desktop package`
+- `packages/desktop/src/theme/__tests__/contrast.test.ts` `imports the package's theme, base styles and fonts, in that order, after Tailwind`

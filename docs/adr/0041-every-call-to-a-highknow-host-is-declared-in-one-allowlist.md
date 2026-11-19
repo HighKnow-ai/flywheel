@@ -27,5 +27,6 @@ Decided on 2026-11-16 (issue #1695, owner decision Q64). Flywheel will call serv
 
 ## Enforced by
 
-- `scripts/hosted-calls/check-hosted-calls.mjs`, run by the `uat` job in `.github/workflows/ci.yml`.
-- `scripts/hosted-calls/test/check-hosted-calls.test.mjs`, run by the same job.
+- `scripts/hosted-calls/check-hosted-calls.mjs`
+- `scripts/hosted-calls/test/check-hosted-calls.test.mjs` `an undeclared host in code fails, naming file and line`
+- `.github/workflows/ci.yml` `Hosted-calls allowlist`

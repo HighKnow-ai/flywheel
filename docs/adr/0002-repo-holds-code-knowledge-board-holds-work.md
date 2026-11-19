@@ -10,3 +10,9 @@ We chose repo files over ADR records in the board's database. A decision about t
 - The context packet lists merged ADRs linked to the Story, its Epic and its Milestone by path and title. Only an accepted ADR that hasn't merged yet is sent as full text.
 - The review shows changes under `docs/adr/` and to `GLOSSARY.md` in their own Decisions section. It flags an ADR number already taken on the default branch, and the agent renumbers in its worktree. On merge, each new ADR is linked to its Story by path.
 - Hand edits made outside Flywheel are allowed. An ADR with no link to a board record is shown as unlinked, with no import step.
+
+## Enforced by
+
+- `packages/core/tests/adr_flags.rs` `a_wording_edit_a_number_clash_and_a_missing_supersession_line_are_each_flagged_and_a_status_only_edit_is_not`
+- `packages/core/tests/story_merge.rs` `merge_links_each_new_adr_to_the_story_by_path_and_an_adr_accepted_in_shaping_keeps_its_epic_proposal`
+- `packages/core/tests/context_packet.rs` `only_the_live_adr_of_a_supersession_chain_is_listed`

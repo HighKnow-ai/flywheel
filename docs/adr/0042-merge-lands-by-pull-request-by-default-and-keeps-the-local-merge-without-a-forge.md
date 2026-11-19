@@ -53,3 +53,7 @@ We rejected:
 - A Story that landed by a command, with no request on the forge, is Merged when its head is on `origin/<base>`. After one hour with neither, it carries a note and reaches the needs-you list.
 - A Landing Story with a failure note reaches the needs-you list. The merge commit of a request is the one the forge names, and the branch tip only when it names none.
 - ADR-0009's rejection of `gh pr merge` no longer holds for projects with a forge. Flywheel still never pushes in the local route.
+
+## Enforced by
+
+- `packages/core/tests/story_landing.rs` `the_route_follows_the_setting_and_the_url_of_origin` `merge_pushes_the_branch_opens_a_request_with_auto_merge_and_the_story_is_landing`
