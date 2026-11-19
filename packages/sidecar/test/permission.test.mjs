@@ -7,13 +7,13 @@
  * mechanism works) — never a mock of `child_process` or of the MCP protocol.
  */
 import assert from "node:assert/strict";
-import { execSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, test } from "node:test";
 
 import { buildClaudeArgv, ClaudeCodeAdapter, STOP_GRACE_MS } from "../dist/claude-code-adapter.js";
 import { PERMISSION_TOOL_NAME } from "../dist/mcp-permission-server.js";
+import { recordStubbornChildren } from "./stubborn-children.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FAKE_CLAUDE = path.join(__dirname, "fake-claude.mjs");
@@ -24,29 +24,15 @@ process.env.FLYWHEEL_CLAUDE_BIN = FAKE_CLAUDE;
 // fake-claude.mjs (and the grandchild MCP server process it spawned) running forever, hanging
 // this file's own process. Runs once, after every test has settled; a no-op when nothing is left.
 //
-// Scoped to THIS process's own descendants. It used to be `pkill -f <fake-claude path>`, which
-// matches every fake-claude on the machine, and `node --test` runs files concurrently: when this
-// file finished it SIGTERMed the stubborn sessions `stop.test.mjs` still had in flight (the
-// session closed early and its grandchild survived), failing stop.test.mjs ~half the time on a
-// 3-vCPU CI runner (11-04). `shutdown.test.mjs` and `watchdog.test.mjs` already scope theirs.
-function descendantsOf(pid) {
-  let kids = [];
-  try {
-    kids = execSync(`pgrep -P ${pid}`, { encoding: "utf8" }).split("\n").filter(Boolean).map(Number);
-  } catch {
-    // pgrep exits non-zero when there are no children.
-  }
-  return kids.flatMap((kid) => [kid, ...descendantsOf(kid)]);
-}
+// Scoped to the pids this file's own fixtures recorded (`stubborn-children.mjs`): the fixture, the
+// watchdog wrapper above it and the MCP server it started. It used to be `pkill -f <fake-claude
+// path>`, which matched every fake-claude on the machine and ended the sessions `stop.test.mjs`
+// still had in flight (11-04), and later a walk of the process table, which an agent sandbox
+// refuses and a name match can get wrong. The check after the suite (`scripts/check-no-stubborn-left.mjs`) reads the same record.
+const stubborn = recordStubbornChildren(import.meta.url);
 
 after(() => {
-  for (const pid of descendantsOf(process.pid)) {
-    try {
-      process.kill(pid, "SIGKILL");
-    } catch {
-      // Already gone.
-    }
-  }
+  stubborn.reap();
 });
 
 /** Poll `predicate` until it's true or `timeoutMs` elapses. */

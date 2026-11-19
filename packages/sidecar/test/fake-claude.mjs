@@ -60,6 +60,12 @@
  * **Argv and environment record** (`FLYWHEEL_FAKE_ARGV_FILE=<path>`): every start appends one JSON line,
  * `{ argv, env }`, where `env` names which of the variables the sandbox check concerns are set.
  *
+ * **Pid record** (`FLYWHEEL_STUBBORN_PIDFILE=<path>`, set by `recordStubbornChildren` in
+ * `stubborn-children.mjs`): in every mode this script appends its own pid, its parent's pid when
+ * `FLYWHEEL_RUN_ID` is set (the watchdog wrapper, which leads the session's process group), the MCP
+ * server it starts, and a `-<pid>` line when it exits. A test file ends what it started from that
+ * record, never from the process table.
+ *
  * **Usage block** (G-02-4, plan 02-18): both of this script's `result` lines carry a `usage`
  * object in the real CLI's own field shape (`input_tokens`, `cache_creation_input_tokens`,
  * `cache_read_input_tokens`, `output_tokens`) — the same shape measured live against claude
@@ -112,6 +118,16 @@ const SESSION_ID = "fake-session-0001";
 const STUBBORN = process.env.FLYWHEEL_FAKE_STUBBORN === "1";
 const CALL_PERMISSION = Number(process.env.FLYWHEEL_FAKE_CALL_PERMISSION ?? "0");
 
+// The record that lets a test file end what it started without a process-table match (see
+// `stubborn-children.mjs`): this process, and the watchdog wrapper above it when there is one. The
+// wrapper leads the session's process group, so a reap of it reaches the MCP server too. The
+// `exit` line marks this pid done so a number the OS reuses later is never ended by mistake.
+if (process.env.FLYWHEEL_STUBBORN_PIDFILE) {
+  recordStubbornPid(process.pid);
+  if (process.env.FLYWHEEL_RUN_ID) recordStubbornPid(process.ppid);
+  process.on("exit", () => recordStubbornPid(-process.pid));
+}
+
 // G-02-4: three DISTINCT input-side values (2, 30, 400) so their sum (432) equals no single one
 // of them — a test asserting the summed total cannot pass by accident against any one field.
 // Field names mirror the real CLI's own usage block, measured live during this plan's planning.
@@ -150,6 +166,7 @@ async function callPermissionToolOnce(label) {
   const transport = new StdioClientTransport({ command: serverConfig.command, args: serverConfig.args });
   const client = new Client({ name: "fake-claude", version: "0.1.0" });
   await client.connect(transport);
+  if (transport.pid) recordStubbornPid(transport.pid); // the MCP server this fixture started
   try {
     const result = await client.callTool({
       name: rawToolName,
@@ -181,6 +198,7 @@ async function callTaskToolOnce(toolCall) {
   const transport = new StdioClientTransport({ command: serverConfig.command, args: serverConfig.args });
   const client = new Client({ name: "fake-claude", version: "0.1.0" });
   await client.connect(transport);
+  if (transport.pid) recordStubbornPid(transport.pid); // the MCP server this fixture started
   try {
     const listed = await client.listTools();
     printLine({ type: "task_tools_listed", names: listed.tools.map((t) => t.name) });
@@ -239,6 +257,7 @@ async function runBoardScript(steps) {
   const transport = new StdioClientTransport({ command: serverConfig.command, args: serverConfig.args });
   const client = new Client({ name: "fake-claude", version: "0.1.0" });
   await client.connect(transport);
+  if (transport.pid) recordStubbornPid(transport.pid); // the MCP server this fixture started
   /** The latest successful answer of each tool, parsed. */
   const answers = new Map();
   const resolve = (value) => {
@@ -360,7 +379,6 @@ function recordStubbornPid(pid) {
 }
 
 if (STUBBORN) {
-  recordStubbornPid(process.pid);
   // A plain (non-detached) spawn from here inherits THIS process's process group — exactly the
   // group the adapter's negative-pid signal targets, so the grandchild dies from the OS group
   // delivery itself, never from a signal this script relays. The grandchild ALSO ignores SIGINT

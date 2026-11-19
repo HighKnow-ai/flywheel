@@ -11,7 +11,7 @@
  * process is gone.
  */
 import assert from "node:assert/strict";
-import { spawn, execSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,33 +22,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SIDECAR_ENTRY = path.join(__dirname, "..", "dist", "index.js");
 const FAKE_CLAUDE = path.join(__dirname, "fake-claude.mjs");
 
-// Every grandchild pid this file's own tests have observed — tracked so the safety net below can
-// clean up precisely the processes THIS FILE started, never a sibling test file's. `stop.test.mjs`
-// runs the exact same fixture (`fake-claude.mjs`) concurrently as a separate `node --test` worker
-// process; a broad `pkill -f <fake-claude path>` safety net (that file's own precedent) would kill
-// a still-legitimately-running stubborn session belonging to THAT file's own in-flight assertions,
-// not just anything this file leaked. Scoping to specific, individually-verified pids sidesteps
-// that cross-file collision entirely.
-const trackedGrandchildPids = [];
-
 /** Every stubborn process this file's sessions start (the fixture records its own pid and its
- * grandchild's), ended in the `after()` below even when a test never tracked the pid it needs. */
+ * grandchild's, and the watchdog wrapper above them: its group holds all three), ended in the
+ * `after()` below even when a test never tracked the pid it needs. Never a process-table match: a
+ * `pkill -f <fake-claude path>` once ended a sibling file's live session, and `ps` is refused in an
+ * agent sandbox. */
 const stubborn = recordStubbornChildren(import.meta.url);
-
-/** The POSIX process GROUP id for `pid`, or `undefined` if `pid` is no longer alive. The
- * grandchild is spawned WITHOUT its own `detached` flag (`fake-claude.mjs`'s own comment), so its
- * group id is fake-claude's own pid, not the grandchild's — this is why a plain
- * `process.kill(-pid, ...)` on the grandchild's own reported pid would be wrong; `ps` reports the
- * real group id to signal instead. */
-function processGroupIdOf(pid) {
-  try {
-    const output = execSync(`ps -o pgid= -p ${pid}`, { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
-    const pgid = Number.parseInt(output, 10);
-    return Number.isInteger(pgid) ? pgid : undefined;
-  } catch {
-    return undefined; // pid is already gone — ps exits non-zero when nothing matches.
-  }
-}
 
 // Safety net, independent of whether the shutdown path under test actually tore everything down:
 // a stubborn fake-claude (or its grandchild) left alive by a failing assertion would otherwise
@@ -56,15 +35,6 @@ function processGroupIdOf(pid) {
 // Runs once, after every test in this file has settled, and is a no-op when nothing is left —
 // scoped to this file's own tracked pids (see comment above), not a global pattern match.
 after(() => {
-  for (const pid of trackedGrandchildPids) {
-    const pgid = processGroupIdOf(pid);
-    if (pgid === undefined) continue; // already gone
-    try {
-      process.kill(-pgid, "SIGKILL");
-    } catch {
-      // Exited in the gap between the pgid lookup and this signal — nothing to do.
-    }
-  }
   stubborn.reap(); // the fixture's own record: ends what the pids above did not reach.
 });
 
@@ -183,7 +153,6 @@ test("a shutdown request tears down two stubborn sessions and both of their gran
     const pidB = JSON.parse(
       eventsFor(sidecar, "run-shutdown-b").find((e) => e.raw?.includes("grandchild_pid")).raw,
     ).pid;
-    trackedGrandchildPids.push(pidA, pidB);
 
     // BEFORE state: both grandchildren are genuinely alive — a test that passed because they
     // never started would prove nothing.
@@ -251,9 +220,6 @@ test("a second shutdown request immediately after the first is idempotent (kille
       4000,
       "the session's grandchild pid was not reported in time",
     );
-    trackedGrandchildPids.push(
-      JSON.parse(eventsFor(sidecar, "run-shutdown-idempotent").find((e) => e.raw?.includes("grandchild_pid")).raw).pid,
-    );
 
     sidecar.send({ id: "shutdown-first", op: "shutdown" });
     await withTimeout(
@@ -295,7 +261,6 @@ test("SIGTERM to the sidecar process tears down a stubborn session's grandchild"
     const pid = JSON.parse(
       eventsFor(sidecar, "run-shutdown-sigterm").find((e) => e.raw?.includes("grandchild_pid")).raw,
     ).pid;
-    trackedGrandchildPids.push(pid);
     assert.doesNotThrow(() => process.kill(pid, 0), "the grandchild must be alive before SIGTERM");
 
     const exited = new Promise((resolve) => sidecar.child.once("exit", resolve));

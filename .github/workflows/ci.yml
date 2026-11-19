@@ -419,6 +419,23 @@ jobs:
           trap 'hdiutil detach "$mnt" -quiet' EXIT
           node scripts/release/check-macho.mjs "$bundle/macos/Flywheel.app" "$mnt/Flywheel.app"
 
+      # Issue #1786: the packaged app's menu bar as text, and the main window's title. The step launches
+      # the built .app, reads the menu bar through the Accessibility API (scripts/release/read-menu-bar.jxa)
+      # and compares it with scripts/release/menu-bar.baseline.txt. With no baseline it writes
+      # menu-bar.candidate.txt, prints the text and fails: a person approves the text once and commits it.
+      # The dialogs stay manual (owner decision D4). No keychain call: `open` and System Events only.
+      - name: The menu bar and the window title match the baseline
+        run: node scripts/release/check-menu-bar.mjs target/release/bundle/macos/Flywheel.app
+
+      - name: The menu bar candidate, for a first approval
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: flywheel-menu-bar-candidate
+          path: scripts/release/menu-bar.candidate.txt
+          if-no-files-found: ignore
+          retention-days: 7
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: flywheel-dmg

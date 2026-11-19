@@ -8,7 +8,6 @@
  * connects to the MCP server named in `--mcp-config` exactly as the backend does.
  */
 import assert from "node:assert/strict";
-import { execSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, test } from "node:test";
@@ -20,28 +19,15 @@ import {
   SHAPING_TOOL_DEFINITIONS,
   SHAPING_TOOL_NAMES,
 } from "../dist/mcp-permission-server.js";
+import { recordStubbornChildren } from "./stubborn-children.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 process.env.FLYWHEEL_CLAUDE_BIN = path.join(__dirname, "fake-claude.mjs");
 
-function descendantsOf(pid) {
-  let kids = [];
-  try {
-    kids = execSync(`pgrep -P ${pid}`, { encoding: "utf8" }).split("\n").filter(Boolean).map(Number);
-  } catch {
-    // No children.
-  }
-  return kids.flatMap((kid) => [kid, ...descendantsOf(kid)]);
-}
+const stubborn = recordStubbornChildren(import.meta.url);
 
 after(() => {
-  for (const pid of descendantsOf(process.pid)) {
-    try {
-      process.kill(pid, "SIGKILL");
-    } catch {
-      // Already gone.
-    }
-  }
+  stubborn.reap();
 });
 
 async function waitForCondition(predicate, { timeoutMs = 30_000, intervalMs = 10 } = {}) {

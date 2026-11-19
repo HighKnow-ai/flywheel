@@ -5,7 +5,6 @@
  * `child_process`.
  */
 import assert from "node:assert/strict";
-import { execSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, test } from "node:test";
@@ -18,37 +17,12 @@ const FAKE_CLAUDE = path.join(__dirname, "fake-claude.mjs");
 
 process.env.FLYWHEEL_CLAUDE_BIN = FAKE_CLAUDE;
 
-// Every grandchild pid a "stubborn" test in THIS file has observed — tracked so the safety net
-// below can clean up precisely the processes THIS FILE started, mirroring
-// `shutdown.test.mjs`'s own scoped-pid precedent (plan 03-02): a broad `pkill -f <fake-claude
-// path>` (this file's own precedent before plan 03-02) matches ANY process whose command line
-// contains that shared fixture path — including a SIBLING test file's still-legitimately-running
-// session, since `node --test` runs multiple test files concurrently and every file points
-// `FLYWHEEL_CLAUDE_BIN` at the identical `fake-claude.mjs` script. Plan 03-02's watchdog wrapper
-// makes this collision materially more likely to land mid-suite (it adds a second process, and a
-// startup delay, to every session, shifting this file's own timing relative to its siblings') —
-// observed directly: `permission.test.mjs`'s own 25-second held-open session was torn down by
-// this file's OLD broad pkill mid-suite before this fix.
-const trackedGrandchildPids = [];
-
 /** Every stubborn process this file's sessions start (the fixture records its own pid and its
- * grandchild's), ended in the `after()` below even when a test never tracked the pid it needs. */
+ * grandchild's, and the watchdog wrapper above them: its group holds all three), ended in the
+ * `after()` below even when a test never tracked the pid it needs. Never a process-table match: a
+ * `pkill -f <fake-claude path>` once ended a sibling file's live session, and `ps` is refused in an
+ * agent sandbox. */
 const stubborn = recordStubbornChildren(import.meta.url);
-
-/** The POSIX process GROUP id for `pid`, or `undefined` if `pid` is no longer alive — mirrors
- * `shutdown.test.mjs`'s own identical helper. The grandchild shares its process group with the
- * watchdog wrapper that leads it (plan 03-02) and the backend in between, so signalling the
- * NEGATION of this one id reaches all three — the same group-wide reach `killSession`'s own
- * `-child.pid` signalling relies on in production. */
-function processGroupIdOf(pid) {
-  try {
-    const output = execSync(`ps -o pgid= -p ${pid}`, { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
-    const pgid = Number.parseInt(output, 10);
-    return Number.isInteger(pgid) ? pgid : undefined;
-  } catch {
-    return undefined; // pid is already gone — ps exits non-zero when nothing matches.
-  }
-}
 
 // Safety net, independent of whether the adapter under test actually tore everything down: a
 // stubborn fake-claude (or its grandchild) left alive by a failing assertion would otherwise keep
@@ -57,15 +31,6 @@ function processGroupIdOf(pid) {
 // runs once, after every test in this file has settled, and is a no-op when nothing is left —
 // scoped to this file's own tracked pids (see comment above), never a broad pattern match.
 after(() => {
-  for (const pid of trackedGrandchildPids) {
-    const pgid = processGroupIdOf(pid);
-    if (pgid === undefined) continue; // already gone
-    try {
-      process.kill(-pgid, "SIGKILL");
-    } catch {
-      // Exited in the gap between the pgid lookup and this signal — nothing to do.
-    }
-  }
   stubborn.reap(); // the fixture's own record: ends what the pids above did not reach.
 });
 
@@ -177,7 +142,6 @@ test("interrupting a stubborn session escalates to a group SIGTERM and tears dow
   const pidEvent = events.find((e) => e.raw && e.raw.includes("grandchild_pid"));
   const grandchildPid = JSON.parse(pidEvent.raw).pid;
   assert.ok(Number.isInteger(grandchildPid) && grandchildPid > 0, "expected a real grandchild pid");
-  trackedGrandchildPids.push(grandchildPid);
 
   await withTimeout(
     adapter.interruptSession(runId),

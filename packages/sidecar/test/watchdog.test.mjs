@@ -12,7 +12,7 @@
  * process tree that no unit harness in this repository can stand up.
  */
 import assert from "node:assert/strict";
-import { execFileSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -69,23 +69,27 @@ async function waitFor(predicate, { timeoutMs = 5000, intervalMs = 20, message =
   throw new Error(message);
 }
 
-/** The direct child pid of `parentPid`, or `undefined` if it has none (yet, or ever). This is the
- * only way this test file learns the BACKEND's own pid: `spawn()` only ever returns the
- * WRAPPER's pid to this file, since the backend is spawned from INSIDE the watchdog process, not
- * by this test directly. */
-function directChildPidOf(parentPid) {
+/** The BACKEND's pid for a watchdog `spawnWatchdog` returned, or `undefined` while it has not
+ * spawned one. `spawn()` only ever returns the WRAPPER's pid to this file, since the backend is
+ * spawned from INSIDE the watchdog process; the wrapper writes the backend's pid to the run's
+ * lifecycle timeline (`backend_spawned`) the moment it has it. Read from that file, not from a
+ * process-table walk (it matches machine-wide, and an agent sandbox refuses the tool). */
+function backendPidOf(watchdog) {
+  let text = "";
   try {
-    const output = execFileSync("pgrep", ["-P", String(parentPid)], {
-      stdio: ["ignore", "pipe", "ignore"],
-    })
-      .toString()
-      .trim();
-    const firstLine = output.split("\n")[0];
-    const pid = Number.parseInt(firstLine, 10);
-    return Number.isInteger(pid) ? pid : undefined;
+    text = fs.readFileSync(path.join(watchdog.runtimeDir, "lifecycle", `${watchdog.runId}.jsonl`), "utf8");
   } catch {
-    return undefined; // pgrep exits non-zero when the parent has no children (yet, or ever).
+    return undefined; // the wrapper has not written its timeline yet.
   }
+  for (const line of text.split("\n")) {
+    try {
+      const entry = JSON.parse(line);
+      if (entry.event === "backend_spawned" && Number.isInteger(entry.backend_pid)) return entry.backend_pid;
+    } catch {
+      // A blank or half-written line: read the next one.
+    }
+  }
+  return undefined;
 }
 
 function touchHeartbeat(runtimeDir) {
@@ -122,7 +126,7 @@ function spawnWatchdog({ runtimeDir, runId, staleMs, pollMs }) {
     detached: true,
     stdio: ["ignore", "pipe", "pipe"],
   });
-  return child;
+  return Object.assign(child, { runtimeDir, runId });
 }
 
 function scratchRuntimeDir() {
@@ -138,7 +142,7 @@ test("a fresh heartbeat leaves both the watchdog and its backend alive across at
   const watchdog = spawnWatchdog({ runtimeDir, runId: "wd-fresh-heartbeat", staleMs, pollMs });
   trackedWatchdogPids.push(watchdog.pid);
 
-  const backendPid = await waitFor(() => directChildPidOf(watchdog.pid), {
+  const backendPid = await waitFor(() => backendPidOf(watchdog), {
     message: "the backend never appeared as the watchdog's own direct child",
   });
 
@@ -165,7 +169,7 @@ test("ceasing to touch the heartbeat kills both the watchdog and the backend wit
 
   let backendPid;
   try {
-    backendPid = await waitFor(() => directChildPidOf(watchdog.pid), {
+    backendPid = await waitFor(() => backendPidOf(watchdog), {
       message: "the backend never appeared as the watchdog's own direct child",
     });
   } finally {
@@ -192,7 +196,7 @@ test("a kill record for the run exists on disk, parses as JSON, and names the re
   const watchdog = spawnWatchdog({ runtimeDir, runId, staleMs, pollMs });
   trackedWatchdogPids.push(watchdog.pid);
   try {
-    await waitFor(() => directChildPidOf(watchdog.pid), {
+    await waitFor(() => backendPidOf(watchdog), {
       message: "the backend never appeared as the watchdog's own direct child",
     });
   } finally {
@@ -224,7 +228,7 @@ test("sending the force signal to the negation of the watchdog's pid kills both 
 
   const watchdog = spawnWatchdog({ runtimeDir, runId: "wd-group-signal", staleMs, pollMs });
   trackedWatchdogPids.push(watchdog.pid);
-  const backendPid = await waitFor(() => directChildPidOf(watchdog.pid), {
+  const backendPid = await waitFor(() => backendPidOf(watchdog), {
     message: "the backend never appeared as the watchdog's own direct child",
   });
   assert.ok(isAlive(watchdog.pid) && isAlive(backendPid), "both must start out alive");
@@ -247,7 +251,7 @@ test("starting with no heartbeat file at all does not kill the backend before on
 
   const watchdog = spawnWatchdog({ runtimeDir, runId: "wd-no-heartbeat-grace", staleMs, pollMs });
   trackedWatchdogPids.push(watchdog.pid);
-  const backendPid = await waitFor(() => directChildPidOf(watchdog.pid), {
+  const backendPid = await waitFor(() => backendPidOf(watchdog), {
     message: "the backend never appeared as the watchdog's own direct child",
   });
 

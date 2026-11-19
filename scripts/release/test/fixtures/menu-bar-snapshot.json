@@ -1,0 +1,35 @@
+{
+  "windows": ["Flywheel"],
+  "menus": [
+    {"title": "Apple", "enabled": true, "cmdChar": "", "cmdModifiers": null, "children": [{"title": "About This Mac", "enabled": true, "cmdChar": "", "cmdModifiers": null, "children": []}]},
+    {"title": "Flywheel", "enabled": true, "cmdChar": "", "cmdModifiers": null, "children": [
+      {"title": "About Flywheel", "enabled": true, "cmdChar": "", "cmdModifiers": null, "children": []},
+      {"title": null, "enabled": false, "cmdChar": "", "cmdModifiers": null, "children": []},
+      {"title": "Settings…", "enabled": true, "cmdChar": ",", "cmdModifiers": 0, "children": []},
+      {"title": null, "enabled": false, "cmdChar": "", "cmdModifiers": null, "children": []},
+      {"title": "Quit Flywheel", "enabled": true, "cmdChar": "q", "cmdModifiers": 0, "children": []}
+    ]},
+    {"title": "File", "enabled": true, "cmdChar": "", "cmdModifiers": null, "children": [
+      {"title": "Register Project…", "enabled": true, "cmdChar": "o", "cmdModifiers": 1, "children": []},
+      {"title": "New Story", "enabled": false, "cmdChar": "n", "cmdModifiers": 0, "children": []},
+      {"title": "New Epic", "enabled": false, "cmdChar": "n", "cmdModifiers": 1, "children": []},
+      {"title": null, "enabled": false, "cmdChar": "", "cmdModifiers": null, "children": []},
+      {"title": "Close Window", "enabled": true, "cmdChar": "w", "cmdModifiers": 0, "children": []}
+    ]},
+    {"title": "Edit", "enabled": true, "cmdChar": "", "cmdModifiers": null, "children": [
+      {"title": "Undo", "enabled": true, "cmdChar": "z", "cmdModifiers": 0, "children": []},
+      {"title": "Redo", "enabled": true, "cmdChar": "z", "cmdModifiers": 1, "children": []},
+      {"title": null, "enabled": false, "cmdChar": "", "cmdModifiers": null, "children": []},
+      {"title": "Cut", "enabled": true, "cmdChar": "x", "cmdModifiers": 0, "children": []},
+      {"title": null, "enabled": false, "cmdChar": "", "cmdModifiers": null, "children": []},
+      {"title": "Start Dictation…", "enabled": true, "cmdChar": "", "cmdModifiers": null, "children": []},
+      {"title": "Emoji & Symbols", "enabled": true, "cmdChar": "", "cmdModifiers": null, "children": []}
+    ]},
+    {"title": "View", "enabled": true, "cmdChar": "", "cmdModifiers": null, "children": [
+      {"title": "Toggle Command Palette", "enabled": true, "cmdChar": "k", "cmdModifiers": 0, "children": []},
+      {"title": "Fleet", "enabled": true, "cmdChar": "f", "cmdModifiers": 1, "children": []},
+      {"title": null, "enabled": false, "cmdChar": "", "cmdModifiers": null, "children": []},
+      {"title": "Enter Full Screen", "enabled": true, "cmdChar": "f", "cmdModifiers": 4, "children": []}
+    ]}
+  ]
+}

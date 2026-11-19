@@ -39,7 +39,9 @@ export function isAlive(pid) {
   }
 }
 
-/** The pids a pid file lists. A missing file lists none. */
+/** The pids a pid file lists, less each pid the fixture marked done with a `-<pid>` line when it
+ * exited on its own (the line is appended, never rewritten: sessions of one file write at once). A
+ * missing file lists none. */
 export function readPids(file) {
   let text = "";
   try {
@@ -47,7 +49,9 @@ export function readPids(file) {
   } catch {
     return [];
   }
-  return text.split("\n").map(Number).filter((pid) => Number.isInteger(pid) && pid > 1);
+  const numbers = text.split("\n").map(Number).filter((n) => Number.isInteger(n));
+  const done = new Set(numbers.filter((n) => n < -1).map((n) => -n));
+  return numbers.filter((pid) => pid > 1 && !done.has(pid));
 }
 
 /** SIGKILL each listed pid that is still alive, and its process group when it leads one (the
@@ -56,7 +60,7 @@ export function readPids(file) {
 export function killSurvivors(file) {
   const alive = [];
   for (const pid of readPids(file)) {
-    if (!isAlive(pid)) continue;
+    if (pid === process.pid || !isAlive(pid)) continue; // never the reaper itself
     alive.push(pid);
     for (const target of [-pid, pid]) {
       try {

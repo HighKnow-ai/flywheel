@@ -1,0 +1,54 @@
+// Reads a running app's menu bar and window titles through the macOS Accessibility API (System
+// Events), and prints them as one JSON document. It only reads: it never clicks a menu item.
+//
+//   osascript -l JavaScript scripts/release/read-menu-bar.jxa <bundle identifier>
+//
+// The process that runs it needs the Accessibility permission. Without it System Events refuses,
+// and this prints {"error": "..."} so check-menu-bar.mjs can name the cause instead of a timeout.
+// The parsing and the comparison are in check-menu-bar.mjs, where a test on Linux can reach them.
+//
+// A menu item that is a separator has no title (null). AX gives a key equivalent as a character
+// and a modifier bitmask: bit 0 shift, bit 1 option, bit 2 control, bit 3 "no command key".
+
+function readItem(item, depth) {
+  const read = (name) => {
+    try {
+      return item[name]();
+    } catch (e) {
+      return null;
+    }
+  };
+  const out = {
+    title: read("title"),
+    enabled: read("enabled") !== false,
+    cmdChar: read("menuItemCmdChar") || "",
+    cmdModifiers: read("menuItemCmdModifiers"),
+    children: [],
+  };
+  if (depth < 4) {
+    let menus = [];
+    try {
+      menus = item.menus();
+    } catch (e) {
+      menus = [];
+    }
+    if (menus.length > 0) out.children = menus[0].menuItems().map((child) => readItem(child, depth + 1));
+  }
+  return out;
+}
+
+function run(argv) {
+  const bundleId = argv[0];
+  try {
+    const events = Application("System Events");
+    const found = events.processes.whose({ bundleIdentifier: bundleId });
+    if (found.length === 0) return JSON.stringify({ error: `no process with bundle identifier ${bundleId}` });
+    const proc = found[0];
+    const windows = proc.windows().map((w) => w.title());
+    const bars = proc.menuBars();
+    const menus = bars.length === 0 ? [] : bars[0].menuBarItems().map((item) => readItem(item, 0));
+    return JSON.stringify({ windows, menus });
+  } catch (e) {
+    return JSON.stringify({ error: String(e) });
+  }
+}
