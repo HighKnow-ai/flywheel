@@ -26,9 +26,46 @@ It cannot run a Story in the app for you. Do that once after it is green: create
 
 ## Build under test
 
+The newest release is older than the work on `main`, and the signed `.dmg` waits for the signing story. For attempt 2, build the app from a named commit of `main`, unsigned, on your Mac. Do it once, before the preflight and before day 1.
+
+1. Quit Flywheel. The script refuses to run while it is open.
+2. Pick the commit. Use the tip of `main`, or an older commit that has the fixes you need. Run `git fetch origin main` first.
+3. From your own terminal, in the monorepo, run:
+
+   ```sh
+   node flywheel/scripts/exit-test/build-under-test.mjs --commit origin/main
+   ```
+
+   The build takes several minutes. The script does these steps in this order, and nothing else:
+
+   - It copies the board DB, `~/Library/Application Support/Flywheel/flywheel.db`, to `~/Flywheel-backups/flywheel.db.<UTC date and time>`. It uses sqlite3's `.backup`, which is safe on an open DB. It does not change the DB.
+   - It exports the commit with `git archive` into a new folder in `$TMPDIR`, so no local edit enters the build. It builds the app there with `tauri build --bundles app`, and runs `check-release-bundle.mjs`, the same refusal as the release job. It does not sign and it does not call the keychain.
+   - It moves the installed `/Applications/Flywheel.app` to `~/Flywheel-backups/Flywheel.app.previous-<UTC date and time>`, and copies the new app to `/Applications/Flywheel.app`.
+   - It runs `xattr -dr com.apple.quarantine /Applications/Flywheel.app`. This removes one attribute from that one app. A local build has none, so it normally does nothing. It does not change Gatekeeper or any other file.
+
+   Pass `--applications <folder>` to install somewhere else, and `--backup-dir <folder>` to keep the backups somewhere else.
+4. The script ends with four lines. Paste them here, in place of the placeholders:
+
 - Commit: `<sha>`
-- How it was installed: `<for example, the .dmg from that commit's release workflow>`
+- Installed: `<path of Flywheel.app>`
 - Board backup: `<path to the copy of flywheel.db>`
+- Previous app: `<path of the earlier Flywheel.app>`
+
+5. Run the preflight with `--backup <the Board backup path>` (see Start conditions). The preflight accepts the backup as it is.
+6. Open Flywheel. macOS may show a first-run dialog for an unsigned app. If it says the app is damaged, run `xattr -cr /Applications/Flywheel.app`, as in the release note, and open it again.
+
+### Go back to the previous build
+
+Use this if the build under test cannot run the attempt. Quit Flywheel first. A restart after a restore starts the attempt over: the board goes back to its state at the backup, so changes made since then are lost.
+
+```sh
+node flywheel/scripts/exit-test/build-under-test.mjs restore \
+  --backup <Board backup path> --previous-app <Previous app path>
+```
+
+It writes the backup over `flywheel.db` and removes the stale `-wal` and `-shm` files. It puts the previous app back in `/Applications`. It keeps what it replaced, as `flywheel.db.before-restore-<time>` and `Flywheel.app.under-test-<time>` in `~/Flywheel-backups`, so a restore deletes nothing. If you passed `--applications` or `--backup-dir` when you built, pass the same ones here.
+
+To build a different commit, run the build command again with another `--commit`. Its backup is a new file.
 
 Do not run an interactive `claude` session in a counted project before day 1. The drop-back script counts it.
 

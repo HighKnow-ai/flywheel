@@ -156,6 +156,37 @@ export async function seedMonorepoBoard(core: Core): Promise<Board> {
   return { ...base, epicId: epic.id, epicKey: epic.key ?? "", storyId: story.id, storyKey: story.key };
 }
 
+/**
+ * Issue #1844's board: the monorepo board's one Ready Story, on a project that lists untracked files in
+ * `.flywheel/worktree-include`: a `.env` to copy and a `node_modules` folder to link. The files are untracked
+ * in the project, as a real `.env` and `node_modules` are. Three Checks: one needs the copied `.env`, one the
+ * linked `node_modules`, and one a program nobody installed, so it fails the way a missing install does.
+ */
+export async function seedWorktreeIncludeBoard(core: Core): Promise<Board> {
+  const base = await project(core);
+  const epic = await core.call<Id>("epic_create", { milestoneId: base.milestoneId, title: "Running" });
+  await core.call("epic_update", {
+    epicId: epic.id,
+    title: "Running",
+    problem: "A worktree has no .env",
+    scope: "The app starts",
+    outOfScope: null,
+    exitTest: "The app starts in a worktree",
+  });
+  await core.call("epic_set_state", { epicId: epic.id, to: "ready" });
+  const story = await core.call<Id>("story_write_by_hand", {
+    epicId: epic.id,
+    title: "Parser",
+    description: null,
+    criteria: [
+      { statement: "The app reads its token", checkCommand: "grep -q TOKEN=abc .env" },
+      { statement: "The app finds its dependency", checkCommand: "test -f node_modules/dep/index.js" },
+      { statement: "The app runs its test tool", checkCommand: "vitest-that-nobody-installed run" },
+    ],
+  });
+  return { ...base, epicId: epic.id, epicKey: epic.key ?? "", storyId: story.id, storyKey: story.key };
+}
+
 /** UAT 16's board: one Epic in Shaping, with no Story, the one-line idea that Shape starts from. */
 export async function seedShapingBoard(core: Core): Promise<Board> {
   const base = await project(core);
@@ -164,4 +195,39 @@ export async function seedShapingBoard(core: Core): Promise<Board> {
     title: "Parse a file with a bad line",
   });
   return { ...base, epicId: epic.id, epicKey: epic.key ?? "" };
+}
+
+/**
+ * The merge-guards board: one Ready Epic with two Ready Stories, each with one criterion and one Check. Alpha's
+ * Check (`test -f alpha.txt`) is never met by its agent, so Alpha reaches review with a failing Check. Bravo's
+ * Check is met, but its agent writes `shared.txt`, which the flow then writes on `main` too, so Bravo reaches
+ * review with a merge conflict. Their keys are FLY-2 and FLY-3, which the agent script reads.
+ */
+export async function seedMergeGuardsBoard(core: Core): Promise<Board & { stories: Id[] }> {
+  const base = await project(core);
+  const epic = await core.call<Id>("epic_create", { milestoneId: base.milestoneId, title: "Guards" });
+  await core.call("epic_update", {
+    epicId: epic.id,
+    title: "Guards",
+    problem: "A merge can lose work",
+    scope: "Two Stories",
+    outOfScope: null,
+    exitTest: "A merge that is not safe says so",
+  });
+  await core.call("epic_set_state", { epicId: epic.id, to: "ready" });
+  const stories: Id[] = [];
+  for (const [title, statement, checkCommand] of [
+    ["Alpha", "Alpha leaves its mark in alpha.txt", "test -f alpha.txt"],
+    ["Bravo", "Bravo reads the shared file", "test -f shared.txt"],
+  ] as const) {
+    stories.push(
+      await core.call<Id>("story_write_by_hand", {
+        epicId: epic.id,
+        title,
+        description: null,
+        criteria: [{ statement, checkCommand }],
+      }),
+    );
+  }
+  return { ...base, epicId: epic.id, epicKey: epic.key ?? "", stories };
 }

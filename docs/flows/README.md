@@ -16,7 +16,11 @@ Write in ASD-STE100 Simplified Technical English. Cover one flow in each doc.
 | A Story of a monorepo folder runs and merges | [monorepo-layout.md](monorepo-layout.md) | `packages/desktop/e2e/flows/monorepo-layout.spec.ts` |
 | A session lives past the watchdog window | [session-supervision.md](session-supervision.md) | `packages/desktop/e2e/flows/session-supervision.spec.ts` |
 | A project is renamed from its menu | [project-rename.md](project-rename.md) | `packages/desktop/e2e/flows/project-rename.spec.ts` |
+| A project is registered and its first Story is written | [first-project-and-story.md](first-project-and-story.md) | `packages/desktop/e2e/flows/first-project-and-story.spec.ts` |
+| A Stopped Story is recovered and dropped | [stopped-story-recovery.md](stopped-story-recovery.md) | `packages/desktop/e2e/flows/stopped-story-recovery.spec.ts` |
+| Merge with a failing Check, and Rebase needed | [merge-guards.md](merge-guards.md) | `packages/desktop/e2e/flows/merge-guards.spec.ts` |
 | A Story lands by pull request | [story-landing.md](story-landing.md) | `packages/desktop/e2e/flows/story-landing.spec.ts` |
+| A new worktree gets the project's untracked files | [worktree-include.md](worktree-include.md) | `packages/desktop/e2e/flows/worktree-include.spec.ts` |
 
 ## Participants
 

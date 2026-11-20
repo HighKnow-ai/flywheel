@@ -698,6 +698,20 @@ describe("the review card's order, objections, files and Re-run Checks (issue #1
     expect(within(warnings).getByText("2 Tasks not done")).toBeInTheDocument();
   });
 
+  it("shows a dependencies-missing line above the output of a failed Check that names one (issue #1844)", async () => {
+    const failed = {
+      ...check("npm test", "failed", false, "Error: Cannot find module 'vitest'"),
+      dependenciesMissing:
+        "Dependencies missing in this worktree? List the untracked files it needs in .flywheel/worktree-include.",
+    };
+    storyReview.mockResolvedValue(review({ failingChecks: [failed] }));
+    renderCard();
+
+    const failing = await screen.findByRole("region", { name: "1 Check not passing" });
+    expect(within(failing).getByText(/^Dependencies missing in this worktree\?/)).toBeInTheDocument();
+    expect(within(failing).getByText("Error: Cannot find module 'vitest'")).toBeInTheDocument();
+  });
+
   it("shows each Check objection beside its Check, naming the command the agent objected to when it changed", async () => {
     storyReview.mockResolvedValue(fullReview());
     reviewFilePatch.mockResolvedValue({ patch: PATCH, tooLarge: false });

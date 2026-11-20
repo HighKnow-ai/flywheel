@@ -99,6 +99,29 @@ pub fn base_ref_for_story(conn: &Connection, story_id: &str) -> anyhow::Result<S
     .with_context(|| format!("Story {story_id:?} not found"))
 }
 
+/// Put the project's listed untracked files in a new worktree (issue #1844, ADR 0043) and return
+/// what happened as JSON for the `worktree.created` event. `null` when the project lists nothing.
+/// A list that cannot be read or a path that cannot be placed never stops the worktree: the Story
+/// still starts, and the event says what was left out.
+fn include_project_files(
+    repo_path: &Path,
+    worktree_path: &Path,
+    subdir: &str,
+) -> serde_json::Value {
+    let in_worktree = if subdir.is_empty() {
+        worktree_path.to_path_buf()
+    } else {
+        worktree_path.join(subdir)
+    };
+    match crate::worktree_include::include_into_worktree(repo_path, &in_worktree) {
+        Ok(r) if r.is_empty() => serde_json::Value::Null,
+        Ok(r) => {
+            serde_json::json!({ "copied": r.copied, "linked": r.linked, "skipped": r.skipped })
+        }
+        Err(e) => serde_json::json!({ "copied": [], "linked": [], "skipped": [format!("{e:#}")] }),
+    }
+}
+
 /// Create-or-reuse a Story's worktree (D-30). Performs the existence SELECT before opening any
 /// transaction; when a row already exists, returns it untouched and issues no second
 /// `git worktree add`. Otherwise: derives the branch name (`branch::story_branch_name`), resolves
@@ -153,6 +176,7 @@ pub fn ensure_worktree(
         &base_branch,
     )
     .with_context(|| format!("failed to create worktree for Story {story_id:?}"))?;
+    let included = include_project_files(Path::new(&repo_path), &worktree_path, &subdir);
 
     let id = new_id();
     let now = now_rfc3339();
@@ -168,12 +192,15 @@ pub fn ensure_worktree(
     .context("failed to insert worktree row")?;
 
     let sequence = next_sequence(&tx, &project_id, "local")?;
-    let payload = serde_json::json!({
+    let mut payload = serde_json::json!({
         "field": "worktree",
         "before": null,
         "after": branch,
         "label": format!("Created worktree {branch}"),
     });
+    if !included.is_null() {
+        payload["included"] = included;
+    }
     append_event(
         &tx,
         &project_id,
@@ -574,6 +601,7 @@ pub fn recreate_worktree_for_story(
         )
         .with_context(|| format!("failed to recreate worktree for Story {story_id:?}"))?;
     }
+    include_project_files(repo_path, worktree_path, &worktree.subdir);
 
     let now = now_rfc3339();
     let tx = conn.transaction()?;

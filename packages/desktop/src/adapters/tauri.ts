@@ -1014,6 +1014,8 @@ export interface ReviewCheckDto {
   stale: boolean;
   commitSha: string | null;
   outputTail: string | null;
+  /** A failed Check whose output reads as missing dependencies or an untracked file: the line to show. */
+  dependenciesMissing?: string | null;
   /** The handing-off agent's objections to this Check, in the order it gave them. */
   objections: ReviewObjectionDto[];
 }

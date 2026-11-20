@@ -92,6 +92,13 @@ test("an error line nobody has seen yet is refused, even when dyld_info exits 0"
   assert.match(dyldObjection(`${CLEAN}   some objection from a later dyld\n`, 0), /some objection from a later dyld/);
 });
 
+test("xcrun's cache warning is not dyld_info's objection, and the report after it is still judged", () => {
+  const cache = "xcrun: error: couldn't create cache file '/var/folders/x/T/xcrun_db-AbCd1234' (errno=Operation not permitted)\n";
+  assert.equal(dyldObjection(`${cache}${CLEAN}`, 0), null);
+  assert.match(dyldObjection(`${cache}${CLEAN}   some objection from a later dyld\n`, 0), /some objection/);
+  assert.match(dyldObjection("xcrun: error: unable to find utility \"dyld_info\"\n", 1), /unable to find utility/);
+});
+
 test("a failing exit status is refused on a clean report", () => {
   assert.match(dyldObjection(CLEAN, 1), /exited 1/);
 });

@@ -73,6 +73,9 @@ export function dyldObjection(output, status) {
   const lines = output.split("\n");
   for (const line of lines) {
     if (line === "") continue;
+    // xcrun's own line, not dyld_info's: it could not write its lookup cache (a sandbox refuses the
+    // user temp folder). The lookup still runs, so the report below is still judged in full.
+    if (/^xcrun: error: couldn't create cache file '[^']*' \(errno=[^)]*\)$/.test(line)) continue;
     if (/^\S.* \[[^\]]+\]:$/.test(line)) continue;
     if (/^\s+-platform:$/.test(line)) continue;
     if (/^\s+platform\s+minOS\s+sdk\s*$/.test(line)) continue;

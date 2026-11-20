@@ -66,6 +66,9 @@ pub struct ReviewCheckDto {
     pub stale: bool,
     pub commit_sha: Option<String>,
     pub output_tail: Option<String>,
+    /// Set on a failed Check whose output reads as missing dependencies or a missing untracked
+    /// file (issue #1844, ADR 0043): the card shows it as a line above the output.
+    pub dependencies_missing: Option<String>,
     pub objections: Vec<ReviewObjectionDto>,
 }
 
@@ -78,6 +81,13 @@ impl From<ReviewCheck> for ReviewCheckDto {
             result: k.result.as_str().to_string(),
             stale: k.stale,
             commit_sha: k.commit_sha,
+            dependencies_missing: (k.result == flywheel_core::domain::check::CheckResult::Failed)
+                .then(|| {
+                    k.output_tail
+                        .as_deref()
+                        .and_then(flywheel_core::worktree_include::dependencies_missing_line)
+                })
+                .flatten(),
             output_tail: k.output_tail,
             objections: k
                 .objections

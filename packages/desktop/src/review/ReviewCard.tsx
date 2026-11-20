@@ -234,6 +234,7 @@ function FailingChecks({ checks }: { checks: ReviewCheckDto[] }) {
               <ReviewCheckChip check={check} />
               <CheckCommand command={check.command} />
             </span>
+            {check.dependenciesMissing && <span className="text-small font-semibold">{check.dependenciesMissing}</span>}
             {check.outputTail && check.outputTail.trim() !== "" && <OutputTail text={check.outputTail.trimEnd()} />}
             {!check.outputTail && check.result === "not_run" && (
               <span className="text-meta text-muted-foreground">Not run since the Check was last edited.</span>
