@@ -1,6 +1,6 @@
 //! D-51/D-55's PATH shim binary. This binary is deliberately NOT built or invoked by cargo under
 //! the names `git` or `rm` — `flywheel_core::shim::install_for_run` creates the on-disk entries
-//! named `git` and `rm` (or `git.exe`/`rm.exe`) at spawn time by hard-linking/copying this
+//! named `git` and `rm` (or `git.exe`/`rm.exe`) at spawn time by copying this
 //! compiled binary. Dispatch reads `argv[0]` (never the cargo package/binary name) so both
 //! shadowed names run the exact same compiled binary without a second build target. The
 //! publishing tools `npm`, `cargo` and `gh` are shadowed the same way when the supervisor finds

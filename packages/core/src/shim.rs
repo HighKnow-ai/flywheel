@@ -28,7 +28,7 @@ fn shim_binary_file_name() -> &'static str {
 
 /// The name the installed PATH entry must carry so `argv[0]`'s dispatch sees `git` (never a
 /// symlink — a symlink's `argv[0]` resolution is platform-dependent, per this plan's own
-/// instruction; [`install_for_run`] hard-links or copies instead).
+/// instruction; [`install_for_run`] copies instead).
 fn shadowed_git_entry_name() -> &'static str {
     if cfg!(windows) {
         "git.exe"
@@ -213,8 +213,8 @@ fn shim_dir_for_run(run_id: &str) -> anyhow::Result<PathBuf> {
     Ok(runtime_protocol::runtime_dir()?.join("shim").join(run_id))
 }
 
-/// Hard-link (falling back to a plain copy across a filesystem boundary) the compiled shim binary
-/// in at `dir.join(entry_name)`, then mark it executable on Unix — the shared install step both
+/// Copy the compiled shim binary in at `dir.join(entry_name)` (an own inode per entry), then mark
+/// it executable on Unix — the shared install step both
 /// [`shadowed_git_entry_name`] and [`shadowed_rm_entry_name`] use. A no-op if the entry already
 /// exists.
 fn install_shadow_entry(dir: &Path, entry_name: &str, run_id: &str) -> anyhow::Result<()> {
@@ -223,11 +223,14 @@ fn install_shadow_entry(dir: &Path, entry_name: &str, run_id: &str) -> anyhow::R
         return Ok(());
     }
     let shim_bin = resolve_shim_binary()?;
-    if fs::hard_link(&shim_bin, &entry).is_err() {
-        fs::copy(&shim_bin, &entry).with_context(|| {
-            format!("failed to install the shim entry at {entry:?} for run {run_id:?}")
-        })?;
-    }
+    // NOT a hard link (issue #1861). A link shares the inode of the compiled `flywheel-shim`, so
+    // every run's `git` and `rm` entry and the cargo artifact are ONE vnode. On macOS, unlinking a
+    // link (a finished run's directory is removed) while another process execs that vnode gets the
+    // exec SIGKILLed, with no output. A copy gives each entry its own inode, so nothing a run does
+    // to its entry can touch another process's exec.
+    fs::copy(&shim_bin, &entry).with_context(|| {
+        format!("failed to install the shim entry at {entry:?} for run {run_id:?}")
+    })?;
 
     #[cfg(unix)]
     {
@@ -363,8 +366,9 @@ fn verify_shadow_entry_speaks_classification(entry: &Path, run_id: &str) -> anyh
 
     if !output.status.success() {
         bail!(
-            "shim install verification failed: entry {entry:?} for run {run_id:?} exited non-zero ({:?}) answering the classification-contract probe",
-            output.status.code()
+            "shim install verification failed: entry {entry:?} for run {run_id:?} exited non-zero ({}) answering the classification-contract probe: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
         );
     }
 

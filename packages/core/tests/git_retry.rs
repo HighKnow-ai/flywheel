@@ -479,7 +479,7 @@ mod shim {
             let err =
                 result.expect_err("an rm entry that is a directory must fail install_for_run");
             let rendered = format!("{err:#}");
-            // A directory-shaped entry fails inside `install_shadow_entry`'s own hard-link/copy
+            // A directory-shaped entry fails inside `install_shadow_entry`'s own copy
             // attempt (its `entry.is_file()` fast path is false for a directory, so it never
             // short-circuits) — `verify_shadow_entry` is never reached for this specific shape.
             // The acceptance bar (plan 03-25 Task 1) is that the error names the entry and the
@@ -527,15 +527,9 @@ mod shim {
     /// 2's own instruction: "The stub must be inert ... executing nothing"). `body` is the
     /// script's one statement.
     ///
-    /// CRITICAL: `install_shadow_entry` HARD-LINKS the compiled `flywheel-shim` binary in at this
-    /// path when a healthy install ran first (as every T7/T8-shaped test does, to obtain a
-    /// realistic directory before corrupting one entry) — `path` and the compiled binary under
-    /// `target/{debug,release}/flywheel-shim` are the SAME inode. Writing through that path with
-    /// `std::fs::write` (open-truncate-in-place) would corrupt the shared inode's content, which
-    /// is the compiled binary itself, breaking every other test in this binary that resolves and
-    /// runs it. `remove_file` FIRST unlinks this directory entry only — decrementing the link
-    /// count without touching the inode's data through any of its OTHER links — so the
-    /// subsequent `write` creates a brand-new, unrelated file at the same path.
+    /// `install_shadow_entry` COPIES the compiled `flywheel-shim` binary (never a hard link, issue
+    /// #1861), so `path` is its own inode. `remove_file` first still keeps the write from
+    /// truncating a file in place that a probe may be running.
     #[cfg(unix)]
     fn write_inert_stub_script(path: &std::path::Path, body: &str) {
         use std::os::unix::fs::PermissionsExt;
@@ -547,6 +541,33 @@ mod shim {
             .permissions();
         perms.set_mode(0o755);
         std::fs::set_permissions(path, perms).expect("failed to make the stub script executable");
+    }
+
+    /// Issue #1861: an entry that shared the compiled binary's inode got SIGKILLed on macOS when
+    /// another run's directory was removed while this entry ran. Each entry must own its inode.
+    #[cfg(unix)]
+    #[test]
+    fn install_for_run_gives_each_entry_its_own_inode_never_a_link_to_the_compiled_shim() {
+        use std::os::unix::fs::MetadataExt;
+        with_scratch_runtime_dir(|| {
+            let run_id = format!("test-run-{}-inode", std::process::id());
+            let dir = install_for_run(&run_id).expect("install_for_run should succeed");
+            let built = std::fs::metadata(resolve_shim_binary().expect("shim binary resolves"))
+                .expect("shim binary metadata");
+            assert_eq!(
+                built.nlink(),
+                1,
+                "the compiled shim must have no extra links"
+            );
+            for name in ["git", "rm"] {
+                let entry = std::fs::metadata(dir.join(name)).expect("entry metadata");
+                assert_ne!(
+                    (entry.dev(), entry.ino()),
+                    (built.dev(), built.ino()),
+                    "entry {name} must not share the compiled shim's inode"
+                );
+            }
+        });
     }
 
     #[test]

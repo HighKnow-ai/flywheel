@@ -120,7 +120,7 @@ function permissionSettingsPath(runtimeDir: string, runId: string): string {
 /** Derive `FLYWHEEL_SHIM_BIN` (plan 03-07) — the absolute shim path `sessionstart-hook.ts`
  * derives the shim directory from — from the FIRST `PATH` segment `flywheel_core::shim::
  * shim_env_for_run` already prefixed onto this spawn's environment (D-51). That directory holds a
- * hard-linked/copied entry named `git`/`git.exe`, which IS the compiled shim binary — invoking it
+ * copied entry named `git`/`git.exe`, which IS the compiled shim binary — invoking it
  * with `--classify-command` never dispatches through the `argv[0]`-stem match at all (checked
  * first in `packages/shim/src/main.rs::main`), so this entry works identically to any other copy
  * of the same binary. Deliberately reads the value back rather than re-resolving a second,
