@@ -146,6 +146,14 @@ _Avoid_: Run, lamp, worker (as a count)
 A session that is live but can't go on until the developer answers it: a Gated action, a permission request, a question the agent asked, or an open shaping question.
 _Avoid_: Blocked, paused
 
+**Note to the agent**:
+Free text that the developer sends to the live session of a Story. The agent takes it at its next turn boundary, never during a tool call. It reads sent, delivered, or not delivered when its session ended first.
+_Avoid_: Message, chat, prompt, steer
+
+**Quick Story**:
+A Story written from one text field with one default criterion and started at once, in the Epic "Quick Stories" of its project.
+_Avoid_: Ad-hoc task, scratch Story
+
 **Stopped**:
 A Running Story with no live session that never handed off for review; its worktree is left exactly as it was, and resuming it starts a new session from the Context packet rather than continuing the old one.
 _Avoid_: Failed, interrupted, abandoned

@@ -216,6 +216,17 @@ Every Story session starts fresh from a fixed, ordered packet, stable parts firs
 - A healthy run must not look stalled.
 - Fleet and notifications are the Keep subsystems that get feature work: every live Story session across projects is visible from one place, and the sidebar carries each project's Needs-you count.
 
+### 4.7 Steering a running Story: a note and a Quick Story
+
+The owner said yes on 2026-11-20 ([ADR 0044](adr/0044-a-note-to-the-agent-and-a-quick-story.md), issue #1848).
+
+Why: a quick fix or a "why does this fail?" question has no home on the board, so it goes to a terminal `claude` in a counted project, and that is a drop-back. These two controls keep that work on the board.
+
+- **Note to the agent.** A Story with a live session has a card with a free-text field (at most 1000 characters). A note is Cyril's own act: an agent never sends one. The core records it as **sent**. The sidecar queues it, and the agent takes it at its next turn boundary: after the tool call it is making, or when it is about to end its turn. A note never interrupts a tool call. When the sidecar has handed it over, the note is **delivered**. The card shows each note with its state in words.
+- **Not delivered.** A note whose session ends before the agent takes it reads "Not delivered. The session ended before the agent took it, and the next session does not receive it." Its text stays on the card. A note is never carried to a later session, and Resume's one-line note is the way to say it again. A note is for a moment in one session.
+- **Quick Story.** One text field on the board writes a Story and starts it. The first line is the title, and the whole text is the description. The Story has one default criterion, "The request in the Story description is done, or the question is answered in the hand-off", with no Check, judged at review. It lives in the Epic "Quick Stories" of the project (made on first use in the Current Milestone, or in a Milestone "Quick Stories" when none is open). It starts with Start's launch, so it has a key, a worktree, a session and a review like any other Story. When the start fails, the Story stays Ready, and the error says so.
+- **Not in scope.** No chat. A note carries no reply channel: the agent answers on the board, through its Tasks, its hand-off and its Proposals.
+
 ## 5. Proposals from execution
 
 ([How do Proposals filed during execution reach Cyril, and how are they triaged?](https://github.com/HighKnow-ai/flywheel/issues/27))

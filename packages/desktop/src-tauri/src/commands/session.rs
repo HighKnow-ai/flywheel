@@ -420,7 +420,7 @@ pub async fn story_start(
         .map_err(|e| super::ipc_error("story_start:join", e))?
 }
 
-fn story_start_blocking(
+pub(crate) fn story_start_blocking(
     app: &AppHandle,
     story_id: String,
     instruction: &str,

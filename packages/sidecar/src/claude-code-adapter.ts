@@ -32,6 +32,7 @@ import {
   PERMISSION_TOOL_NAME,
   startPermissionServer,
   type PermissionNoticePayload,
+  type PendingNote,
   type PermissionServerHandle,
   type QuestionAnswers,
 } from "./mcp-permission-server.js";
@@ -103,6 +104,12 @@ export function sessionStartHookScriptPath(): string {
   return fileURLToPath(new URL("./sessionstart-hook.js", import.meta.url));
 }
 
+/** The compiled note hook's absolute path: run at each tool-call boundary and at the end of a turn to
+ * hand the agent the notes the developer sent (`note-hook.ts`). */
+export function noteHookScriptPath(): string {
+  return fileURLToPath(new URL("./note-hook.js", import.meta.url));
+}
+
 /** Where a per-run `--settings` JSON injecting the session's hooks is written (plan 03-07):
  * `<runtimeDir>/settings/<runId>.json`, alongside `runtime_protocol.rs`'s own per-run file
  * conventions (`runs/<runId>.json`, `shim/<runId>/`). */
@@ -164,6 +171,12 @@ export function writeHookSettings(
             ],
           },
         ],
+        // A note to the agent: both entries run the same script, which asks the sidecar for the
+        // notes waiting for this session. PostToolUse is the boundary after a tool call has
+        // finished, so a note never interrupts one. Stop is the end of the agent's turn: a note
+        // that arrived during the last stretch keeps the agent working instead of being lost.
+        PostToolUse: [{ hooks: [{ type: "command", command: `${process.execPath} ${noteHookScriptPath()}` }] }],
+        Stop: [{ hooks: [{ type: "command", command: `${process.execPath} ${noteHookScriptPath()}` }] }],
       },
     };
     fs.writeFileSync(settingsPath, JSON.stringify(settings));
@@ -902,6 +915,8 @@ export const STDERR_DETAIL_MAX_CHARS = 2000;
  * for `interruptSession`/`killSession` to find the right child, know whether it already closed
  * (idempotency, D-35), and classify why it closed once it does. */
 interface LiveSession {
+  /** The run this session belongs to. */
+  runId: string;
   /** The session's own watchdog wrapper process (plan 03-02) — NOT the backend `claude` binary
    * directly. The wrapper is the one spawned with its own process group here, and it spawns the
    * backend as ITS OWN child inside that same group; `interruptSession`/`killSession`'s existing
@@ -955,6 +970,10 @@ interface LiveSession {
    * spawned. `resolvePermission` (below) looks a run up here to relay a decision; `close()` is
    * called exactly once, from {@link emitSessionClosed}, so the socket never outlives its run. */
   permissionServer: PermissionServerHandle;
+  /** Notes the developer sent that no hook has taken yet, oldest first (`queueNote`). They live here
+   * and not on disk: they cannot outlive the session, and a note a dead session never took is
+   * reported undelivered by the Rust core. */
+  notes: PendingNote[];
 }
 
 /** Tracks every session this sidecar has ever started, for the lifetime of this process —
@@ -1100,6 +1119,23 @@ function raceClosed(session: LiveSession, timeoutMs: number): Promise<boolean> {
   });
 }
 
+/** Hand over the notes waiting for `session`, and say so upstream: one `note_delivered` event for each,
+ * in order. "Delivered" means handed to the hook that prints it into the agent's context. */
+function takeNotes(session: LiveSession): PendingNote[] {
+  const taken = session.notes.splice(0);
+  for (const note of taken) {
+    session.onEvent({
+      runId: session.runId,
+      seq: session.nextSeq++,
+      at: new Date().toISOString(),
+      raw: JSON.stringify({ type: "note_delivered", noteId: note.id }),
+      type: "note_delivered",
+      noteId: note.id,
+    });
+  }
+  return taken;
+}
+
 export class ClaudeCodeAdapter implements AgentAdapter {
   readonly capabilities = CAPABILITIES;
 
@@ -1154,7 +1190,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
         tool: payload.tool,
         args: payload.args,
       });
-    });
+    }, () => takeNotes(session));
 
     const bin = resolveClaudeBin();
 
@@ -1275,6 +1311,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     });
 
     session = {
+      runId: options.runId,
       child,
       closed,
       closedEventEmitted: false,
@@ -1287,6 +1324,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       onEvent: options.onEvent,
       nextSeq: 0,
       permissionServer,
+      notes: [],
     };
     liveSessions.set(options.runId, session);
 
@@ -1379,6 +1417,16 @@ export class ClaudeCodeAdapter implements AgentAdapter {
         resolve();
       });
     });
+  }
+
+  /** A note from the developer, for the agent's next turn boundary. The note waits in the session's
+   * queue until the note hook asks for it. Rejects with {@link UnknownRunError} for a run this
+   * sidecar never spawned, and refuses a session that has already ended: nobody would ask. */
+  queueNote(runId: string, noteId: string, text: string): void {
+    const session = liveSessions.get(runId);
+    if (!session) throw new UnknownRunError(runId);
+    if (session.closedEventEmitted) throw new Error(`the session ${runId} has ended; the note cannot be delivered`);
+    session.notes.push({ id: noteId, text });
   }
 
   async interruptSession(runId: string): Promise<void> {

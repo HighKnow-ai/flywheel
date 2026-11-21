@@ -32,6 +32,7 @@ import {
   useStopped,
   useStorySessions,
 } from "./StoryControls";
+import { NoteToAgent } from "./NoteToAgent";
 import { TaskChecklist, useStoryTasks } from "./TaskChecklist";
 import { useBoardChangedSubscription, useSessionFeed } from "./useBoardQuery";
 import { WriteStoryDialog } from "./WriteStoryDialog";
@@ -510,6 +511,13 @@ function StoryBody({ projectId, story }: { projectId: string; story: StoryDto })
       </section>
 
       <AgentStation projectId={projectId} story={story} waitingOnYou={waitingOnYou} />
+
+      <NoteToAgent
+        projectId={projectId}
+        storyId={story.id}
+        storyKey={story.key}
+        live={story.state === "running" && !stopped}
+      />
 
       <LandingPanel projectId={projectId} story={story} />
 

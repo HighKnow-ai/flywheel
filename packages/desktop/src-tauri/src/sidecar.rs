@@ -340,6 +340,43 @@ impl SidecarHandle {
         }
     }
 
+    /// Queue a note the developer sent for `run_id`'s next turn boundary, and wait for the sidecar's
+    /// acknowledgement that it holds the note. `Err` means the sidecar refused it, usually because the
+    /// session has ended; the note stays recorded and reads as not delivered. The sidecar tells the
+    /// core when the agent takes the note (a `note_delivered` event, `commands::steer`).
+    pub fn send_note(&self, run_id: &str, note_id: &str, text: &str) -> anyhow::Result<()> {
+        let request_id = format!("note-{note_id}");
+        let (tx, rx) = std::sync::mpsc::channel::<Result<serde_json::Value, String>>();
+        {
+            let mut pending = self
+                .pending_acks
+                .lock()
+                .map_err(|_| anyhow::anyhow!("sidecar pending-acks mutex poisoned"))?;
+            pending.insert(request_id.clone(), tx);
+        }
+        let request = serde_json::json!({
+            "id": request_id, "op": "note", "runId": run_id, "noteId": note_id, "text": text,
+        });
+        if let Err(err) = self.send_request(&request.to_string()) {
+            if let Ok(mut pending) = self.pending_acks.lock() {
+                pending.remove(&request_id);
+            }
+            return Err(err);
+        }
+        match rx.recv_timeout(INTERRUPT_ACK_TIMEOUT) {
+            Ok(Ok(_data)) => Ok(()),
+            Ok(Err(err)) => Err(anyhow::anyhow!("{err}")),
+            Err(_) => {
+                if let Ok(mut pending) = self.pending_acks.lock() {
+                    pending.remove(&request_id);
+                }
+                Err(anyhow::anyhow!(
+                    "the sidecar did not acknowledge the note for run {run_id:?} within {INTERRUPT_ACK_TIMEOUT:?}"
+                ))
+            }
+        }
+    }
+
     /// Ask the sidecar to resolve the backend binary it would spawn and report its version
     /// (D-39, plan 02-09 Task 3). Read-only: never spawns a session, never touches a credential —
     /// mirrors `interrupt_run`'s own send-then-block-on-ack shape, reusing [`Self::pending_acks`]
@@ -1202,6 +1239,15 @@ pub fn spawn_sidecar_within(
                                 == Some("board_tool_request")
                             {
                                 crate::commands::task::handle_inbound_board_tool_request(
+                                    &app_for_reader,
+                                    &event,
+                                );
+                            }
+
+                            // A note to the agent: the sidecar handed it to the agent at a turn boundary.
+                            if event.get("type").and_then(|v| v.as_str()) == Some("note_delivered")
+                            {
+                                crate::commands::steer::handle_inbound_note_delivered(
                                     &app_for_reader,
                                     &event,
                                 );

@@ -502,6 +502,22 @@ function isPushApprovalPayload(parsed: unknown): parsed is PushApprovalPayload {
   return kind === "push_approval_check" || kind === "push_approval_revoke";
 }
 
+/** A note the developer sent to the agent, waiting for the agent's next turn boundary. */
+export interface PendingNote {
+  id: string;
+  text: string;
+}
+
+/** The note hook's question (`note-hook.ts`): "which notes are waiting for this session?". It is
+ * answered at once on the same connection with `{ notes: PendingNote[] }`, and it is never held. */
+function isNotePullPayload(parsed: unknown): parsed is { kind: "note_pull" } {
+  return (
+    parsed !== null &&
+    typeof parsed === "object" &&
+    (parsed as { kind?: unknown }).kind === "note_pull"
+  );
+}
+
 /** Plan 03-13 (D-53): the shim's fire-and-forget notice shape — `kind` is what distinguishes this
  * from {@link PermissionRequestPayload} on the wire (the routine payload never carries a `kind`
  * field at all). `runId` is the shim's own `FLYWHEEL_RUN_ID`; every other field is notice-specific
@@ -619,6 +635,8 @@ export function startPermissionServer(
   onRequest: (payload: PermissionRequestPayload) => void,
   onNotice: (payload: PermissionNoticePayload) => void,
   onBoardTool?: (payload: BoardToolRequestPayload) => void,
+  /** Drains the notes waiting for this session and returns them. Called once per `note_pull`. */
+  onNotePull?: () => PendingNote[],
 ): PermissionServerHandle {
   const socketPath = path.join(socketBaseDir(), `flywheel-permission-${randomUUID()}.sock`);
   // A stale socket file from a previous run that was killed without cleanup would make `listen`
@@ -660,6 +678,14 @@ export function startPermissionServer(
         pending.set(parsed.requestId, socket);
         socket.on("close", () => pending.delete(parsed.requestId));
         onBoardTool(parsed);
+        return;
+      }
+
+      // A note to the agent: the hook asks, and the answer is the waiting notes. Checked BEFORE the
+      // notice check below, which matches any string `kind`. Draining happens in `onNotePull`, so a
+      // note is handed over once.
+      if (isNotePullPayload(parsed)) {
+        socket.end(JSON.stringify({ notes: onNotePull ? onNotePull() : [] }) + "\n");
         return;
       }
 

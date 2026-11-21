@@ -57,6 +57,15 @@
  * `on` (the default; only the inside file lands), `off` (both land), `never-ran` (exits 3 having run
  * nothing, with a line on stderr) or `hang`.
  *
+ * **Hook mode** (`FLYWHEEL_FAKE_TOOL_TURNS=<n>`, with `FLYWHEEL_FAKE_TOOL_MS=<ms>` for each tool call and
+ * `FLYWHEEL_FAKE_THINK_MS=<ms>` before the agent ends its turn): plays the real backend's half of the hook
+ * protocol that carries a note to the agent (`note-hook.ts`). It reads its own `--settings` file, runs `n`
+ * simulated tool calls, and runs the `PostToolUse` hooks after each one, never during it. A hook that
+ * prints `hookSpecificOutput.additionalContext` makes a `fake_hook_context` line carrying the text. At
+ * the end it runs the `Stop` hooks: `{"decision":"block","reason":...}` makes a `fake_stop_blocked` line
+ * and one more simulated turn, as the real backend carries on instead of stopping. The hook output
+ * shapes are the documented ones and are not measured against a real `claude` here.
+ *
  * **Argv and environment record** (`FLYWHEEL_FAKE_ARGV_FILE=<path>`): every start appends one JSON line,
  * `{ argv, env }`, where `env` names which of the variables the sandbox check concerns are set.
  *
@@ -359,6 +368,51 @@ if (process.env.FLYWHEEL_FAKE_CALL_TASK_TOOL) {
 
 if (process.env.FLYWHEEL_FAKE_BOARD_CALLS) {
   await runBoardScript(JSON.parse(process.env.FLYWHEEL_FAKE_BOARD_CALLS));
+}
+
+/** Run the hooks `event` names in this process's own `--settings` file, as the real backend does:
+ * each command gets the hook's JSON on stdin. Returns each command's parsed JSON stdout. */
+function runHooks(event) {
+  const settingsPath = readFlag("--settings");
+  if (!settingsPath) return [];
+  const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+  const outputs = [];
+  for (const entry of settings.hooks?.[event] ?? []) {
+    for (const hook of entry.hooks ?? []) {
+      const ran = spawnSync("sh", ["-c", hook.command], {
+        input: JSON.stringify({ hook_event_name: event, session_id: SESSION_ID }),
+        encoding: "utf8",
+        env: process.env,
+      });
+      const text = (ran.stdout ?? "").trim();
+      if (text) outputs.push(JSON.parse(text));
+    }
+  }
+  return outputs;
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+if (process.env.FLYWHEEL_FAKE_TOOL_TURNS !== undefined) {
+  const turns = Number(process.env.FLYWHEEL_FAKE_TOOL_TURNS);
+  const toolMs = Number(process.env.FLYWHEEL_FAKE_TOOL_MS ?? "100");
+  const toolTurn = async (n) => {
+    printLine({ type: "assistant", message: { content: [{ type: "tool_use", id: `toolu_${n}`, name: "Bash", input: { command: `echo ${n}` } }] } });
+    await sleep(toolMs); // the tool call: nothing of the developer's reaches the agent during it
+    printLine({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: `toolu_${n}`, content: `done ${n}` }] } });
+    for (const out of runHooks("PostToolUse")) {
+      const text = out.hookSpecificOutput?.additionalContext;
+      if (typeof text === "string") printLine({ type: "fake_hook_context", afterTool: n, text });
+    }
+  };
+  for (let n = 1; n <= turns; n++) await toolTurn(n);
+  await sleep(Number(process.env.FLYWHEEL_FAKE_THINK_MS ?? "0"));
+  for (const out of runHooks("Stop")) {
+    if (out.decision === "block") {
+      printLine({ type: "fake_stop_blocked", reason: out.reason });
+      await toolTurn(turns + 1);
+    }
+  }
 }
 
 const CHECK_ENV_VAR = process.env.FLYWHEEL_FAKE_CHECK_ENV_VAR;

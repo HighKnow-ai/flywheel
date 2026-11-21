@@ -350,6 +350,7 @@ export interface RateLimitEvent extends AgentEventBase {
  * produced them (AGNT-01 ordering) — no reordering, no batching, no coalescing.
  */
 export type AgentEvent =
+  | NoteDeliveredEvent
   | InitEvent
   | AssistantTextEvent
   | BackendEchoEvent
@@ -367,6 +368,13 @@ export type AgentEvent =
   | ThinkingEvent
   | RateLimitEvent
   | ToolProgressEvent;
+
+/** A note the developer sent was handed to the agent, at its next turn boundary. The Rust core marks
+ * the note delivered; nothing else reads this event. */
+export interface NoteDeliveredEvent extends AgentEventBase {
+  type: "note_delivered";
+  noteId: string;
+}
 
 /** What an adapter declares it can do — gates which `AgentAdapter` methods are safe to call. */
 export interface AdapterCapabilities {

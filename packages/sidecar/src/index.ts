@@ -59,6 +59,15 @@ interface BoardToolAnswerRequest {
   error?: string;
 }
 
+/** A note the developer sent to a running session: queued for the agent's next turn boundary. */
+interface NoteRequest {
+  id: string;
+  op: "note";
+  runId: string;
+  noteId: string;
+  text: string;
+}
+
 /** D-39, plan 02-09 Task 3: ask whether the backend binary this adapter would spawn is
  * resolvable, and its reported version. Read-only — never spawns a session, never touches a
  * credential; carries no `runId` because it names no run. */
@@ -98,6 +107,7 @@ type SidecarRequest =
   | KillRequest
   | PermissionAnswerRequest
   | BoardToolAnswerRequest
+  | NoteRequest
   | CapabilityProbeRequest
   | ShutdownRequest
   | PingRequest;
@@ -228,6 +238,17 @@ async function handleRequest(request: SidecarRequest): Promise<void> {
       // call; the sidecar never writes or reads the board itself.
       try {
         adapter.resolveBoardTool(request.runId, request.requestId, request.result, request.error);
+        emitAck(request.id, true);
+      } catch (err: unknown) {
+        emitAck(request.id, false, String(err));
+      }
+      return;
+    }
+    case "note": {
+      // The sidecar only holds the note until the agent's hook asks for it; it never types into the
+      // session. The ack says "queued", and the `note_delivered` event says "taken".
+      try {
+        adapter.queueNote(request.runId, request.noteId, request.text);
         emitAck(request.id, true);
       } catch (err: unknown) {
         emitAck(request.id, false, String(err));

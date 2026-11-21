@@ -21,6 +21,9 @@ Write in ASD-STE100 Simplified Technical English. Cover one flow in each doc.
 | Merge with a failing Check, and Rebase needed | [merge-guards.md](merge-guards.md) | `packages/desktop/e2e/flows/merge-guards.spec.ts` |
 | A Story lands by pull request | [story-landing.md](story-landing.md) | `packages/desktop/e2e/flows/story-landing.spec.ts` |
 | A new worktree gets the project's untracked files | [worktree-include.md](worktree-include.md) | `packages/desktop/e2e/flows/worktree-include.spec.ts` |
+| A note reaches a running agent | [note-to-agent.md](note-to-agent.md) | `packages/desktop/e2e/flows/note-to-agent.spec.ts` |
+| A note the agent never took | [note-undelivered.md](note-undelivered.md) | `packages/desktop/e2e/flows/note-undelivered.spec.ts` |
+| A Quick Story is written and started | [quick-story.md](quick-story.md) | `packages/desktop/e2e/flows/quick-story.spec.ts` |
 
 ## Participants
 

@@ -50,6 +50,7 @@ import {
   isOwnControl,
 } from "./StoryControls";
 import { OpenReviewControl } from "../review/ReviewCard";
+import { QuickStoryDialog } from "./QuickStory";
 import { WriteStoryDialog } from "./WriteStoryDialog";
 import { AddStoryToEpic } from "./AddRecordControls";
 import { NeedsYouColumn, NeedsYouSheetButton } from "./NeedsYou";
@@ -98,6 +99,7 @@ export function StoryBoard({ projectId, projectName }: StoryBoardProps) {
         actions={
           <>
             {!wide && <NeedsYouSheetButton projectId={projectId} />}
+            <QuickStoryDialog projectId={projectId} />
             <WriteStoryDialog projectId={projectId} />
           </>
         }

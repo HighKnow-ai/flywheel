@@ -1330,6 +1330,39 @@ export async function storyMakeReady(storyId: string): Promise<void> {
   return invokeCommand<void>("story_make_ready", { storyId });
 }
 
+/** A note the developer sent to a running session — mirrors `commands/steer.rs`'s `NoteDto`.
+ * `undelivered` is a note whose session ended before the agent took it. */
+export interface NoteDto {
+  id: string;
+  storyId: string;
+  sessionId: string;
+  body: string;
+  status: "sent" | "delivered" | "undelivered";
+  createdAt: string;
+  deliveredAt: string | null;
+}
+
+/** Send a note to the agent of a running Story. It reaches the agent at its next turn boundary. */
+export async function sessionNoteSend(storyId: string, body: string): Promise<NoteDto> {
+  return invokeCommand<NoteDto>("session_note_send", { storyId, body });
+}
+
+/** The notes of a Story, oldest first. */
+export async function storyNotes(storyId: string): Promise<NoteDto[]> {
+  return invokeCommand<NoteDto[]>("story_notes", { storyId });
+}
+
+/** A Quick Story: the Story written from one text field, and the session that started on it. */
+export interface QuickStoryDto {
+  story: StoryDto;
+  session: SessionDto;
+}
+
+/** Write a Quick Story from `text` and start it in one step. */
+export async function storyQuickStart(projectId: string, text: string): Promise<QuickStoryDto> {
+  return invokeCommand<QuickStoryDto>("story_quick_start", { projectId, text });
+}
+
 export async function storyResume(storyId: string, note?: string): Promise<SessionDto> {
   return invokeCommand<SessionDto>("story_resume", { storyId, note: note ?? null });
 }

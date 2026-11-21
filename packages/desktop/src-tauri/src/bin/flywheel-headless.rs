@@ -118,6 +118,7 @@ const READ_ONLY: &[&str] = &[
     "story_list",
     "story_list_for_project",
     "story_make_ready_offer",
+    "story_notes",
     "story_review",
     "story_session_summaries",
     "story_stopped",

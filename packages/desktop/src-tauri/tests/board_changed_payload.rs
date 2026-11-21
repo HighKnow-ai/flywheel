@@ -36,6 +36,7 @@ const EMITTING_FILES: &[&str] = &[
     "src/commands/roadmap_round.rs",
     "src/commands/session.rs",
     "src/commands/shaping.rs",
+    "src/commands/steer.rs",
     "src/commands/story.rs",
     "src/commands/task.rs",
     "src/scheduler.rs",

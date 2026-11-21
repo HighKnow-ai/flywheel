@@ -30,6 +30,7 @@ pub mod roadmap_round;
 pub mod session;
 pub mod settings;
 pub mod shaping;
+pub mod steer;
 pub mod story;
 pub mod task;
 pub mod worktree_open;

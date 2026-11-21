@@ -44,6 +44,7 @@ fn migration_source_list() -> Vec<&'static str> {
         include_str!("migrations/0014_review_adr_decisions.sql"),
         include_str!("migrations/0015_worktree_subdir.sql"),
         include_str!("migrations/0016_landing.sql"),
+        include_str!("migrations/0017_session_notes.sql"),
     ]
 }
 
