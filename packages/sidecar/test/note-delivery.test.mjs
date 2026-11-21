@@ -14,7 +14,9 @@ import { fileURLToPath } from "node:url";
 import { after, test } from "node:test";
 
 import { ClaudeCodeAdapter, noteHookScriptPath, writeHookSettings } from "../dist/claude-code-adapter.js";
+import { startPermissionServer } from "../dist/mcp-permission-server.js";
 import { hookOutput, notesText } from "../dist/note-hook.js";
+import { waitForListening, writeLineAndAwaitClose } from "./socket-test-helpers.mjs";
 import { recordStubbornChildren } from "./stubborn-children.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -147,4 +149,71 @@ test("the hook prints context after a tool call, a block at a stop, and nothing 
   const stop = JSON.parse(hookOutput("Stop", notes));
   assert.equal(stop.decision, "block");
   assert.match(stop.reason, /- First\.\n- Second\./);
+});
+
+// Issue #1867. The note socket is in /tmp, so any process of the same user can connect to it.
+test("a client without the run's token gets no note and delivers none", async () => {
+  const queue = [{ id: "n1", text: "Secret." }];
+  const delivered = [];
+  const handle = startPermissionServer(() => {}, () => {}, undefined, {
+    token: "run-token",
+    pull: () => queue.slice(),
+    ack: (ids) => {
+      delivered.push(...ids);
+      return ids;
+    },
+  });
+  try {
+    await waitForListening(handle.socketPath);
+    const ask = async (request) => JSON.parse((await writeLineAndAwaitClose(handle.socketPath, JSON.stringify(request) + "\n")).line);
+    assert.deepEqual(await ask({ kind: "note_pull" }), { notes: [] }, "no token");
+    assert.deepEqual(await ask({ kind: "note_pull", token: "guess" }), { notes: [] }, "a wrong token");
+    assert.deepEqual(await ask({ kind: "note_ack", token: "guess", ids: ["n1"] }), { acked: [] }, "a wrong token acks nothing");
+    assert.deepEqual(delivered, []);
+    assert.deepEqual(await ask({ kind: "note_pull", token: "run-token" }), { notes: queue }, "the run's own token");
+  } finally {
+    handle.close();
+  }
+});
+
+test("a session with no note channel answers a pull with no note", async () => {
+  const handle = startPermissionServer(() => {}, () => {});
+  try {
+    await waitForListening(handle.socketPath);
+    const reply = await writeLineAndAwaitClose(handle.socketPath, JSON.stringify({ kind: "note_pull", token: "x" }) + "\n");
+    assert.deepEqual(JSON.parse(reply.line), { notes: [] });
+  } finally {
+    handle.close();
+  }
+});
+
+test("a hook that dies between the drain and the hand-over leaves the note undelivered until the next turn", async () => {
+  // The first hook run pulls the note and dies before it prints and confirms (the marker file is the
+  // seam in note-hook.ts). The lease is short so the next boundary can take the note again.
+  process.env.FLYWHEEL_NOTE_LEASE_MS = "150";
+  const marker = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "flywheel-note-die-")), "died");
+  try {
+    const { adapter, events, done } = start("note-run-hook-dies", {
+      FLYWHEEL_FAKE_TOOL_TURNS: "4",
+      FLYWHEEL_FAKE_TOOL_MS: "400",
+      FLYWHEEL_NOTE_HOOK_DIE_ONCE_MARKER: marker,
+    });
+    await waitFor(() => events.some((e) => e.type === "tool_call"));
+    adapter.queueNote("note-run-hook-dies", "note-die", "Mind the cache.");
+    await waitFor(() => fs.existsSync(marker));
+    assert.equal(
+      events.filter((e) => e.type === "note_delivered").length,
+      0,
+      "the hook died after the drain: the note is not reported delivered",
+    );
+    await done;
+
+    const context = printed(events, "fake_hook_context");
+    assert.equal(context.length, 1, "the note reaches the agent once, at a later boundary");
+    assert.ok(context[0].afterTool >= 2, "not at the boundary where the hook died");
+    assert.match(context[0].text, /Mind the cache\./);
+    assert.deepEqual(events.filter((e) => e.type === "note_delivered").map((e) => e.noteId), ["note-die"]);
+  } finally {
+    delete process.env.FLYWHEEL_NOTE_LEASE_MS;
+  }
 });

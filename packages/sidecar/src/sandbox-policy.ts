@@ -190,6 +190,9 @@ export function startStubApi(command: string): Promise<{ server: Server; baseUrl
   });
 }
 
+/** What a backend says when it refuses to start without a working sandbox. */
+const REFUSED_FOR_SANDBOX = /sandbox required but unavailable|Refusing to start without a working sandbox/i;
+
 /** A path as one word of a POSIX shell command. */
 function shellWord(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
@@ -279,6 +282,15 @@ export async function probeSandbox(options: {
       };
     }
     if (!fs.existsSync(ran)) {
+      // A newer backend (seen on 2.1.323) does not drop a settings file that fails validation: it refuses
+      // to start rather than run unsandboxed (`sandbox.failIfUnavailable`). That is a clear answer, not
+      // a check that could not tell, and it is as safe as "not on": no session starts.
+      if (!timedOut && REFUSED_FOR_SANDBOX.test(tail)) {
+        return {
+          ok: false,
+          reason: `the sandbox is not on: the backend refused to start because its sandbox settings failed validation or the sandbox is unavailable (${tail})`,
+        };
+      }
       const said = timedOut ? `it was still running after ${deadlineMs} ms` : tail;
       return {
         ok: false,

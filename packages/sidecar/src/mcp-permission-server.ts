@@ -36,7 +36,7 @@
  *    a prior decision, no allowlist (02-RESEARCH.md pitfall 4: every allow-always lookup happens
  *    in the Rust core, never here — the sidecar asks and waits).
  */
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -508,13 +508,46 @@ export interface PendingNote {
   text: string;
 }
 
-/** The note hook's question (`note-hook.ts`): "which notes are waiting for this session?". It is
- * answered at once on the same connection with `{ notes: PendingNote[] }`, and it is never held. */
-function isNotePullPayload(parsed: unknown): parsed is { kind: "note_pull" } {
+/**
+ * How a session answers its note hook (`note-hook.ts`), in two phases (issue #1867). `pull` leases the
+ * notes that wait: it does not drop them. `ack` is the hook's word that it handed them over, and only
+ * then is a note delivered. A hook that dies between the two leaves the note pending, so the next
+ * `pull` offers it again.
+ */
+export interface NoteChannel {
+  /** The run's own token. A request without it gets no note and acknowledges none. */
+  token: string;
+  pull(): PendingNote[];
+  ack(ids: string[]): string[];
+}
+
+/** True when `given` is the run's token: a constant-time compare, so the answer leaks no prefix. */
+function tokenMatches(given: unknown, expected: string): boolean {
+  if (typeof given !== "string") return false;
+  const a = Buffer.from(given);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/** The note hook's question (`note-hook.ts`): "which notes are waiting for this session?". It carries the
+ * run's token, is answered at once on the same connection with `{ notes: PendingNote[] }`, and is never
+ * held. */
+function isNotePullPayload(parsed: unknown): parsed is { kind: "note_pull"; token?: unknown } {
   return (
     parsed !== null &&
     typeof parsed === "object" &&
     (parsed as { kind?: unknown }).kind === "note_pull"
+  );
+}
+
+/** The note hook's second phase: "I handed these notes to the agent". Answered with `{ acked: string[] }`. */
+function isNoteAckPayload(
+  parsed: unknown,
+): parsed is { kind: "note_ack"; token?: unknown; ids?: unknown } {
+  return (
+    parsed !== null &&
+    typeof parsed === "object" &&
+    (parsed as { kind?: unknown }).kind === "note_ack"
   );
 }
 
@@ -635,8 +668,8 @@ export function startPermissionServer(
   onRequest: (payload: PermissionRequestPayload) => void,
   onNotice: (payload: PermissionNoticePayload) => void,
   onBoardTool?: (payload: BoardToolRequestPayload) => void,
-  /** Drains the notes waiting for this session and returns them. Called once per `note_pull`. */
-  onNotePull?: () => PendingNote[],
+  /** The session's notes, behind its own token: `note_pull` leases them, `note_ack` delivers them. */
+  notes?: NoteChannel,
 ): PermissionServerHandle {
   const socketPath = path.join(socketBaseDir(), `flywheel-permission-${randomUUID()}.sock`);
   // A stale socket file from a previous run that was killed without cleanup would make `listen`
@@ -682,10 +715,20 @@ export function startPermissionServer(
       }
 
       // A note to the agent: the hook asks, and the answer is the waiting notes. Checked BEFORE the
-      // notice check below, which matches any string `kind`. Draining happens in `onNotePull`, so a
-      // note is handed over once.
+      // notice check below, which matches any string `kind`. A request without the run's token gets no
+      // note (issue #1867: the socket is in /tmp, so another process of the same user can reach it).
+      // A pull only leases the notes; `note_ack` below is what delivers them.
       if (isNotePullPayload(parsed)) {
-        socket.end(JSON.stringify({ notes: onNotePull ? onNotePull() : [] }) + "\n");
+        const allowed = notes !== undefined && tokenMatches(parsed.token, notes.token);
+        socket.end(JSON.stringify({ notes: allowed ? notes.pull() : [] }) + "\n");
+        return;
+      }
+      if (isNoteAckPayload(parsed)) {
+        const ids = Array.isArray(parsed.ids)
+          ? parsed.ids.filter((id): id is string => typeof id === "string")
+          : [];
+        const allowed = notes !== undefined && tokenMatches(parsed.token, notes.token);
+        socket.end(JSON.stringify({ acked: allowed ? notes.ack(ids) : [] }) + "\n");
         return;
       }
 

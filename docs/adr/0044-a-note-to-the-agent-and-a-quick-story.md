@@ -20,7 +20,7 @@ Add two small things. Both keep the work on the board.
 - `PostToolUse` runs after a tool call has finished. The script adds the notes to the agent's context (`additionalContext`).
 - `Stop` runs when the agent is about to end its turn. A waiting note answers `block` with the note as the reason, so the agent reads the note and goes on.
 
-The script asks the sidecar for the waiting notes over the session's own socket. The sidecar answers once and forgets them. "Delivered" means that the sidecar handed the note to the hook that prints it. These two hook output shapes are Claude Code's documented protocol. They are not measured against a real `claude` in this repository: the fake agent plays the same protocol. A live check is owed before the first outside user.
+The script asks the sidecar for the waiting notes over the session's own socket, in two phases (issue #1867). The request carries a per-run token that only this hook gets, through the environment of the session, and the sidecar gives no note to a request without it: the socket is in `/tmp`. The first phase leases the notes to the hook, and the sidecar keeps them. The second phase is the hook's word that it printed the notes for the agent. "Delivered" means that second phase. A hook that dies between the two leaves the note pending, and the next turn boundary delivers it once the lease runs out. These two hook output shapes are Claude Code's documented protocol. They are not measured against a real `claude` in this repository: the fake agent plays the same protocol. A live check is owed before the first outside user.
 
 ### A note the session never took
 
@@ -42,7 +42,7 @@ A note is never carried to a later session. If the session ends first (stop, cra
 ## Enforced by
 
 - `packages/core/tests/quick_story_and_note.rs` `a_note_is_sent_then_delivered_once` `a_note_still_sent_when_its_session_ends_reads_undelivered` `quick_story_is_ready_with_one_default_criterion_and_the_request_as_its_description`
-- `packages/sidecar/test/note-delivery.test.mjs` `a note sent during a tool call reaches the agent after that call, and is reported delivered` `the settings file runs the note hook after a tool call and at the end of a turn`
+- `packages/sidecar/test/note-delivery.test.mjs` `a note sent during a tool call reaches the agent after that call, and is reported delivered` `the settings file runs the note hook after a tool call and at the end of a turn` `a client without the run's token gets no note and delivers none` `a hook that dies between the drain and the hand-over leaves the note undelivered until the next turn`
 - `packages/desktop/e2e/flows/note-to-agent.spec.ts` `a note sent to a running Story reaches the agent after its current step and shows as delivered`
 - `packages/desktop/e2e/flows/note-undelivered.spec.ts` `a note the agent never took reads as not delivered once the session ends`
 - `packages/desktop/e2e/flows/quick-story.spec.ts` `a Quick Story is written with the default criterion and started in one step`

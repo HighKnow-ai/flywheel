@@ -22,6 +22,8 @@ Each of these was measured on Claude Code 2.1.311 on macOS, with the real binary
 | A repository `.mcp.json` server, no flag | The server process was spawned, and `init` listed it with source `project` |
 | The same server, with `--strict-mcp-config` | Not spawned, and `init` listed no server |
 
+On 2.1.323 the same file no longer runs unsandboxed: the binary refuses to start ("sandbox required but unavailable", `sandbox.failIfUnavailable`). The check reads that refusal as "the sandbox is not on: the backend refused to start", never as "could not tell". Both behaviours refuse the session.
+
 Measurements made earlier on 2.1.308 add two that were not repeated here: `sandbox.network.strictAllowlist` is honoured only from user, managed and `--settings` settings and is silently ignored in a project file, and a project's `permissions.allow` and `additionalDirectories` aren't used under `-p`, which is why allow rules come from `--allowedTools`.
 
 So a project's policy has to be re-passed by whatever starts the session, and nothing inside a settings file can report that the file was dropped.

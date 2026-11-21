@@ -272,21 +272,34 @@ test("a trace line is written whole: a reader of the file never sees half of one
   try {
     const file = path.join(core.root, "trace.jsonl");
     const torn: string[] = [];
-    let reads = 0;
-    // The core writes in its own process while this loop reads, with no wait between two reads: how many
-    // reads happen does not depend on how busy this process is. 40 batches of 40 commands, each batch read
-    // for 5 ms while the core writes it. An unknown name is no read, so each call is one traced step.
+    // The core writes in its own process while this loop reads. 40 batches of 40 commands; each batch is read,
+    // again and again, until its 40 replies have settled, so the overlap is proved by order and not by a
+    // time budget: a busy machine makes fewer reads, never none. An unknown name is no read, so each call is
+    // one traced step. The loop yields to the event loop between two reads, or no reply could settle.
+    const readsBeforeSettled: number[] = [];
     for (let batch = 0; batch < 40; batch++) {
-      const replies = Array.from({ length: 40 }, () => core.call("no_such_command").catch(() => undefined));
-      for (const until = performance.now() + 5; performance.now() < until; reads++) {
+      let settled = false;
+      const replies = Promise.all(
+        Array.from({ length: 40 }, () => core.call("no_such_command").catch(() => undefined)),
+      ).then(() => {
+        settled = true;
+      });
+      let reads = 0;
+      do {
         const text = fs.readFileSync(file, "utf8");
         // Whatever follows the last newline is a line the core has not finished.
         const tail = text.slice(text.lastIndexOf("\n") + 1);
         if (tail !== "") torn.push(tail);
-      }
-      await Promise.all(replies);
+        if (!settled) reads++;
+        await new Promise((resolve) => setImmediate(resolve));
+      } while (!settled);
+      await replies;
+      readsBeforeSettled.push(reads);
     }
-    expect(reads, "the reader ran while the core wrote").toBeGreaterThan(1000);
+    expect(
+      readsBeforeSettled.filter((reads) => reads < 1),
+      "every batch was read at least once while the core still wrote it",
+    ).toEqual([]);
     expect(core.trace()).toHaveLength(1600);
     expect(torn).toEqual([]);
   } finally {

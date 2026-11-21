@@ -216,6 +216,15 @@ test("a command that never ran proves nothing, and refuses, saying what the back
   assert.deepEqual(probeLeftovers(), []);
 });
 
+test("a backend that refuses to start without a sandbox is a clear refusal, not 'could not tell'", async () => {
+  writePolicy(JSON.stringify({ sandbox: POLICY }));
+  const { closed } = await startSession("refuses");
+  assert.equal(closed.reason, "failed");
+  assert.match(closed.detail, /the sandbox is not on: the backend refused to start/);
+  assert.doesNotMatch(closed.detail, /could not tell/);
+  assert.deepEqual(probeLeftovers(), []);
+});
+
 test("a check that hangs refuses at its deadline", async () => {
   writePolicy(JSON.stringify({ sandbox: POLICY }));
   process.env.FLYWHEEL_SANDBOX_PROBE_MS = "300";
@@ -285,10 +294,12 @@ test("real binary: no sandbox, a write outside lands, and the check says so", { 
   assert.match(probed.reason, /the sandbox is not on/);
 });
 
-test("real binary: a --settings file that fails validation is dropped, and the check says so", { skip: SKIP, timeout: 90_000 }, async () => {
+test("real binary: a --settings file that fails validation never gives a sandbox-less session, and the check says so", { skip: SKIP, timeout: 90_000 }, async () => {
   const probed = await realProbe({ enabled: "yes" });
   assert.equal(probed.ok, false);
-  assert.match(probed.reason, /the sandbox is not on/);
+  // 2.1.311 dropped the file and ran unsandboxed ("wrote outside"); 2.1.323 refuses to start. Both are
+  // "the sandbox is not on"; only "could not tell" is wrong.
+  assert.match(probed.reason, /the sandbox is not on: (a Bash command wrote outside|the backend refused to start)/);
 });
 
 test(

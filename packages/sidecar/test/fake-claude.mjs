@@ -55,7 +55,8 @@
  * `sandbox-policy.ts`'s check: it asks the stub API at `ANTHROPIC_BASE_URL` as the real backend does,
  * runs the `touch` it is handed, and exits. `FLYWHEEL_FAKE_SANDBOX` says what a sandbox would have done:
  * `on` (the default; only the inside file lands), `off` (both land), `never-ran` (exits 3 having run
- * nothing, with a line on stderr) or `hang`.
+ * nothing, with a line on stderr), `refuses` (exits 1 with the line a newer backend gives when the
+ * sandbox settings fail validation) or `hang`.
  *
  * **Hook mode** (`FLYWHEEL_FAKE_TOOL_TURNS=<n>`, with `FLYWHEEL_FAKE_TOOL_MS=<ms>` for each tool call and
  * `FLYWHEEL_FAKE_THINK_MS=<ms>` before the agent ends its turn): plays the real backend's half of the hook
@@ -101,6 +102,12 @@ if (process.argv[3] === "the sandbox probe") {
   if (world === "never-ran") {
     process.stderr.write("the fake backend broke before its first request\n");
     process.exit(3);
+  }
+  if (world === "refuses") {
+    process.stderr.write(
+      "Error: sandbox required but unavailable: the settings passed with --settings configure the sandbox but failed validation (sandbox.enabled: Expected boolean, but received string).\n  Refusing to start without a working sandbox (see sandbox.failIfUnavailable).\n",
+    );
+    process.exit(1);
   }
   const ask = async (messages) => {
     const response = await fetch(`${process.env.ANTHROPIC_BASE_URL}/v1/messages`, {

@@ -18,7 +18,9 @@ The agent is a script (`packages/desktop/e2e/agents/note-agent.ts`). It makes sh
 
 1. S1: The developer starts a Story with the Start button, and opens the Story. The Story view has the card "Note to the agent", because the Story has a live session.
 2. S2: The developer types a note in the field of the card and selects Send note. The core records the note as sent, and the sidecar queues it. The sidecar does not type into the session.
-3. The agent finishes the tool call that it is making. The note hook asks the sidecar for the waiting notes, and adds the note to the agent's context. The sidecar tells the core. The core marks the note delivered, and the card says "Delivered. The agent has it." This step has no command of the developer, so it is not in the diagram.
+3. The agent finishes the tool call that it is making. The note hook asks the sidecar for the waiting notes. The request carries the token of the run, and the sidecar gives no note to a request without it. The sidecar leases the notes to the hook, and keeps them. The hook adds the note to the agent's context, and then confirms to the sidecar that it handed the note over. Only then does the sidecar tell the core. The core marks the note delivered, and the card says "Delivered. The agent has it." This step has no command of the developer, so it is not in the diagram.
+
+The token is a random value that the sidecar makes for each run. It is in the environment of that session only. The socket is in `/tmp`, so another process of the same user can reach it, but it cannot read a note without the token.
 4. The log of the session holds the note in the text that the hook added. The session is still running, so the note did not interrupt it. The next boundary adds nothing: the agent gets a note once.
 
 ## Entry points
@@ -30,6 +32,7 @@ The agent is a script (`packages/desktop/e2e/agents/note-agent.ts`). It makes sh
 | S2 | `packages/desktop/src/board/NoteToAgent.tsx` | `NoteToAgent` |
 | S2 | `packages/desktop/src-tauri/src/commands/steer.rs` | `session_note_send` |
 | S2 | `packages/sidecar/src/note-hook.ts` | `hookOutput` |
+| S2 | `packages/sidecar/src/mcp-permission-server.ts` | `NoteChannel` |
 
 ## Tests
 
@@ -37,6 +40,7 @@ The agent is a script (`packages/desktop/e2e/agents/note-agent.ts`). It makes sh
 |---|---|---|
 | A note reaches the agent after its current step and shows as delivered, in the real UI. | `packages/desktop/e2e/flows/note-to-agent.spec.ts` | S1,S2 |
 | The sidecar hands a note over at a turn boundary with the fake agent, and never during a tool call. | `packages/sidecar/test/note-delivery.test.mjs` | none |
+| A client without the token of the run gets no note and delivers none. | `packages/sidecar/test/note-delivery.test.mjs` | none |
 
 ## Design
 

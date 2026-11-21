@@ -10,6 +10,7 @@
  * session: it talks to a loopback stub and holds no credential.)
  */
 import { execFileSync, spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { createInterface } from "node:readline";
@@ -973,7 +974,20 @@ interface LiveSession {
   /** Notes the developer sent that no hook has taken yet, oldest first (`queueNote`). They live here
    * and not on disk: they cannot outlive the session, and a note a dead session never took is
    * reported undelivered by the Rust core. */
-  notes: PendingNote[];
+  notes: QueuedNote[];
+}
+
+/** A note in the queue. `leasedUntil` is when a hook that pulled it must have confirmed (`ackNotes`);
+ * a note whose lease ran out, because that hook died, is offered again at the next pull. */
+interface QueuedNote extends PendingNote {
+  leasedUntil: number;
+}
+
+/** How long a pulled note stays with the hook that pulled it, in milliseconds. Longer than the hook's own
+ * wait for the sidecar's answer, so a slow hook is not given a second copy. */
+function noteLeaseMs(): number {
+  const raw = Number(process.env.FLYWHEEL_NOTE_LEASE_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : 10_000;
 }
 
 /** Tracks every session this sidecar has ever started, for the lifetime of this process —
@@ -1119,21 +1133,36 @@ function raceClosed(session: LiveSession, timeoutMs: number): Promise<boolean> {
   });
 }
 
-/** Hand over the notes waiting for `session`, and say so upstream: one `note_delivered` event for each,
- * in order. "Delivered" means handed to the hook that prints it into the agent's context. */
-function takeNotes(session: LiveSession): PendingNote[] {
-  const taken = session.notes.splice(0);
-  for (const note of taken) {
+/** Phase one of a hand-over: lease the notes that wait for `session` to the hook that asked, oldest first.
+ * Nothing is reported yet. A note stays in the queue until the hook confirms (`ackNotes`), so a hook that
+ * dies after this call loses nothing: the lease runs out and the next pull offers the note again. */
+function leaseNotes(session: LiveSession): PendingNote[] {
+  const now = Date.now();
+  const leased = session.notes.filter((note) => note.leasedUntil <= now);
+  for (const note of leased) note.leasedUntil = now + noteLeaseMs();
+  return leased.map(({ id, text }) => ({ id, text }));
+}
+
+/** Phase two: the hook says it handed the notes `ids` to the agent. Each note it holds leaves the queue and
+ * is reported upstream as one `note_delivered` event, in order. "Delivered" means that the hook printed the
+ * note for the agent, not that the sidecar gave it to the hook. Returns the ids it delivered. */
+function ackNotes(session: LiveSession, ids: string[]): string[] {
+  const delivered: string[] = [];
+  for (const id of ids) {
+    const at = session.notes.findIndex((note) => note.id === id);
+    if (at === -1) continue; // unknown, or acknowledged before: a note is delivered once
+    session.notes.splice(at, 1);
+    delivered.push(id);
     session.onEvent({
       runId: session.runId,
       seq: session.nextSeq++,
       at: new Date().toISOString(),
-      raw: JSON.stringify({ type: "note_delivered", noteId: note.id }),
+      raw: JSON.stringify({ type: "note_delivered", noteId: id }),
       type: "note_delivered",
-      noteId: note.id,
+      noteId: id,
     });
   }
-  return taken;
+  return delivered;
 }
 
 export class ClaudeCodeAdapter implements AgentAdapter {
@@ -1143,6 +1172,9 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     // AGNT-06: the permission server starts BEFORE the backend is spawned, so its socket is
     // already listening by the time the backend's first gated tool call could possibly arrive.
     let session!: LiveSession;
+    // Issue #1867: the socket is in /tmp, so a note request needs this token, which only the note hook
+    // gets (below, through the session's env).
+    const noteToken = randomUUID();
     const permissionServer = startPermissionServer((payload) => {
       // D-56 (plan 03-07): the shim's own request carries its classified category nested inside
       // `input.destructiveCategory` (its own wire shape, mirroring the MCP tool call's own
@@ -1190,7 +1222,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
         tool: payload.tool,
         args: payload.args,
       });
-    }, () => takeNotes(session));
+    }, { token: noteToken, pull: () => leaseNotes(session), ack: (ids) => ackNotes(session, ids) });
 
     const bin = resolveClaudeBin();
 
@@ -1203,6 +1235,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       // binary (`packages/shim/src/main.rs`) connects a fresh socket here per destructive
       // invocation; it never opens its own second answering surface.
       FLYWHEEL_PERMISSION_SOCKET: permissionServer.socketPath,
+      FLYWHEEL_NOTE_TOKEN: noteToken,
     };
 
     // plan 03-07 (D-55): FLYWHEEL_SHIM_BIN is how `sessionstart-hook.ts` finds
@@ -1426,7 +1459,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     const session = liveSessions.get(runId);
     if (!session) throw new UnknownRunError(runId);
     if (session.closedEventEmitted) throw new Error(`the session ${runId} has ended; the note cannot be delivered`);
-    session.notes.push({ id: noteId, text });
+    session.notes.push({ id: noteId, text, leasedUntil: 0 });
   }
 
   async interruptSession(runId: string): Promise<void> {
