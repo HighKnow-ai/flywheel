@@ -26,6 +26,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 
+import { armGuard, createLiveGuard, formatUsage, summariseUsage } from "./lib/live-guard.mjs";
 import { git, newRunId, probeClaudeAvailable, runScript, skip, step } from "./lib/sidecar-harness.mjs";
 
 const STORY_BRANCH = "flywheel/uat-03-story";
@@ -38,6 +39,13 @@ const UNTRACKED_FILE = "untracked-scratch.txt";
 
 /** Long enough for a real turn to work through every command, one Bash call each. */
 const TURN_DEADLINE_MS = 600_000;
+/**
+ * The cost cap (issue #1843, `lib/live-guard.mjs`): the session is killed on the first backend refusal, after
+ * more tool calls or permission requests than this list can need (18 commands, 11 of them Gated), or when the
+ * turn deadline passes.
+ */
+const MAX_TOOL_CALLS = 45;
+const MAX_PERMISSION_ASKS = 20;
 
 /**
  * The Gated commands, in the order the agent runs them. `tool` names the shadowed publishing tool a
@@ -153,6 +161,9 @@ await runScript(
       }
     })();
 
+    const guard = createLiveGuard({ maxToolCalls: MAX_TOOL_CALLS, maxPermissionAsks: MAX_PERMISSION_ASKS, deadlineMs: TURN_DEADLINE_MS });
+    const armed = armGuard(sidecar, runId, guard);
+    harness.onCleanup(() => armed.stop());
     step(`spawning a real claude session in bypassPermissions mode with ${commands.length} commands`);
     await sidecar.request({
       op: "spawn",
@@ -175,7 +186,12 @@ await runScript(
       "the session to finish the command list",
     );
     watching = false;
+    armed.stop();
     step(`session closed: reason=${closed.reason}`);
+    step(formatUsage(summariseUsage(sidecar.events.filter((e) => e.runId === undefined || e.runId === runId))));
+    if (armed.tripped() !== null) {
+      throw new Error(`the cost guard stopped the session (${armed.tripped().reason}), so no property below was measured`);
+    }
 
     // ---- every Gated command asked, exactly once, with its category --------------------------
     for (const { command, category } of gated) {

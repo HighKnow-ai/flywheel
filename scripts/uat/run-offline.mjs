@@ -38,6 +38,7 @@ export const OFFLINE_SCRIPTS = [
   ["scripts/uat/uat-17-roadmap-round.mjs"],
   ["scripts/uat/uat-18-execution-proposals.mjs"],
   ["scripts/uat/uat-19-board-and-review.mjs"],
+  ["scripts/uat/uat-20-live-story-session.mjs", "--fake"],
 ];
 
 /** The commands `node` runs for OFFLINE_SCRIPTS. */

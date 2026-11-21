@@ -6,10 +6,17 @@ data, so a guarantee is measured by code rather than claimed (`docs/mvp-spec.md`
 - **Offline, zero tokens, run in CI on every PR** (`.github/workflows/ci.yml`, job "Offline UAT"):
   `harness-supervision-gate.mjs` (both modes), `uat-12-fleet-live-reads.mjs`,
   `uat-16-epic-shaping.mjs`, `uat-17-roadmap-round.mjs`, `uat-18-execution-proposals.mjs` and
-  `uat-19-board-and-review.mjs`. None needs a `claude` binary or any credential. (Item 13, the fan-out run, was deleted with the fan-out
+  `uat-19-board-and-review.mjs` and `uat-20-live-story-session.mjs --fake`. None needs a `claude` binary or any credential. (Item 13, the fan-out run, was deleted with the fan-out
   dispatcher at the schema cut, issue #44.)
 - **Manual, pre-release only:** items 1, 3, 5, 6, 7 and 11. Items 3, 5, 6, 7 and 11's live arm
-  spend real tokens.
+  spend real tokens, and so does item 20 without `--fake`.
+
+The live proof before the exit-test week (issue #1843) is one command, on the owner's terminal. It runs UAT 20
+(one small Story through a real `claude`) and then UAT 03, on scratch data, under a cost cap:
+
+```bash
+node flywheel/scripts/uat/live-runbook.mjs        # --dry-run prints the plan and spends nothing
+```
 
 Run everything scriptable:
 
@@ -25,6 +32,7 @@ bash scripts/uat/run-all.sh          # add --no-build to skip the prerequisite b
 | GATE — the heartbeat opt-out is still reaped on time (D-105) | `harness-supervision-gate.mjs --mode=unsupervised` | **PASS** — zero tokens, CI |
 | 1 — Supervisor `kill -9` leaves no surviving agent process (SC2, PROC-03/04) | `uat-01-supervisor-kill.sh` | **PASS** |
 | 3 — The Gated-action deny-list asks every time, and nothing else asks (§4.1, ADR 0001) | `uat-03-destructive-gate.mjs` | **Manual** — rewritten to the deny-list, not yet run live |
+| 20 — One small Story through a real `claude` session: the Gated `git push` asks, a permission ask reaches the developer, the MCP board tools answer, the session hands off (issue #1843) | `uat-20-live-story-session.mjs` (`--fake` is zero tokens and runs in CI) | **Manual** — the live run spends tokens |
 | 5 — Ten concurrent commits keep every commit (SC4, WORK-04/05) | `uat-05-concurrent-commits.mjs` | **PASS** |
 | 6 — Session-lifecycle clean-room measurement (SC5/AGNT-07 gap closure, plan 03-20) | `uat-06-permission-block-lifecycle.mjs` | See `03-SESSION-LIFECYCLE-FINDINGS.md` |
 | 7 — Launcher-wrapped destructive command, measured live (AGNT-07, D-62 item 2) | `uat-07-launcher-shape-gate.mjs` | **PASS** — properties A, B and C all held |
@@ -121,6 +129,26 @@ accepting a criterion, an ADR decision and Merge.
 Not exercised: the desktop's `AppState` mutex, the `board:changed` emit, and the IPC serialisation.
 The desktop's half of the same walk, clicked through the real `<App />`, is
 `packages/desktop/src/review/__tests__/browser/review-merge-flow.browser.test.tsx`.
+
+### Item 20 — one Story through a real session (issue #1843)
+
+`uat-20-live-story-session.mjs` seeds a scratch Flywheel home and a scratch repository with a local bare
+remote, then starts the Ready Story "Parser" as the desktop's Start does (the Story's worktree, branch, Context
+packet, `acceptEdits` launch policy, PATH shim and board MCP server). The packet carries a short operator note:
+write `src/parser.rs`, commit it, run `git push origin HEAD` once (the shim asks; the script denies it), hand
+off. One run judges every property and prints one `PASS` or `FAIL` line each: the push asked with its category
+and was not retried, no other ask was raised (each is a finding), the push never ran, every file edit stayed in
+the worktree, the file is committed, a board tool answered, the hand-off put the Story In review with its Check
+passed, the review card pre-ticks it, and the agent was told the push was declined.
+
+Cost cap (`lib/live-guard.mjs`): the session is killed on the first backend refusal, rate-limit refusal or
+`is_error` result, after 30 tool calls, after 6 permission requests, or after 8 minutes. The run refuses to start
+when `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` is set. A routine ask is allowed at most 3 times, never when it
+names a push, delete, publish or network command. Tokens and cost print at the end and go in the verdict file.
+Resume is not part of this item: it needs a second session.
+
+`--fake` plays the same walk with `fake-claude.mjs` (its `run` step runs the push through the shim). It proves the
+script, the shim's ask and the board tools; it cannot show what the real model asks for.
 
 ### Supervision — why every live item outlives the watchdog, and why that is not each item's job
 
@@ -357,6 +385,8 @@ Costs real tokens, same as items 3, 5 and 6.
 | File | Role |
 |---|---|
 | `lib/sidecar-harness.mjs` | Scratch repos, spawn-environment resolution, a client for the sidecar's stdio JSON protocol, `CLAUDE_CONFIG_DIR` isolation, durable timeline artifacts, and the shared incidental-permission-request drain loop |
+| `lib/live-guard.mjs` | The cost cap, usage summary and verdict table of the live items 3 and 20 |
+| `live-runbook.mjs` | The one command that builds, then runs items 20 and 3 live and prints a `RESULT` block |
 | `lib/supervisor.mjs` | Stand-in supervisor for item 1: owns the sidecar, touches the heartbeat |
 | `lib/long-lived-backend.mjs` | Backend stub for item 1 and the supervision gate, so the leaf outlives the stale window |
 | `packages/core/tests/bin/uat_session_env.rs` | Builds the spawn environment from the **production** functions; also `--touch-heartbeat` |

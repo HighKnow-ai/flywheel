@@ -261,7 +261,8 @@ function commitFile({ path: file, content }) {
  * `runs_after`, as an agent reads it off the first call's answer); a dotted `<field>` reads into the answer
  * (`{{result:task_add:tasks.0.task_id}}`). Each call prints a `board_call_result` line
  * `{name, isError, text}`; a skipped step prints `board_call_skipped`. A `{ commit: { path, content } }`
- * step, under the same `when`/`unless`, commits a file between two calls (`commitFile`, issue #169).
+ * step, under the same `when`/`unless`, commits a file between two calls (`commitFile`, issue #169). A
+ * `{ run: [program, ...args] }` step runs a shell command and prints a `fake_run` line `{argv, status, stderr}`.
  */
 async function runBoardScript(steps) {
   const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
@@ -303,6 +304,15 @@ async function runBoardScript(steps) {
       }
       if (step.commit) {
         commitFile(step.commit);
+        continue;
+      }
+      if (step.run) {
+        // A command the agent runs in its shell, through the session's PATH shim (issue #1843): a Gated
+        // command raises the shim's permission request and, once denied, exits non-zero with the shim's
+        // "was declined" text on stderr.
+        const [program, ...programArgs] = step.run;
+        const ran = spawnSync(program, programArgs, { encoding: "utf8", env: process.env });
+        printLine({ type: "fake_run", argv: step.run, status: ran.status, stderr: (ran.stderr ?? "").trim() });
         continue;
       }
       let args;
