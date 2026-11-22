@@ -13,7 +13,7 @@ use flywheel_core::session_log::{
 };
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 fn fresh_run() -> (String, std::path::PathBuf) {
     let run_id = new_id();
@@ -163,20 +163,40 @@ fn a_run_id_that_is_not_a_ulid_is_refused() {
 
 #[test]
 fn the_read_does_not_scale_with_the_size_of_the_log() {
-    // ~9 MB of log. A whole-file scan reads all of it; a tail read touches at most the window.
-    let (run_id, path) = fresh_run();
-    write_raw(&path, &numbered_lines(200_000));
+    // LOAD-BEARING: this test compares two logs, and it never compares a time with a constant.
+    // The first version asserted `per_call < 25 ms` and failed on the shared runner in
+    // flywheel-gate run 44981912718 ("25.523245ms per call", 0.5 ms over), while the other 1238
+    // tests of the suite ran in parallel. A wall-clock limit flakes at every value, because load
+    // has no upper bound.
+    //
+    // Both logs are larger than the window, so a bounded read touches the same ~256 KiB of each.
+    // The big log is over 100 times the medium one, so a whole-file scan would take far more than
+    // 3 times as long. The calls are interleaved and each side keeps its fastest call, so load that slows
+    // one side slows the other too and a scheduling spike on one call is thrown away.
+    let (medium_id, medium_path) = fresh_run();
+    let (big_id, big_path) = fresh_run();
+    write_raw(&medium_path, &numbered_lines(8_000)); // ~0.4 MB
+    write_raw(&big_path, &numbered_lines(1_000_000)); // ~46 MB
 
-    let started = Instant::now();
-    for _ in 0..20 {
-        let tail = read_tail(&run_id).unwrap();
+    let mut medium_best = Duration::MAX;
+    let mut big_best = Duration::MAX;
+    for _ in 0..40 {
+        let started = Instant::now();
+        let tail = read_tail(&medium_id).unwrap();
+        medium_best = medium_best.min(started.elapsed());
+        assert_eq!(tail.lines.len(), LOG_TAIL_MAX_LINES);
+
+        let started = Instant::now();
+        let tail = read_tail(&big_id).unwrap();
+        big_best = big_best.min(started.elapsed());
         assert_eq!(tail.lines.len(), LOG_TAIL_MAX_LINES);
     }
-    let per_call = started.elapsed() / 20;
 
-    let _ = fs::remove_file(&path);
+    let _ = fs::remove_file(&medium_path);
+    let _ = fs::remove_file(&big_path);
     assert!(
-        per_call.as_millis() < 25,
-        "read_tail took {per_call:?} per call on a ~9 MB log; it must be bounded by the window"
+        big_best < medium_best * 3,
+        "read_tail took {big_best:?} on a ~46 MB log against {medium_best:?} on a ~0.4 MB one; \
+         it must be bounded by the window, not by the log"
     );
 }
