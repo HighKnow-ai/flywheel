@@ -54,7 +54,10 @@ fn hung_child_is_killed_within_its_ceiling_and_reports_timed_out() {
 fn child_output_larger_than_pipe_buffer_still_completes() {
     let mut cmd = Command::new("/bin/sh");
     cmd.arg("-c").arg("head -c 5000000 /dev/zero");
-    let output = output_with_timeout(&mut cmd, None, SHORT_CEILING, "large output")
+    // NOT `SHORT_CEILING`: this test proves the guard does not deadlock on a full pipe, not that
+    // it is quick. 5 MB through the drain thread took longer than 300 ms on a loaded runner
+    // (nightly #1919), and the guard then killed a healthy child. A deadlock still fails, at 30 s.
+    let output = output_with_timeout(&mut cmd, None, Duration::from_secs(30), "large output")
         .expect("a child writing past the pipe buffer should not deadlock the guard");
     assert!(output.status.success());
     assert_eq!(output.stdout.len(), 5_000_000);
