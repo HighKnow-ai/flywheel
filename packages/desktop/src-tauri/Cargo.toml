@@ -32,10 +32,10 @@ path = "src/bin/flywheel-headless.rs"
 required-features = ["headless"]
 
 [build-dependencies]
-tauri-build = { version = "=2.7.5", features = [] }
+tauri-build = { version = "=2.7.6", features = [] }
 
 [dependencies]
-tauri = { version = "=2.12.5", features = [] }
+tauri = { version = "=2.12.6", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.41", features = ["bundled"] }
@@ -72,4 +72,4 @@ tempfile = "3"
 # `scheduler.rs`'s tests run on a paused clock, so a 5-minute fetch period is proven in no time.
 tokio = { version = "1", features = ["test-util"] }
 # Issue #220: `tauri::test::mock_app` gives a test the managed `AppState` a command takes as `State`.
-tauri = { version = "=2.12.5", features = ["test"] }
+tauri = { version = "=2.12.6", features = ["test"] }
