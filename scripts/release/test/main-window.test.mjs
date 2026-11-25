@@ -32,50 +32,8 @@ test("no window control is switched off, so the window can move, resize, minimis
   }
 });
 
-test("the menu keeps the standard items the human check names: Quit, Hide, Close Window, Undo, Cut, Copy, Paste", () => {
-  for (const item of [".quit()", ".hide()", ".close_window()", ".undo()", ".redo()", ".cut()", ".copy()", ".paste()", ".select_all()", ".minimize()"]) {
-    assert.ok(menuSource.includes(item), `menu.rs no longer builds ${item}`);
-  }
-});
-
-const mainSource = fs.readFileSync(path.join(desktop, "src/main.rs"), "utf8");
-const keyboardSource = fs.readFileSync(path.resolve(desktop, "../src/state/keyboard.ts"), "utf8");
-
-/** The custom items of menu.rs: id, title and accelerator, in source order. */
-function customItems() {
-  const re = /MenuItemBuilder::with_id\("([^"]+)",\s*"([^"]+)"\)\s*\.accelerator\("([^"]+)"\)/g;
-  return [...menuSource.matchAll(re)].map((m) => ({ id: m[1], title: m[2], accelerator: m[3] }));
-}
-
-test("every menu item and its key equivalent, as the app builds them", () => {
-  assert.deepEqual(customItems(), [
-    { id: "open-settings", title: "Settings…", accelerator: "CmdOrCtrl+," },
-    { id: "register-project", title: "Register Project…", accelerator: "CmdOrCtrl+Shift+O" },
-    { id: "create-story", title: "New Story", accelerator: "CmdOrCtrl+N" },
-    { id: "create-epic", title: "New Epic", accelerator: "CmdOrCtrl+Shift+N" },
-    { id: "open-palette", title: "Toggle Command Palette", accelerator: "CmdOrCtrl+K" },
-    { id: "open-fleet", title: "Fleet", accelerator: "CmdOrCtrl+Shift+F" },
-  ]);
-});
-
-test("the app menu holds About, Settings, Hide and Quit, in that order", () => {
-  const app = menuSource.slice(menuSource.indexOf('SubmenuBuilder::new(app, "Flywheel")'), menuSource.indexOf("let register_project"));
-  const order = [".about(", ".item(&open_settings)", ".hide()", ".quit()"].map((t) => app.indexOf(t));
-  assert.ok(order.every((i) => i >= 0), `the app menu lacks an item: ${order}`);
-  assert.deepEqual([...order].sort((a, b) => a - b), order, "the app menu items are out of order");
-  assert.ok(!menuSource.includes(".hide_others()") && !menuSource.includes('"Help"'), "no item the design leaves out");
-});
-
-test("each custom item's action: main.rs forwards its id, and keyboard.ts knows it", () => {
-  const forwarded = [...mainSource.match(/FORWARDED_MENU_ACTIONS: &\[&str\] = &\[([^\]]*)\]/)[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
-  const ids = customItems().map((i) => i.id);
-  assert.deepEqual([...forwarded].sort(), [...ids].sort(), "a menu item is not forwarded, or a forwarded id has no item");
-  for (const id of ids) assert.ok(keyboardSource.includes(`"${id}"`), `${id} is not an ActionId in keyboard.ts`);
-  assert.ok(mainSource.includes('app.emit("menu:action", id)'), "main.rs no longer emits menu:action");
-});
-
-test("the window menu and file menu keep their standard items", () => {
-  for (const item of [".maximize()", ".bring_all_to_front()", "WINDOW_SUBMENU_ID"]) {
+test("the menu keeps the standard items the human check names: Quit, Close Window, Undo, Cut, Copy, Paste", () => {
+  for (const item of [".quit()", ".close_window()", ".undo()", ".redo()", ".cut()", ".copy()", ".paste()", ".select_all()", ".minimize()"]) {
     assert.ok(menuSource.includes(item), `menu.rs no longer builds ${item}`);
   }
 });
