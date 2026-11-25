@@ -7,6 +7,8 @@
       {"title": null, "enabled": false, "cmdChar": "", "cmdModifiers": null, "children": []},
       {"title": "Settings…", "enabled": true, "cmdChar": ",", "cmdModifiers": 0, "children": []},
       {"title": null, "enabled": false, "cmdChar": "", "cmdModifiers": null, "children": []},
+      {"title": "Hide Flywheel", "enabled": true, "cmdChar": "h", "cmdModifiers": 0, "children": []},
+      {"title": null, "enabled": false, "cmdChar": "", "cmdModifiers": null, "children": []},
       {"title": "Quit Flywheel", "enabled": true, "cmdChar": "q", "cmdModifiers": 0, "children": []}
     ]},
     {"title": "File", "enabled": true, "cmdChar": "", "cmdModifiers": null, "children": [

@@ -14,6 +14,8 @@ const EXPECTED = `Flywheel:
   ---
   Settings… [⌘,]
   ---
+  Hide Flywheel [⌘H]
+  ---
   Quit Flywheel [⌘Q]
 File:
   Register Project… [⇧⌘O]
@@ -51,7 +53,7 @@ test("a matching baseline and window title pass", () => {
 test("a changed item names the line that differs", () => {
   const verdict = judge({ snapshot, baseline: EXPECTED.replace("New Story [⌘N] (disabled)", "New Story [⌘N]"), windowTitle: "Flywheel" });
   assert.equal(verdict.ok, false);
-  assert.match(verdict.report, /line 9 - {3}New Story \[⌘N\]\nline 9 \+ {3}New Story \[⌘N\] \(disabled\)/);
+  assert.match(verdict.report, /line 11 - {3}New Story \[⌘N\]\nline 11 \+ {3}New Story \[⌘N\] \(disabled\)/);
 });
 
 test("a missing item, an added item and a changed key all fail", () => {

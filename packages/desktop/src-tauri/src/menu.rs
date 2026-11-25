@@ -46,6 +46,9 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .separator()
         .item(&open_settings)
         .separator()
+        // The macOS-standard Hide item (⌘H), owner decision on #1786, 2026-11-25.
+        .hide()
+        .separator()
         .quit()
         .build()?;
 

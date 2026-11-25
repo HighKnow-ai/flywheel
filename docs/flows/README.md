@@ -9,6 +9,7 @@ Write in ASD-STE100 Simplified Technical English. Cover one flow in each doc.
 | A Story goes from Ready to Merged | [review-and-merge.md](review-and-merge.md) | `packages/desktop/e2e/flows/review-and-merge.spec.ts` |
 | An Epic is shaped to Ready Stories | [epic-shaping.md](epic-shaping.md) | `packages/desktop/e2e/flows/epic-shaping.spec.ts` |
 | The app starts after it died with a session running | [cold-start.md](cold-start.md) | `packages/desktop/e2e/flows/cold-start.spec.ts` |
+| The app quits and opens again | [quit-and-reopen.md](quit-and-reopen.md) | `packages/desktop/e2e/flows/quit-and-reopen.spec.ts` |
 | A running Story files Proposals | [execution-proposals.md](execution-proposals.md) | `packages/desktop/e2e/flows/execution-proposals.spec.ts` |
 | A Milestone is shaped and roadmap Rounds run | [roadmap-round.md](roadmap-round.md) | `packages/desktop/e2e/flows/roadmap-round.spec.ts` |
 | The fleet reads runs while they go on and end | [fleet-live-reads.md](fleet-live-reads.md) | `packages/desktop/e2e/flows/fleet-live-reads.spec.ts` |

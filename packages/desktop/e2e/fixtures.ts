@@ -22,6 +22,11 @@ export interface FlowContext {
    * `core` of this context stays the first one; its trace file is the one trace of the whole flow.
    */
   crashAndRestart(): Promise<Core>;
+  /**
+   * Quit the core the way the app quits (stdin closes: sessions and the sidecar end, no SIGKILL), then
+   * start a new core on the same scratch root: the developer quits Flywheel and opens it again.
+   */
+  quitAndRestart(): Promise<Core>;
   /** A full-page screenshot, saved with the test's artifacts. */
   shot(name: string): Promise<void>;
 }
@@ -69,6 +74,16 @@ export function flow(title: string, spec: FlowSpec, body: (ctx: FlowContext) => 
         crashAndRestart: async () => {
           await current.crash();
           current.killAgents();
+          current = await startCore({
+            agentScript: spec.agentScript,
+            layout: spec.layout,
+            env: spec.agentEnv,
+            root: core.root,
+          });
+          return current;
+        },
+        quitAndRestart: async () => {
+          await current.stop();
           current = await startCore({
             agentScript: spec.agentScript,
             layout: spec.layout,
