@@ -1,4 +1,4 @@
-# Exit-test attempt 2, starting <start-date>
+# Exit-test attempt 2, starting 2026-11-26
 
 The owner runs this attempt. The rules are in [`docs/mvp-spec.md` section 1](../mvp-spec.md#1-purpose-and-the-one-week-exit-test): 5 working days in a 14-day window, two or more counted repositories with at least one that is not Flywheel, and no exemptions for drop-backs.
 
@@ -46,10 +46,10 @@ The newest release is older than the work on `main`, and the signed `.dmg` waits
    Pass `--applications <folder>` to install somewhere else, and `--backup-dir <folder>` to keep the backups somewhere else.
 4. The script ends with four lines. Paste them here, in place of the placeholders:
 
-- Commit: `<sha>`
-- Installed: `<path of Flywheel.app>`
-- Board backup: `<path to the copy of flywheel.db>`
-- Previous app: `<path of the earlier Flywheel.app>`
+- Commit: `6cb3d34f9e9801875307fcda4b98794a02915e8f` (`main`, built 2026-11-25 03:01 UTC, unsigned local build)
+- Installed: `/Applications/Flywheel.app`
+- Board backup: `/Users/cymarechal/Flywheel-backups/flywheel.db.20261125T030149Z`
+- Previous app: `/Users/cymarechal/Flywheel-backups/Flywheel.app.previous-20261125T030149Z`
 
 5. Run the preflight with `--backup <the Board backup path>` (see Start conditions). The preflight accepts the backup as it is.
 6. Open Flywheel. macOS may show a first-run dialog for an unsigned app. If it says the app is damaged, run `xattr -cr /Applications/Flywheel.app`, as in the release note, and open it again.
@@ -80,7 +80,7 @@ The owner declares these before day 1. Use the path of each project's main check
 
 | Day | Date |
 |---|---|
-| 1 | |
+| 1 | 2026-11-26 |
 | 2 | |
 | 3 | |
 | 4 | |
