@@ -45,7 +45,7 @@ anyhow = "1"
 # The waiting-request notifier's clock (`notify.rs`) is a `jiff::Timestamp`, the type
 # `flywheel_core::timestamp` reads and writes. Same features as `flywheel-core`: UTC only, so no
 # time-zone database. Replaces `chrono` (RUSTSEC-2026-0543, issue #1728).
-jiff = { version = "0.2", default-features = false, features = ["std"] }
+jiff = { version = "1.0", default-features = false, features = ["std"] }
 
 # The package is `flywheel-core` (decision 202 of the HighKnow monorepo, which names both trees'
 # crates by product). A dependency literally named `core` would shadow the sysroot `core` crate in

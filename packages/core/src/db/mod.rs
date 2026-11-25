@@ -245,7 +245,7 @@ fn legacy_target(db_path: &Path) -> PathBuf {
         .extension()
         .map(|e| e.to_string_lossy().into_owned())
         .unwrap_or_else(|| "db".into());
-    let now = Timestamp::now().to_zoned(TimeZone::UTC);
+    let now = Timestamp::now().to_zoned_datetime(TimeZone::UTC);
     let candidate = db_path.with_file_name(format!(
         "{stem}{LEGACY_SUFFIX}{}.{ext}",
         now.strftime("%Y%m%dT%H%M%SZ")

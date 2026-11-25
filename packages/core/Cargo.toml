@@ -51,7 +51,7 @@ anyhow = "1"
 # Every timestamp this workspace writes or compares (`timestamp.rs`). Only UTC instants are used, so
 # no time-zone database is compiled in: `std` alone gives `Timestamp::now`. Replaces `chrono`, which
 # RustSec marks unmaintained (RUSTSEC-2026-0543, issue #1728).
-jiff = { version = "0.2", default-features = false, features = ["std"] }
+jiff = { version = "1.0", default-features = false, features = ["std"] }
 keyring = { version = "4.2.0", features = ["apple-native-keyring-store"] }
 # Pid-reuse-safe liveness for the launch reconciler (plan 03-06, PROC-05): pid alone is never
 # enough to identify "the same process" across a restart, since the OS recycles pids. Pinned to
