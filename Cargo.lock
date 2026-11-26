@@ -54,9 +54,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.104"
+version = "1.0.105"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
+checksum = "2cb931c189b85683d69a5cfad41d4d418671e1ac413dd209f3f2fc31e3cfd902"
 
 [[package]]
 name = "apple-native-keyring-store"
@@ -1125,7 +1125,7 @@ dependencies = [
  "anyhow",
  "dirs",
  "fractional_index",
- "jiff 1.0.0",
+ "jiff 1.0.2",
  "keyring",
  "libc",
  "once_cell",
@@ -1145,7 +1145,7 @@ dependencies = [
  "anyhow",
  "flywheel-core",
  "futures-util",
- "jiff 1.0.0",
+ "jiff 1.0.2",
  "rusqlite",
  "serde",
  "serde_json",
@@ -2036,12 +2036,12 @@ dependencies = [
 
 [[package]]
 name = "jiff"
-version = "1.0.0"
+version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9cc767b5763de45e810109520123bb2829a653f3a7ed9be40b2bc4f81158f595"
+checksum = "c5e77cbfb9fff4798e283c2d69dff39fc2c45e7da017e5ce95b654e46ea41236"
 dependencies = [
  "jiff-core 1.0.1",
- "jiff-static 1.0.0",
+ "jiff-static 1.0.2",
  "log",
  "portable-atomic",
  "portable-atomic-util",
@@ -2080,9 +2080,9 @@ dependencies = [
 
 [[package]]
 name = "jiff-static"
-version = "1.0.0"
+version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "955491488dc99b572ea6d67b172dcd98787d00744b1fb44a5689b4e6413695a6"
+checksum = "e9067a0b23e5be3147d56b2dcf652b18e6b1364caca93fb157653b6fbcab23a9"
 dependencies = [
  "jiff-core 1.0.1",
  "proc-macro2",
@@ -4027,9 +4027,9 @@ checksum = "61c41af27dd6d1e27b1b16b489db798443478cef1f06a660c96db617ba5de3b1"
 
 [[package]]
 name = "tauri"
-version = "2.12.6"
+version = "2.12.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c2a5cad3827d1fa46c206a6bcaee8ca14203e9b0aaabe447dd4acef33ecd065"
+checksum = "30fbfbb9dc9a2697b0e96d909ddc295fb18d2d82a58ed542ab8d9eba2edbe6da"
 dependencies = [
  "anyhow",
  "bytes",
