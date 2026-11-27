@@ -313,11 +313,14 @@ jobs:
       # They wait on timers and a browser, not on the CPU, so one after another they took the sum of their
       # waits (#1732). Each arm has its own Vitest cache, and no two share a file or a port.
       - name: Desktop browser tests and layout defects (WebKit; forced colors in Chromium)
-        # Five arms share this runner's three cores, and a WebKit click-through that takes 3.6 s alone runs
-        # past its 15 s budget here. The factor is src/test/time-scale.ts's; the private gate runs the same
-        # arms with 3.
+        # This runner has three cores and no GPU, so WebKit paints in software and a page is not idle as on the
+        # owner's Mac. Two lanes of arms and eight layout pages at once starved every click and the dev server
+        # (#2082), so here the arms run one after another and the layout walk takes one page. The time factor is
+        # src/test/time-scale.ts's; the private gate runs the same arms with 3.
         env:
           FLYWHEEL_TEST_TIME_SCALE: "3"
+          FLYWHEEL_TEST_CONCURRENCY: "1"
+          FLYWHEEL_LAYOUT_WORKERS: "1"
         run: npm --prefix packages/desktop run test:browser:arms
 
   # The end-to-end flows: the real renderer in WebKit and Chromium, against the headless core and the

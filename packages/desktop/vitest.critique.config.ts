@@ -15,7 +15,7 @@ import base from "./vitest.browser.config.ts";
  * runs the files side by side, each in its own page with its own viewport (#1732): a screen waits on timers, not
  * on the CPU (4% of one core for the whole run), so one worker for each file is the right size. VITEST_MAX_WORKERS
  * overrides `maxWorkers` here, as the gate sets it to four for the CPU-bound arms, so `test:layout-defects` sets
- * it to 8 itself.
+ * it to 8 itself, or to FLYWHEEL_LAYOUT_WORKERS: on a runner that paints in software a page is not idle (#2082).
  */
 const scheme = process.env.CRITIQUE_SCHEME === "dark" ? "dark" : "light";
 
