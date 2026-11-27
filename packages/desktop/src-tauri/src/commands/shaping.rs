@@ -32,10 +32,11 @@ use flywheel_core::domain::round::{AnswerOutcome, RoundAnswer, RoundRelease};
 use flywheel_core::domain::session::ShapingSubject;
 use flywheel_core::domain::session_kind::SessionKind;
 
-use super::session::{fail_launch, send_gated_spawn, spawn_request_in};
+use super::session::send_gated_spawn;
 use super::task::send_board_tool_answer;
 use super::{emit_board_changed, project_of_locked, validate_text};
 use crate::state::AppState;
+use flywheel_core::launch::{fail_launch, spawn_request_in};
 
 /// A shaping session as Shape returns it.
 #[derive(Debug, Clone, Serialize)]

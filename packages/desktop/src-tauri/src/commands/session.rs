@@ -35,6 +35,7 @@ use super::{emit_board_changed, project_of, project_of_locked};
 use crate::state::AppState;
 
 use flywheel_core::domain::session_kind::SessionKind;
+use flywheel_core::launch::{launch, Intent, LaunchPort, Launched, Mode, Refused, StartRunOutcome};
 
 /// The hard cap on the operator's free-text instruction (T-02-20), measured in characters.
 const MAX_INSTRUCTION_LEN: usize = 4000;
@@ -89,89 +90,6 @@ pub struct SessionDto {
     pub permission_mode: String,
 }
 
-/// What [`start_session_recording_first`] produced — the DB-only half of a start's outcome,
-/// everything [`session_start`] needs to finish the Tauri- and process-facing half (merge the shim
-/// env, send the spawn request, emit `board:changed`) without touching the database again.
-#[derive(Debug)]
-pub struct StartRunOutcome {
-    pub run_id: String,
-    pub worktree_path: String,
-    /// Where the session runs: the project's directory in the worktree. It is `worktree_path`
-    /// itself unless the project is a subdirectory of a larger repository
-    ///.
-    pub working_dir: String,
-    /// The Story's own branch, checked out in `worktree_path`.
-    pub branch: String,
-    pub prompt: String,
-}
-
-/// The DB-only half of [`session_start`], extracted so it is unit-testable against a bare
-/// `&mut Connection`. Performs, in exactly this order:
-/// 1. `start_session` (the worktree and the session row).
-/// 2. `build_context_packet`, with the instruction as its resume note.
-/// 3. the read of the session's worktree: its path, the project's directory in it, and its branch.
-///
-/// Steps 2-3 run AFTER the session row exists, so an error from either closes that row `failed`
-/// before it propagates (D-REV-46): a `running` row with no session behind it would read as live
-/// until the app restarts.
-pub(crate) fn start_session_recording_first(
-    conn: &mut Connection,
-    story_id: &str,
-    permission_mode: &str,
-    instruction: &str,
-    human_actor_id: &str,
-) -> Result<StartRunOutcome, String> {
-    let run = flywheel_core::domain::session::start_session(
-        conn,
-        story_id,
-        permission_mode,
-        human_actor_id,
-    )
-    .map_err(|e| e.to_string())?;
-
-    let built = (|| -> Result<(String, String, String, String), String> {
-        let prompt =
-            flywheel_core::context_packet::build_context_packet(conn, story_id, instruction)
-                .map_err(|e| e.to_string())?;
-        // A Story has one worktree, and `start_session` just ensured it.
-        let worktree = flywheel_core::domain::worktree::worktree_for_story(conn, story_id)
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| {
-                format!("the worktree of the session just started on Story {story_id:?} is gone")
-            })?;
-        let working_dir = worktree.project_dir().to_string_lossy().into_owned();
-        Ok((prompt, worktree.path, working_dir, worktree.branch))
-    })();
-    let (prompt, worktree_path, working_dir, branch) = match built {
-        Ok(v) => v,
-        Err(why) => return Err(fail_launch(conn, &run.id, why)),
-    };
-
-    Ok(StartRunOutcome {
-        run_id: run.id,
-        worktree_path,
-        working_dir,
-        branch,
-        prompt,
-    })
-}
-
-/// Close a session whose launch failed after its row was inserted, and hand `why` back for the
-/// caller to return. The one place that decides what a failed launch leaves behind: a `failed`
-/// row, never a `running` one (D-REV-46). Best-effort on the close itself: the original failure is
-/// the error worth reporting.
-pub(crate) fn fail_launch(conn: &mut Connection, run_id: &str, why: String) -> String {
-    let _ = flywheel_core::domain::session::close_session(
-        conn,
-        run_id,
-        flywheel_core::domain::session::SessionStatus::Failed,
-        None,
-        None,
-        None,
-    );
-    why
-}
-
 /// Start a fresh session on `story_id` (D-30: always fresh, never `--resume`). Validates the
 /// operator's free-text `instruction` (T-02-20) before any DB or sidecar call happens, then
 /// delegates everything else to [`launch_run_for_story`]. It takes no permission mode: a Story
@@ -209,162 +127,49 @@ pub(crate) fn send_gated_spawn(
     }
 }
 
-/// Everything the lock-held half of a launch produced; [`launch_run_for_story`] finishes the
-/// process-facing half (shim env, gated spawn, `board:changed`) from it.
-pub(crate) struct PreparedLaunch {
-    pub outcome: StartRunOutcome,
-    pub repo_path: String,
-    pub env: std::collections::HashMap<String, String>,
+/// The desktop's [`LaunchPort`]: the three process-facing steps are parameters so a test can force
+/// each to fail; the credential comes from the sidecar module. The headless harness hosts the same
+/// commands, so it launches through this port too, with no sidecar attached to send to.
+pub(crate) struct SidecarPort<F, M, S> {
+    pub find_claude: Option<F>,
+    pub merge_shim: Option<M>,
+    pub send: Option<S>,
 }
 
-/// The database half of a launch, run under the caller's `AppState.db` lock: actor, credential,
-/// the live-session refusal, the session row. Split out of [`launch_run_for_story`] so it can be
-/// driven without a Tauri app handle.
-pub(crate) fn prepare_launch(
-    conn: &mut Connection,
-    story_id: &str,
-    kind: SessionKind,
-    instruction: &str,
-) -> Result<PreparedLaunch, String> {
-    let initiator_id =
-        flywheel_core::domain::actor::local_human_actor_id(conn).map_err(|e| e.to_string())?;
-
-    // Resolve the credential BEFORE any session/worktree state is created (D-39, T-02-42): a
-    // missing API key must never leave behind a `running` row and a worktree nothing spawns into.
-    // `repo_path` keys the per-repository spawn floor (D-52).
-    let (project_id, repo_path): (String, String) = conn
-        .query_row(
-            "SELECT stories.project_id, projects.repo_path
-             FROM stories
-             JOIN projects ON projects.id = stories.project_id
-             WHERE stories.id = ?1",
-            rusqlite::params![story_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .map_err(|e| e.to_string())?;
-    let env = crate::sidecar::resolved_env_for_run(conn, &project_id).map_err(|e| e.to_string())?;
-
-    // A second agent in the same worktree corrupts the work: a Story whose own session is live
-    // refuses, before anything is created.
-    let live: bool = conn
-        .query_row(
-            "SELECT EXISTS (SELECT 1 FROM sessions WHERE story_id = ?1 AND status IN ('running', 'blocked'))",
-            rusqlite::params![story_id],
-            |row| row.get(0),
-        )
-        .map_err(|e| e.to_string())?;
-    if live {
-        return Err(
-            "This Story already has a running or blocked session. A second agent in the same \
-                    worktree would corrupt the work, so this launch is refused."
-                .to_string(),
-        );
+impl<F, M, S> LaunchPort for SidecarPort<F, M, S>
+where
+    F: FnOnce() -> Result<std::path::PathBuf, String>,
+    M: FnOnce(&mut std::collections::HashMap<String, String>, &str) -> anyhow::Result<()>,
+    S: FnOnce(&str, &serde_json::Value) -> Result<(), String>,
+{
+    fn find_claude(&mut self) -> Result<(), String> {
+        (self.find_claude.take().expect("find_claude runs once"))().map(|_| ())
     }
 
-    let outcome = start_session_recording_first(
-        conn,
-        story_id,
-        kind.launch_policy().permission_mode,
-        instruction,
-        &initiator_id,
-    )?;
-    Ok(PreparedLaunch {
-        outcome,
-        repo_path,
-        env,
-    })
+    fn resolve_env(
+        &mut self,
+        conn: &Connection,
+        project_id: &str,
+    ) -> anyhow::Result<std::collections::HashMap<String, String>> {
+        crate::sidecar::resolved_env_for_run(conn, project_id)
+    }
+
+    fn merge_shim(
+        &mut self,
+        env: &mut std::collections::HashMap<String, String>,
+        run_id: &str,
+    ) -> anyhow::Result<()> {
+        (self.merge_shim.take().expect("merge_shim runs once"))(env, run_id)
+    }
+
+    fn send(&mut self, repo_path: &str, request: &serde_json::Value) -> Result<(), String> {
+        (self.send.take().expect("send runs once"))(repo_path, request)
+    }
 }
 
-/// The process-facing half of a launch, after [`prepare_launch`] inserted the session row: the shim
-/// env merge, then the spawn request through the one gated path. `merge_shim` and `send` are
-/// parameters only so a test can force each to fail; [`launch_run_for_story`] passes the real ones.
-///
-/// D-51: the shim's per-run directory is keyed by the session id, which only exists from
-/// `prepare_launch` on, so a shim-install failure here refuses the spawn. `conn` is the launch's
-/// own [`super::side_connection`], never the `AppState.db` guard: the spawn floor sleeps inside
-/// `send`, and nothing here may run while holding the board mutex (T-03-04-05, issue #215).
-pub(crate) fn spawn_prepared_run(
-    conn: &mut Connection,
-    outcome: &StartRunOutcome,
-    mut env: std::collections::HashMap<String, String>,
-    kind: SessionKind,
-    merge_shim: impl FnOnce(&mut std::collections::HashMap<String, String>, &str) -> anyhow::Result<()>,
-    send: impl FnOnce(&serde_json::Value) -> Result<(), String>,
-) -> Result<(), String> {
-    merge_shim(&mut env, &outcome.run_id)
-        .map_err(|e| fail_launch(conn, &outcome.run_id, e.to_string()))?;
-    // The Gated-action deny-list allows a recursive `rm` inside, and deleting or rewriting, only the
-    // Story's own worktree and branch, so the shim needs to know which ones those are.
-    env.insert(
-        flywheel_core::destructive::WORKTREE_ENV.to_string(),
-        outcome.worktree_path.clone(),
-    );
-    env.insert(
-        flywheel_core::destructive::STORY_BRANCH_ENV.to_string(),
-        outcome.branch.clone(),
-    );
-
-    let request = spawn_request(outcome, &env, kind);
-    send(&request).map_err(|why| fail_launch(conn, &outcome.run_id, why))
-}
-
-/// The sidecar's `spawn` request for a session of `kind`. The kind alone fixes the permission mode,
-/// the allowed and refused tools, and whether the session may raise a permission request
-/// ([`SessionKind::launch_policy`]); the sidecar turns them into Claude Code flags and decides none
-/// of them.
-pub(crate) fn spawn_request(
-    outcome: &StartRunOutcome,
-    env: &std::collections::HashMap<String, String>,
-    kind: SessionKind,
-) -> serde_json::Value {
-    spawn_request_in(
-        &outcome.run_id,
-        &outcome.working_dir,
-        &outcome.prompt,
-        env,
-        kind,
-    )
-}
-
-/// [`spawn_request`] for a session that runs in `cwd`: a Story session's worktree, or the project's
-/// checkout for a shaping session, which has no worktree (issue #122). The sidecar's field keeps
-/// its `worktreePath` name; it is the session's working directory either way.
-pub(crate) fn spawn_request_in(
-    run_id: &str,
-    cwd: &str,
-    prompt: &str,
-    env: &std::collections::HashMap<String, String>,
-    kind: SessionKind,
-) -> serde_json::Value {
-    let policy = kind.launch_policy();
-    // The kind's own env wins over the resolved one: nothing upstream can lower a Story session's
-    // MCP tool timeouts (issue #92).
-    let mut env = env.clone();
-    env.extend(
-        policy
-            .env
-            .iter()
-            .map(|(name, value)| (name.to_string(), value.clone())),
-    );
-    serde_json::json!({
-        "id": run_id,
-        "op": "spawn",
-        "runId": run_id,
-        "worktreePath": cwd,
-        "prompt": prompt,
-        "permissionMode": policy.permission_mode,
-        "allowedTools": policy.allowed_tools,
-        "disallowedTools": policy.disallowed_tools,
-        "permissionPrompt": policy.raises_requests,
-        // The board's MCP server lists each kind only its own tools (issue #123).
-        "sessionKind": kind.as_str(),
-        "env": env,
-    })
-}
-
-/// The launch body, after argument validation: the DB-only half ([`prepare_launch`]), the shim env
-/// merge, the spawn request through the one gated path, and the `board:changed` emit. Callers pass
-/// an already-validated mode and instruction.
+/// A session of `kind` on a Story, after argument validation, with no entry rule (the Story's work
+/// lock and a side connection stand in for the board mutex, issue #215), and the `board:changed`
+/// emit.
 pub(crate) fn launch_run_for_story(
     state: &AppState,
     app: &AppHandle,
@@ -373,24 +178,16 @@ pub(crate) fn launch_run_for_story(
     instruction: &str,
 ) -> Result<SessionDto, String> {
     flywheel_core::login_path::claude_bin()?;
-    // The launch creates the worktree and builds the Context packet, both git: it runs on its own
-    // connection, with this Story's work lock in place of the board mutex (issue #215).
-    let outcome = super::with_story_work(story_id, || -> Result<StartRunOutcome, String> {
+    let mut port = SidecarPort {
+        find_claude: None::<fn() -> Result<std::path::PathBuf, String>>,
+        merge_shim: Some(crate::sidecar::merge_shim_env_for_run),
+        send: Some(|repo_path: &str, request: &serde_json::Value| {
+            send_gated_spawn(state, repo_path, request)
+        }),
+    };
+    let outcome = super::with_story_work(story_id, || {
         let mut conn = super::side_connection(&state.db)?;
-        let PreparedLaunch {
-            outcome,
-            repo_path,
-            env,
-        } = prepare_launch(&mut conn, story_id, kind, instruction)?;
-        spawn_prepared_run(
-            &mut conn,
-            &outcome,
-            env,
-            kind,
-            crate::sidecar::merge_shim_env_for_run,
-            |request| send_gated_spawn(state, &repo_path, request),
-        )?;
-        Ok(outcome)
+        flywheel_core::launch::launch_session(&mut conn, &mut port, story_id, kind, instruction)
     })?;
 
     let project_id = project_of_locked(&state.db, "stories", story_id);
@@ -447,17 +244,11 @@ pub(crate) fn story_start_blocking(
     })
 }
 
-/// [`story_start`]'s body, driven without a Tauri app handle. The Ready check and the launch share
-/// the Story's work lock ([`super::story_work`]), so two Starts cannot both pass it (the second
-/// meets the first's live session); they run on a side connection, never under the board mutex,
-/// because the launch runs git (issue #215). The Story moves to Running only once the spawn
-/// request went out: a launch that fails leaves it Ready, its session `failed` and its worktree in
-/// place for the next Start.
-///
-/// `find_claude` runs after the Ready check and before anything is created: with no `claude` on
-/// the login-shell `PATH` the Start is refused with the sentence naming the `PATH` searched, and
-/// the Story stays Ready (issue #88). The sidecar's spawn is asynchronous, so a missing binary
-/// would otherwise surface only after the Story had moved to Running.
+/// [`story_start`]'s body, driven without a Tauri app handle: the launch core's attended Start,
+/// under the Story's work lock ([`super::story_work`]) so two Starts cannot both pass the Ready
+/// check, on a side connection, never under the board mutex (issue #215). A launch that fails
+/// leaves the Story Ready, its session `failed` and its worktree in place for the next Start.
+/// `find_claude` runs after the Ready check and before anything is created (issue #88).
 pub fn start_ready_story(
     db: &std::sync::Mutex<Connection>,
     story_id: &str,
@@ -466,42 +257,34 @@ pub fn start_ready_story(
     merge_shim: impl FnOnce(&mut std::collections::HashMap<String, String>, &str) -> anyhow::Result<()>,
     send: impl FnOnce(&str, &serde_json::Value) -> Result<(), String>,
 ) -> Result<StartRunOutcome, String> {
+    attended_launch(
+        db,
+        story_id,
+        Intent::Start { instruction },
+        find_claude,
+        merge_shim,
+        send,
+    )
+}
+
+fn attended_launch(
+    db: &std::sync::Mutex<Connection>,
+    story_id: &str,
+    intent: Intent<'_>,
+    find_claude: impl FnOnce() -> Result<std::path::PathBuf, String>,
+    merge_shim: impl FnOnce(&mut std::collections::HashMap<String, String>, &str) -> anyhow::Result<()>,
+    send: impl FnOnce(&str, &serde_json::Value) -> Result<(), String>,
+) -> Result<StartRunOutcome, String> {
+    let mut port = SidecarPort {
+        find_claude: Some(find_claude),
+        merge_shim: Some(merge_shim),
+        send: Some(send),
+    };
     super::with_story_work(story_id, || {
         let mut conn = super::side_connection(db)?;
-        let current = flywheel_core::domain::story::get_story(&conn, story_id)
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("Story {story_id:?} not found"))?
-            .state;
-        if current != flywheel_core::domain::story::StoryState::Ready.as_str() {
-            return Err(format!("Start needs a Ready Story; this one is {current}"));
-        }
-        find_claude()?;
-        let PreparedLaunch {
-            outcome,
-            repo_path,
-            env,
-        } = prepare_launch(&mut conn, story_id, SessionKind::Story, instruction)?;
-        spawn_prepared_run(
-            &mut conn,
-            &outcome,
-            env,
-            SessionKind::Story,
-            merge_shim,
-            |request| send(&repo_path, request),
-        )?;
-
-        let human =
-            flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-        flywheel_core::domain::story::set_story_state(
-            &mut conn,
-            &human,
-            story_id,
-            flywheel_core::domain::story::StoryState::Running,
-        )
-        .map_err(|e| {
-            format!("the session started, but the Story could not move to Running: {e}")
-        })?;
-        Ok(outcome)
+        launch(&mut conn, &mut port, story_id, intent, Mode::Attended)
+            .map(|Launched(outcome)| outcome)
+            .map_err(|Refused(reason)| reason)
     })
 }
 
@@ -566,11 +349,9 @@ fn story_resume_blocking(
     })
 }
 
-/// [`story_resume`]'s body, driven without a Tauri app handle. The Stopped check and the launch
-/// share the Story's work lock ([`super::story_work`]), so two Resumes cannot both pass it (the
-/// second meets the first's live session). The Story stays Running throughout: Resume is not a
-/// state move. Like Start, it spawns with the login-shell `PATH` adopted at startup, and `find_claude` refuses it, naming that `PATH`, before
-/// anything is created when `claude` is missing (issue #88): the Story stays Stopped.
+/// [`story_resume`]'s body, driven without a Tauri app handle: the launch core's attended Resume,
+/// under the Story's work lock so two Resumes cannot both pass the Stopped check. The Story stays
+/// Running throughout; `find_claude` refuses before anything is created (issue #88).
 pub(crate) fn resume_stopped_story(
     db: &std::sync::Mutex<Connection>,
     story_id: &str,
@@ -580,30 +361,14 @@ pub(crate) fn resume_stopped_story(
     send: impl FnOnce(&str, &serde_json::Value) -> Result<(), String>,
 ) -> Result<StartRunOutcome, String> {
     let note = validate_resume_note(Some(note))?;
-    super::with_story_work(story_id, || {
-        let mut conn = super::side_connection(db)?;
-        if flywheel_core::query::sessions::stopped_session_for_story(&conn, story_id)
-            .map_err(|e| e.to_string())?
-            .is_none()
-        {
-            return Err("Resume needs a Stopped Story: Running, with no live session".to_string());
-        }
-        find_claude()?;
-        let PreparedLaunch {
-            outcome,
-            repo_path,
-            env,
-        } = prepare_launch(&mut conn, story_id, SessionKind::Story, &note)?;
-        spawn_prepared_run(
-            &mut conn,
-            &outcome,
-            env,
-            SessionKind::Story,
-            merge_shim,
-            |request| send(&repo_path, request),
-        )?;
-        Ok(outcome)
-    })
+    attended_launch(
+        db,
+        story_id,
+        Intent::Resume { note: &note },
+        find_claude,
+        merge_shim,
+        send,
+    )
 }
 
 /// Whether a Story is Stopped (docs/mvp-spec.md §2 "Attention"), and the dead session it shows.
@@ -2323,6 +2088,10 @@ pub(crate) mod scratch_root;
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use flywheel_core::launch::{
+        prepare_launch, spawn_prepared_run, spawn_request, start_session_recording_first,
+        PreparedLaunch,
+    };
 
     fn sample_live_orphan(run_id: &str) -> flywheel_core::domain::session::LiveOrphan {
         flywheel_core::domain::session::LiveOrphan {
@@ -3533,8 +3302,19 @@ pub(crate) mod tests {
         (conn, actor_id, project.id, story.id, repo_dir)
     }
 
+    /// A port for a step that must not reach the spawn: it fails the test if it does.
+    fn no_send_port() -> impl LaunchPort {
+        SidecarPort {
+            find_claude: None::<fn() -> Result<std::path::PathBuf, String>>,
+            merge_shim: None::<
+                fn(&mut std::collections::HashMap<String, String>, &str) -> anyhow::Result<()>,
+            >,
+            send: None::<fn(&str, &serde_json::Value) -> Result<(), String>>,
+        }
+    }
+
     fn launch(conn: &mut Connection, story_id: &str) -> Result<PreparedLaunch, String> {
-        prepare_launch(conn, story_id, SessionKind::Story, "")
+        prepare_launch(conn, &mut no_send_port(), story_id, SessionKind::Story, "")
     }
 
     /// `(sessions rows for the Story, all events rows)` — a refusal must change neither.
@@ -3661,13 +3441,18 @@ pub(crate) mod tests {
         let db = std::sync::Mutex::new(conn);
         let mut guard = db.lock().unwrap();
         let prepared = launch(&mut guard, &story).expect("the session row is inserted");
+        let mut port = SidecarPort {
+            find_claude: None::<fn() -> Result<std::path::PathBuf, String>>,
+            merge_shim: Some(merge_shim),
+            send: Some(|_: &str, request: &serde_json::Value| send(request)),
+        };
         let err = spawn_prepared_run(
             &mut guard,
+            &mut port,
             &prepared.outcome,
             prepared.env,
             SessionKind::Story,
-            merge_shim,
-            send,
+            &prepared.repo_path,
         )
         .expect_err("the injected step fails");
         drop(guard);

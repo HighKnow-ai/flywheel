@@ -19,6 +19,7 @@ pub mod git_identity;
 pub mod git_retry;
 pub mod git_tick;
 pub mod ids;
+pub mod launch;
 pub mod login_path;
 pub mod marker;
 pub mod permission_pattern;

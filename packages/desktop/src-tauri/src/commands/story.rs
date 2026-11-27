@@ -14,9 +14,10 @@ use tauri::State;
 use flywheel_core::domain::session_kind::SessionKind;
 
 use super::criterion::MAX_CHECK_COMMAND_LEN;
-use super::session::{prepare_launch, spawn_prepared_run, PreparedLaunch, StartRunOutcome};
+use super::session::SidecarPort;
 use super::{emit_board_changed, validate_text, MAX_PROSE_LEN, MAX_TITLE_LEN};
 use crate::state::AppState;
+use flywheel_core::launch::{launch_session, StartRunOutcome};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -330,20 +331,13 @@ pub(crate) fn request_changes_and_launch(
                 "The Story is back in Running, but its session did not start ({why}). Resume it."
             )
         };
-        let PreparedLaunch {
-            outcome,
-            repo_path,
-            env,
-        } = prepare_launch(&mut conn, story_id, SessionKind::Story, "").map_err(stopped)?;
-        spawn_prepared_run(
-            &mut conn,
-            &outcome,
-            env,
-            SessionKind::Story,
-            merge_shim,
-            |request| send(&repo_path, request),
-        )
-        .map_err(stopped)?;
+        let mut port = SidecarPort {
+            find_claude: None::<fn() -> Result<std::path::PathBuf, String>>,
+            merge_shim: Some(merge_shim),
+            send: Some(send),
+        };
+        let outcome = launch_session(&mut conn, &mut port, story_id, SessionKind::Story, "")
+            .map_err(stopped)?;
         Ok(outcome)
     })
 }
