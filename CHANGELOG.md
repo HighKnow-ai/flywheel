@@ -6,7 +6,7 @@ user would recognise. Releases up to v0.1.2 are described on their release pages
 
 ## Unreleased
 
-## 0.3.1 — 2026-11-27
+## 0.3.2 — 2026-11-27
 
 - Merge now lands a Story by pull request by default. Each project has a landing mode: a pull
   request on GitHub or a merge request on GitLab, a landing command that you name, or the local
@@ -35,6 +35,9 @@ user would recognise. Releases up to v0.1.2 are described on their release pages
   It now uses `jiff`. Stored timestamps keep the same text format. The lockfile also takes `url`
   2.5.9, which fixes RUSTSEC-2026-0592 (unbounded recursion on nested `blob:` URLs). You can
   check both with `cargo deny check`.
+- A loading placeholder that has not yet appeared on screen no longer shows when its data is
+  already in. Before, a slow first frame could put a placeholder over the loaded content for a
+  third of a second.
 
 ## 0.2.0 — 2026-11-06
 
