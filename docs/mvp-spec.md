@@ -8,7 +8,7 @@ The backlog that builds it lives in GitHub Issues on `HighKnow-ai/flywheel`, in 
 
 Flywheel is a project board where one Developer shapes work with AI agents and has them carry it out. v0.1.0 wasn't usable: shaping in the app was worse than in a terminal, work ended up without Acceptance criteria, and the board didn't show a clear status. A walk of one real Epic through v0.1 was abandoned during execution, after 61 permission approvals, with review and merge never reached. The agent's thinking was strong. The surfaces and the plumbing between stages failed. ([Walk one real epic through the current build and log every blocker](https://github.com/HighKnow-ai/flywheel/issues/7))
 
-The MVP is the whole model at minimum depth: every record type exists, each with the simplest challenge flow that works. One user (Cyril) plays every role.
+The MVP is the whole model at minimum depth: every record type exists, each with the simplest challenge flow that works. One user (Cyril) plays every role. The MVP includes [Autopilot](#13-autopilot), which runs an accepted Epic's Stories without a click per step. The owner decided on 2026-11-27 that Autopilot is built before the exit test, so one exit test covers both.
 
 **The MVP's exit test:** Cyril runs one week of real work across his own projects from Flywheel without dropping back to a bare Claude Code terminal. ([What does the one-week exit test count, and how is it logged?](https://github.com/HighKnow-ai/flywheel/issues/9))
 
@@ -16,8 +16,13 @@ The MVP is the whole model at minimum depth: every record type exists, each with
 - **Counted projects:** declared before the attempt starts. Two or more repos, at least one of them not Flywheel.
 - **Week:** 5 working days within a 14-day window.
 - **Minimum work:** at least 5 Stories merged through Flywheel's review, at least one from each counted project, and at least one Epic shaped from scratch in Flywheel and taken through to a merge.
+- **Autopilot's criteria**, on top of the minimum work:
+  - at least 10 Stories landed through Autopilot across the counted projects. The pilots are the two pilot projects;
+  - at least one red Batch that removed a Story and landed the rest;
+  - Cyril's clicks limited to: accepting an Epic, Escalations, Parked Stories, one-way merges, learning-edge Proposals and the production tag (for a project that has one);
+  - zero drop-backs, as above.
 - **Outcomes:**
-  - **Pass**: zero drop-backs and the minimum work met.
+  - **Pass**: zero drop-backs, the minimum work met and Autopilot's criteria met.
   - **Fail**: at least one drop-back, with no exemptions. The reasons become issues to fix before the next attempt.
   - **Invalid**: no drop-back, but the minimum work wasn't reached for reasons outside Flywheel.
 
@@ -60,6 +65,8 @@ The MVP is the whole model at minimum depth: every record type exists, each with
 
 Changing criteria after Shaping is done through a Proposal, and the Story keeps its state.
 
+The table names Cyril as the actor of each move. For a Story of an Epic under a grant, Autopilot may take Ready → Running, the criterion acceptance that precedes In review → Merged, In review → Running (a correction) and In review → Merged, as [section 13](#13-autopilot) sets out. A grant covers nothing else in this section: closing a Stage, Make Ready, Drop, Confirm exit test and every decision on a Proposal stay Cyril's.
+
 **Epic state:** Shaping → Ready → In progress → Done. Cyril closes Shaping and sets Done. Ready (no Story started) and In progress (some Story past Ready) are derived. When every Story is Merged or Dropped, a **Confirm exit test** item asks Cyril to confirm the Epic's exit test. Confirming makes the Epic Done. Declining keeps it In progress and reopens shaping. All Stories merging never closes an Epic on its own.
 
 **Milestone state** mirrors the Epic's: Shaping → Ready → In progress → Done, plus Dropped from any state. Done only comes when Cyril confirms the exit test.
@@ -81,6 +88,8 @@ The ranked list of everything waiting on Cyril in a project. The order is: live 
 4. Confirm exit test
 5. Proposals filed during execution, as one row (see [section 5](#5-proposals-from-execution)). A Proposal that changes what a Story is judged on is its own item, ranked with Review.
 6. Shaping Round waiting: a Round a live session is held on, an open Round whose session died or never launched, and a pending roadmap Round
+
+Autopilot adds four kinds, ranked in [section 13](#needs-you-kinds-and-the-board): Escalated (2), Parked (3), Epic Proposal (5) and Yours (7).
 
 Amended by [#156](https://github.com/HighKnow-ai/flywheel/issues/156): an agent's question ranks with Gated actions and permission requests, since it holds a live session the same way, and a missing worktree is a Stopped-kind item rather than a figure of its own. **Shipped in Milestone 4** ([#156](https://github.com/HighKnow-ai/flywheel/issues/156)), judged-on items aside: one core query ranks the list, the board shows it as a column beside the roster, and the sidebar's project figure is its length. The Proposals row shipped with [#162](https://github.com/HighKnow-ai/flywheel/issues/162). Judged-on changes shipped with [#163](https://github.com/HighKnow-ai/flywheel/issues/163): an Amend criterion, or an Amend Epic spec a Story session filed, is its own item mixed with Review by age, with its before and after and Accept / Edit / Reject in the card ([ADR-0015](adr/0015-a-judged-on-change-marks-the-last-check-run-stale-by-time.md)).
 
@@ -295,7 +304,7 @@ The sidebar shows each project's Needs-you count (the number of its Needs-you it
 
 ([What are a Check and a Task checklist, and who keeps them current?](https://github.com/HighKnow-ai/flywheel/issues/23), [How does an agent propose an ADR, and how is it challenged?](https://github.com/HighKnow-ai/flywheel/issues/16), [What states do Stories and Epics have, and how is "Needs you" ranked?](https://github.com/HighKnow-ai/flywheel/issues/20))
 
-- **Order of the review:** failing or timed-out Checks first, with their output tail. Then every Acceptance criterion with its Check chip, pre-ticked when its Check passed. Cyril accepts each criterion himself. Acceptance is human-only.
+- **Order of the review:** failing or timed-out Checks first, with their output tail. Then every Acceptance criterion with its Check chip, pre-ticked when its Check passed. Cyril accepts each criterion himself, except where a grant lets Autopilot accept a criterion on a passing Check in the run of record ([section 13](#13-autopilot)). Acceptance by any other actor is refused.
 - **Warnings:** open or *doing* Tasks show as "n Tasks not done". The handing-off agent's objections to a Check are shown with it.
 - **Decisions section:** `docs/adr/` and `GLOSSARY.md` changes appear in their own section, with a count.
   - Each ADR card shows the bar lines and the related live ADRs inline, and offers **Keep** (the default), **Not an ADR** (the agent deletes the file) or **Wrong decision** (two fields, what is wrong and what it should be, carried by the request for changes as one review point covering code and ADR; no agent grilling inside the review).
@@ -306,7 +315,7 @@ The sidebar shows each project's Needs-you count (the number of its Needs-you it
 - **Actions:**
   - **Request changes** sends the Story back to Running with the comments. **Shipped** ([#158](https://github.com/HighKnow-ai/flywheel/issues/158)): one command closes the review with the comments, moves the Story and starts the fresh session in its worktree, and a failed launch leaves it Stopped, with Resume. A branch that would conflict reads **Rebase needed** on the card, naming the paths, and its action is a request for changes pre-filled with them.
   - **Re-run Checks** reruns them all.
-  - **Merge** merges into the base branch, removes the worktree and links new ADRs to the Story by path. A superseded ADR is marked by its `Status: superseded by` line, which the Story's agent writes in the same branch and the Decisions section flags when missing. It needs every criterion accepted by Cyril, no new ADR marked Not an ADR or Wrong decision, no live session and a clean worktree. A Check that is failed, timed out, not run or stale (run against an older commit) counts as failing, and needs "Merge with failing Check", recorded on the review and on the `story.merged` event. Merge is Cyril's action, not an agent Gated action. How the merge commit is written to the local base branch is ADR 0009. **Shipped** ([#155](https://github.com/HighKnow-ai/flywheel/issues/155)). ADR linking shipped with the Decisions section ([#161](https://github.com/HighKnow-ai/flywheel/issues/161)): an ADR accepted in shaping keeps its Epic Proposal and gets no second link. Merge writes no ADR line itself: Flywheel never commits outside a worktree (ADR 0016).
+  - **Merge** merges into the base branch, removes the worktree and links new ADRs to the Story by path. A superseded ADR is marked by its `Status: superseded by` line, which the Story's agent writes in the same branch and the Decisions section flags when missing. It needs every criterion accepted by Cyril, no new ADR marked Not an ADR or Wrong decision, no live session and a clean worktree. A Check that is failed, timed out, not run or stale (run against an older commit) counts as failing, and needs "Merge with failing Check", recorded on the review and on the `story.merged` event. Merge is Cyril's action, not an agent Gated action. Autopilot merges only under a grant, through the Merge gate, and never a prepare-only Story ([section 13](#13-autopilot)). How the merge commit is written to the local base branch is ADR 0009. **Shipped** ([#155](https://github.com/HighKnow-ai/flywheel/issues/155)). ADR linking shipped with the Decisions section ([#161](https://github.com/HighKnow-ai/flywheel/issues/161)): an ADR accepted in shaping keeps its Epic Proposal and gets no second link. Merge writes no ADR line itself: Flywheel never commits outside a worktree (ADR 0016).
 
 ## 9. Codebase plan
 
@@ -356,7 +365,7 @@ Each Milestone is a GitHub Milestone, and its exit test is the GitHub Milestone'
 | 2 | **Supervised execution** | A Story written by hand, with criteria and Checks, runs in its own worktree from Start to In review, with Cyril following it in Flywheel. He meets no permission prompt other than Gated actions and remembered-rule first asks, never opens a terminal to see what the agent is doing, and can kill the session and Resume it with nothing lost. |
 | 3 | **Shaping** | Cyril takes a one-line idea to an Epic with Ready Stories, each with accepted criteria and Checks, entirely in Flywheel's dock and board. He can also shape a Milestone's exit test and have a roadmap Round propose a change. |
 | 4 | **Board and review** | A Story goes from Ready to Merged in Flywheel alone: Cyril sees it on the roster and in Needs you, triages its Proposals in the drawer, and reviews and merges it, handling an ADR it wrote in the Decisions section. |
-| 5 | **One-week exit test** | The MVP exit test in [section 1](#1-purpose-and-the-one-week-exit-test) passes. |
+| 5 | **One-week exit test** | The MVP exit test in [section 1](#1-purpose-and-the-one-week-exit-test) passes, with Autopilot's criteria. [Section 13](#13-autopilot) is built before it. |
 
 The Milestone header of [section 7](#7-the-board-surface) shipped in Milestone 3 rather than 4 ([#106](https://github.com/HighKnow-ai/flywheel/issues/106), Cyril's decision of 2026-10-21), so progress is readable at a glance while Milestone 3 is shaped. The Roadmap strip ships in Milestone 3 too ([#131](https://github.com/HighKnow-ai/flywheel/issues/131), decided when Epic [#60](https://github.com/HighKnow-ai/flywheel/issues/60) was sliced on 2026-10-22), because shaping a Milestone and the roadmap Round need the Roadmap on screen; its ghost rows for Proposals come with the roadmap Round. The rest of the §7 surface (Needs you, Since you last looked and the full roster) stays in Milestone 4.
 
@@ -377,6 +386,101 @@ The desktop app is open source. Shaping prompts adapted from [mattpocock/skills]
 - Apple signing, notarisation and a working self-updater
 - Teams, cloud, the mobile/web relay, and scaffolding for any of them
 - Swappable skill packs
-- Scheduled automations, including resuming when a limit resets
-- `claude --resume`, a refusal probe, an automated ADR-contradiction detector, a second reviewer agent
+- Scheduled automations, resuming after a limit resets, and a second reviewer agent (Agent review) arrive with Autopilot ([section 13](#13-autopilot)). Everything else in this list stays out
+- `claude --resume`, a refusal probe, an automated ADR-contradiction detector
 - Moving Flywheel's own plan from GitHub Issues into Flywheel: GitHub stays the plan of record until the MVP exit test passes
+- A harness outside Flywheel, Autopilot merging one-way work, Autopilot pushing the production tag, stacking, team use and the cloud phase
+
+## 13. Autopilot
+
+The vocabulary of this section is in `GLOSSARY.md`.
+
+Autopilot is the mode in which an accepted Epic's Stories run, pass their Checks and land through the Merge gate with no one watching. Cyril is needed only for Ideation, accepting an Epic, Escalations, Parked Stories, one-way merges, learning-edge Proposals and the production tag. The pilots are the two pilot projects.
+
+### Authority and grants
+
+- **Principle 3** in `PRODUCT.md` reads: "The Developer decides once, upfront, and can withdraw it." Accepting an Epic Proposal writes a **grant** ([ADR draft 1](autopilot/adr-drafts/1-an-accepted-epic-grants-autopilot-its-stories-acts.md)).
+- **One Authority module** decides every act for two principals: Cyril, and Autopilot acting under a grant.
+- **A grant covers four acts** for the Stories of its Epic: Start; Accept criterion, only on a passing Check in the run of record; Take a correction; Merge through the Merge gate.
+- **A grant never covers** a Gated action, a decision on a Proposal, Close Stage, Make Ready, Confirm exit test, Drop, or the merge of a prepare-only Story.
+- Every act Autopilot takes records its grant in the event log.
+- **Pause** (a project switch) and **Withdraw** (an Epic's grant) let work in flight finish and start nothing new. Pause reads on the Autopilot block of the Andon strip.
+
+### Ideation and Shaping
+
+- **Ideation** is Cyril's conversation with Claude. Every one-way decision is made there: the roadmap Rounds and an Epic's first Stage. A foggy idea becomes a Milestone in Shaping.
+- **Shaping** is narrowed to Claude's unattended work. It turns Ideation's outcome into Stories with criteria, Checks and blocking edges, and ends in one Epic Proposal.
+- Unattended Shaping answers two-way questions itself and lists them as assumptions on the Epic Proposal. A one-way question waits as a Round.
+- Under Autopilot, every criterion carries a Check.
+- **The Shape check** is the deterministic test an item must pass before Autopilot takes it. It refuses:
+  - an open sub-issue;
+  - more than about 3 open boxes;
+  - an owner or hardware marker;
+  - a prose dependency;
+  - a missing criterion;
+  - an L size estimate, more than 5 criteria, or an oversized Context packet.
+- **Blockers** (Stories, Epics and mirrored issues) and **Not-before dates** are fields. The Dispatcher obeys them. They replace the informational "runs after" marker of [section 2](#records) for work under Autopilot.
+
+### The Epic Proposal
+
+- Exceptions come first: a verdict line, a card for each Story that stays with Cyril, then a table and the wave graph.
+- It has two actions: **Accept**, and **Send back to Shaping** with a note.
+- An exception card fixes its own Story without blocking the rest.
+- Accepting it is Cyril's one decision for the Epic. It closes the Epic's Stages, makes its Stories Ready, approves each Story's Spend cap and writes the grant.
+
+### Risk lanes, prepare-only and spend
+
+- **The Risk lane** is contained, wide or one-way. It is classified at Shaping, then again from the real diff.
+- **Prepare-only:** a one-way Story, and every change to an owner-guarded doc, is built to In review and never merged by Autopilot.
+- A wide Story lands in a Batch of its own.
+- **Spend** is a **Spend cap** on the Story, approved with its Epic. The cap sums Run ledger rows, and a session gets `--max-budget-usd` set to what is left.
+
+### Running and landing
+
+- **One Story is one unattended `claude -p` session** in its own checkout. An unattended session has no permission prompt tool, and a request it cannot get parks the Story ([ADR draft 6](autopilot/adr-drafts/6-one-session-policy-decides-ask-deny-or-park.md)). Both the Developer's Start and the Dispatcher launch through one interface ([ADR draft 2](autopilot/adr-drafts/2-a-story-launches-from-the-core-attended-or-unattended.md)).
+- **The session cap** is fleet-wide (default 4), with round-robin between projects. Autopilot slows on a rate-limit warning, holds on a rejection until the reset, and starts nothing past 70% of the weekly limit. Resuming after the reset is Autopilot's, not Cyril's.
+- **The Dispatcher** starts the next Ready Story within the cap.
+- **The Batcher** puts green Stories on one branch, behind one pull request and one Merge gate run. A Landing carries 1 to N Stories, and Cyril's Merge is a Landing of one ([ADR draft 3](autopilot/adr-drafts/3-a-landing-carries-one-or-more-stories.md)).
+- **On a red Batch**, the Batcher removes the Story the failure traces to, or splits the Batch in half. A removed Story gets a **Correction record**. After 3 corrections the Story escalates.
+- **Autopilot is a pure plan** applied on the cold tick ([ADR draft 4](autopilot/adr-drafts/4-autopilot-is-a-pure-plan-applied-on-the-cold-tick.md)).
+- **Agent review** is a second reviewer agent that reads the diff after the Checks pass. Its verdict goes to the Run ledger.
+
+### The correction loop and Escalation
+
+- A Story that fails at In review goes back to Running with a Correction record: the verdict, the reason, the evidence and the scope of the fix.
+- A third correction raises an **Escalation**, a Needs you item, because the Story rather than its session is wrong.
+- **Parked** is a Story set aside because it needs a one-way decision that no record answers. Its reason is the request.
+- **The Run ledger** is one append-only record of every Check result, Agent review, Merge gate result, Correction record and skip. It replaces `check_runs` and keeps ADR 0012's meaning ([ADR draft 5](autopilot/adr-drafts/5-the-run-ledger-holds-every-verdict.md)). A core write returns its change notices ([ADR draft 7](autopilot/adr-drafts/7-a-core-write-returns-its-change-notices.md)).
+
+### Needs you kinds and the board
+
+- An **Autopilot band** sits above the roster. One Autopilot block in the Andon strip carries Pause.
+- New Needs you kinds, with their rank in the list of [section 2](#needs-you): Escalated (2), Parked (3), Epic Proposal (5) and Yours (7). "Yours" is a prepare-only Story waiting for Cyril's merge.
+- Autopilot never uses yellow.
+
+### The Issue mirror and intake
+
+- The board stays the store of record. The **Issue mirror** copies accepted records only, through a write outbox.
+- An edit on the forge to a field the board owns is put back, and filed as a Proposal. Forge comments notify only. Artefacts cite `#N`.
+- An issue opened on the forge becomes an **Intake Proposal**, decided in Triage. Outside text reaches an agent only as Cyril's accepted rewrite. "main is red" skips Triage.
+- To **Adopt** an issue is to make it the mirror of a new board record. It keeps its number.
+
+### Onboarding and Conventions
+
+- Onboarding ends in one dry-run report that Cyril accepts. Open issues are adopted, then reshaped.
+- `.flywheel/adapter.json` holds the **Project adapter**: the isolated checkout, scoped checks, Batch landing, the Merge gate status and the Risk lane rules. Flywheel's hooks are wired into the repo's hook manager.
+- The default **Conventions** are criterion ↔ Check and issue ↔ artefact, plus decision ↔ test once a repo keeps ADRs.
+- **The retro pass** runs weekly and on every Escalation. Run results become permanent constraints only as Proposals that Cyril accepts: the **learning edge**.
+
+### The Project adapter contract
+
+The adapter gives Flywheel: a verdict of the Merge gate that a program can read, a Risk lane classifier, a Batch built from local branches, one entry point that speaks JSON, and unattended sessions. The first pilot project builds these on its own side, in this order, and the gate verdict has the longest lead time.
+
+### Build order
+
+The first Epic lands this section and the ADR drafts. Each draft is numbered into `docs/adr/` by the Story that builds it, with its tests (ADR 0002). Then:
+
+1. the deepenings that change no behaviour (drafts 2, 3 with one Story per Landing, and 7);
+2. authority, the ledger and the session policy (drafts 1, 5 and 6);
+3. the Autopilot tick (draft 4);
+4. the surfaces and unattended Shaping, beside the mirror and onboarding.

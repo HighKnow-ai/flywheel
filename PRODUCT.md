@@ -87,7 +87,7 @@ Flywheel can end sessions freely, and Resume is always a fresh session from that
   state word.
 - **Needs you:** the ranked list of everything waiting on the Developer in a project, oldest first
   within a kind: Gated actions and permission requests, Stopped sessions, reviews, Confirm exit test,
-  Proposals, shaping Rounds.
+  Proposals, shaping Rounds. Autopilot adds Escalated, Parked, Epic Proposal and Yours.
 - **Rituals it must serve:**
   - shaping a Milestone's Exit test and an Epic in Stages and Rounds of numbered questions with
     recommended answers, in a dock beside the board;
@@ -107,8 +107,11 @@ Flywheel can end sessions freely, and Resume is always a fresh session from that
 
 - **One opinionated way of working.** Fixed records, fixed states, one shaping primitive (grilling).
   No configurable workflow, no swappable skill packs.
-- **Human-only decisions.** Accepting a criterion at review, merging, closing a Stage, confirming an
-  Exit test and accepting a Proposal are the Developer's actions, never an agent's.
+- **Human-only decisions, and what a grant covers.** Closing a Stage, confirming an Exit test, accepting
+  a Proposal, dropping a Story, every Gated action and the merge of a prepare-only Story are the
+  Developer's actions, never an agent's. Accepting a criterion and merging are the Developer's too,
+  except for the Stories of an Epic the Developer accepted: that grant lets Autopilot start them, accept
+  a criterion on a passing Check, take a correction and merge through the Merge gate. Withdraw ends it.
 - **A Story's agent writes its Task checklist** in its first session, after reading the code the Story
   touches; the Developer can edit it at any time. Flywheel never infers ticks from the diff.
 - **Checks** are shell commands run by Flywheel at hand-off; a result belongs to the commit it ran on.
@@ -165,8 +168,10 @@ progress, square rows, no tinted rows) no longer bind.
    and the other surface is a bug.
 2. **Anchored, never conversational.** Every unit of agent work points at a Story with real Acceptance
    criteria; nothing important lives only in a transcript.
-3. **The Developer decides.** Agents propose and ask; acceptance, merge and every Gated action are the
-   Developer's explicit, visible act.
+3. **The Developer decides once, upfront, and can withdraw it.** Agents propose and ask. Accepting an Epic
+   is one decision that grants Autopilot that Epic's Stories (start, criterion acceptance on a passing
+   Check, corrections, merge through the Merge gate), and Withdraw revokes it. Every Gated action, every
+   decision on a Proposal and every one-way merge stay the Developer's explicit, visible act.
 4. **Supervision at a glance.** What needs the Developer, what is running and how far the Milestone has
    come must be readable in one look, without opening anything. *(inferred from the #102 input and spec
    §7)*

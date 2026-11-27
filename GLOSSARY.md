@@ -125,8 +125,12 @@ _Avoid_: Spec change (that is any Amend Epic spec, shaping's included), criterio
 ## Shaping
 
 **Shaping**:
-Turning a board record into something an agent can execute by having an agent challenge it with the developer, one Stage after another, until nothing in it is open.
-_Avoid_: Authoring, planning, grooming
+Turning a board record into something an agent can execute by having an agent challenge it with the developer, one Stage after another, until nothing in it is open. Under Autopilot, Shaping is Claude's unattended work that turns Ideation's outcome into Stories with criteria, Checks and blocking edges, and ends in one Epic Proposal.
+_Avoid_: Authoring, planning, grooming, ticketing, breakdown
+
+**Ideation**:
+The developer's conversation with Claude where an idea is explored and every one-way decision is made: the roadmap Rounds, and an Epic's first Stage.
+_Avoid_: Brainstorming, planning
 
 **Stage**:
 One step of shaping a record, which the developer closes once it has no open question and no undecided Proposal; an Epic has three (challenge the spec, slice it into Stories, write the Acceptance criteria), a Milestone has one (challenge the exit test).
@@ -159,7 +163,7 @@ A Running Story with no live session that never handed off for review; its workt
 _Avoid_: Failed, interrupted, abandoned
 
 **Needs you**:
-The ranked list of everything waiting on the developer across a project, with the most urgent first.
+The ranked list of everything waiting on the developer across a project, with the most urgent first. Autopilot adds the kinds Escalated, Parked, Epic Proposal and Yours.
 _Avoid_: Inbox, queue, notifications
 
 **Roster**:
@@ -181,6 +185,104 @@ _Avoid_: Destructive action, dangerous command
 **Sandbox policy**:
 The `sandbox` block of a project's own `.claude/settings.json`, turned on. Flywheel passes it to every session in that project with a strict network allow-list, and refuses a session whose sandbox isn't on before its first turn (ADR 0040).
 _Avoid_: Sandbox config, permissions
+
+## Autopilot
+
+**Autopilot**:
+The Flywheel mode in which an accepted Epic's Stories run, pass their Checks and land through the Merge gate without the developer clicking each step.
+_Avoid_: Auto mode, unattended mode, bot, graph engineering
+
+**Grant**:
+The record, written when the developer accepts an Epic Proposal, that lets Autopilot start the Epic's Stories, accept a criterion on a passing Check, take a correction and merge through the Merge gate. Withdraw revokes it. It never covers a Gated action, a decision on a Proposal or a prepare-only merge.
+_Avoid_: Permission, approval, token
+
+**Epic Proposal**:
+The one Proposal that ends unattended Shaping: an Epic with its Stories, laid out exceptions first, with the assumptions Claude made. Accepting it writes the grant; the other action is Send back to Shaping.
+_Avoid_: Plan, breakdown
+
+**Dispatcher**:
+The deterministic part of Flywheel that starts the next Ready Story under Autopilot, within the session cap.
+_Avoid_: Orchestrator, scheduler, Fan-out dispatcher (the frozen v0.1 term)
+
+**Batch**:
+A set of Stories landed together behind one Merge gate run.
+_Avoid_: Train, release
+
+**Batcher**:
+The deterministic part of Flywheel that forms Batches, lands them, and removes a failing Story from a red one.
+_Avoid_: Merger, lead
+
+**Merge gate**:
+The project's required CI check, which a Batch must pass to land.
+_Avoid_: Gate (alone), CI
+
+**Agent review**:
+The model review a Story gets after its Checks pass.
+_Avoid_: Review (alone), AI review
+
+**Risk lane**:
+The blast-radius class of a Story: contained, wide or one-way. It decides how far Autopilot may take the Story alone. A one-way Story is prepare-only.
+_Avoid_: Lane (alone), risk score, confidence
+
+**Prepare-only**:
+Said of a Story that Autopilot builds to In review but never merges: every one-way Story, and every change to an owner-guarded doc. The developer merges it.
+_Avoid_: Never taken, manual lane
+
+**Shape check**:
+The deterministic test an item must pass before Autopilot will take it.
+_Avoid_: Readiness score, intake review
+
+**Blocker**:
+A Story, an Epic or a mirrored issue that must merge or close before a Story may start. The Dispatcher obeys it.
+_Avoid_: Runs after (the retired informational marker), dependency (alone)
+
+**Not-before date**:
+The earliest day the Dispatcher may start a Story.
+_Avoid_: Due date, schedule
+
+**Spend cap**:
+The most a Story may spend on paid runs and APIs. It is approved when the developer accepts the Story's Epic.
+_Avoid_: Budget (alone), cost lane
+
+**Correction record**:
+What goes back with a returned Story: the verdict, the reason, the evidence and the scope of the fix.
+_Avoid_: Feedback, review comments
+
+**Escalation**:
+A Needs you item raised when a Story fails its third correction, because the Story rather than its session is wrong.
+_Avoid_: Failure, abort
+
+**Parked**:
+Said of a Story set aside under Autopilot because it needs a one-way decision that no record answers.
+_Avoid_: Blocked, stuck
+
+**Convention**:
+A project-wide rule, with its Check and its line in the standing instructions, that every Story must satisfy.
+_Avoid_: Policy, standard
+
+**Run ledger**:
+The append-only record of every Check result, Agent review and Correction record. The learning edge reads it.
+_Avoid_: Log, history
+
+**Learning edge**:
+The path by which run results become permanent constraints on later runs, always as Proposals the developer accepts.
+_Avoid_: Feedback loop, self-improvement
+
+**Project adapter**:
+The per-project settings Autopilot uses for the isolated checkout, scoped checks, Batch landing, the Merge gate status and the Risk lane rules.
+_Avoid_: Repo adapter, integration, plugin
+
+**Issue mirror**:
+The copy of a project's accepted Milestones, Epics and Stories that Flywheel keeps in the forge's issue tracker. Only Flywheel writes the fields the board owns.
+_Avoid_: Sync, two-way sync, issue integration
+
+**Adopt** (an issue):
+To make an existing forge issue the mirror of a new board record during onboarding. The issue keeps its number.
+_Avoid_: Import (alone), migrate
+
+**Intake Proposal**:
+A Proposal made from an issue opened on the forge, not by Flywheel. It carries a pre-triage note and is decided in Triage, under "From GitHub" on a GitHub forge.
+_Avoid_: Inbox item, imported issue
 
 ## People
 
