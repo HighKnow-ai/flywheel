@@ -313,6 +313,11 @@ jobs:
       # They wait on timers and a browser, not on the CPU, so one after another they took the sum of their
       # waits (#1732). Each arm has its own Vitest cache, and no two share a file or a port.
       - name: Desktop browser tests and layout defects (WebKit; forced colors in Chromium)
+        # Five arms share this runner's three cores, and a WebKit click-through that takes 3.6 s alone runs
+        # past its 15 s budget here. The factor is src/test/time-scale.ts's; the private gate runs the same
+        # arms with 3.
+        env:
+          FLYWHEEL_TEST_TIME_SCALE: "3"
         run: npm --prefix packages/desktop run test:browser:arms
 
   # The end-to-end flows: the real renderer in WebKit and Chromium, against the headless core and the

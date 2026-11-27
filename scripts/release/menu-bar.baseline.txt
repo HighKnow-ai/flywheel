@@ -1,0 +1,37 @@
+Flywheel:
+  About Flywheel
+  ---
+  Settings…
+  ---
+  Quit Flywheel
+  Quit and Keep Windows
+File:
+  Register Project…
+  New Story
+  New Epic
+  ---
+  Close Window
+  Close All
+Edit:
+  Undo
+  Redo
+  ---
+  Cut
+  Copy
+  Paste
+  Select All
+View:
+  Toggle Command Palette
+  Fleet
+Window:
+  Minimize
+  Minimize All
+  ---
+  Full Screen Tile
+    Left of Screen
+    Right of Screen
+  ---
+  Bring All to Front
+  Arrange in Front
+  ---
+  Flywheel

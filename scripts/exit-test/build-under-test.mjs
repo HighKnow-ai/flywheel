@@ -58,13 +58,14 @@ export function appIsRunning(app) {
   return r.status === 0;
 }
 
-/** The monorepo's root, found from git, and the full SHA of `ref`. Throws when `ref` is not a commit. */
+/** The checkout's root, this product's folder inside it (`prefix`, empty when the product is the root), and the full SHA of `ref`. Throws when `ref` is not a commit. */
 export function resolveCommit(ref, cwd = flywheelDir) {
   const top = run("git", ["-C", cwd, "rev-parse", "--show-toplevel"]);
   if (!top.ok) throw new Error(`${cwd} is not in a git checkout`);
   const sha = run("git", ["-C", top.stdout.trim(), "rev-parse", "--verify", `${ref}^{commit}`]);
   if (!sha.ok) throw new Error(`${ref} is not a commit in this checkout (try git fetch first)`);
-  return { root: top.stdout.trim(), sha: sha.stdout.trim() };
+  const prefix = run("git", ["-C", cwd, "rev-parse", "--show-prefix"]).stdout.trim();
+  return { root: top.stdout.trim(), prefix, sha: sha.stdout.trim() };
 }
 
 /** Back up the board DB. Returns the backup path, or null when there is no DB. */
@@ -83,15 +84,18 @@ export function backupBoard({ dbPath, backupDir, at }) {
   return dest;
 }
 
-/** Export the commit's `flywheel/` folder into `<workDir>` and return the folder to build in. */
-export function exportCommit({ root, sha, workDir }) {
+/** Export the commit's product folder (`prefix`, or the whole tree) into `<workDir>/flywheel` and return that folder. */
+export function exportCommit({ root, prefix = "", sha, workDir }) {
   if (fs.existsSync(workDir) && fs.readdirSync(workDir).length > 0) throw new Error(`${workDir} is not empty; pass another --work-dir`);
   fs.mkdirSync(workDir, { recursive: true });
-  const archive = spawnSync("git", ["-C", root, "archive", "--format=tar", sha, "flywheel"], { maxBuffer: 1 << 30 });
+  const buildDir = path.join(workDir, "flywheel");
+  fs.mkdirSync(buildDir);
+  const tree = prefix ? `${sha}:${prefix.replace(/\/$/, "")}` : sha;
+  const archive = spawnSync("git", ["-C", root, "archive", "--format=tar", tree], { maxBuffer: 1 << 30 });
   if (archive.status !== 0) throw new Error(`git archive failed: ${archive.stderr}`);
-  const tar = spawnSync("tar", ["-x", "-C", workDir], { input: archive.stdout });
+  const tar = spawnSync("tar", ["-x", "-C", buildDir], { input: archive.stdout });
   if (tar.status !== 0) throw new Error("tar -x failed");
-  return path.join(workDir, "flywheel");
+  return buildDir;
 }
 
 /** Build the app in `<buildDir>` and return the path of `Flywheel.app`. */
@@ -191,13 +195,13 @@ async function main() {
   }
   if (positionals.length > 0 || !values.commit) throw new Error("usage: build-under-test.mjs --commit <ref> [--applications <dir>] [--backup-dir <dir>] | restore --backup <file> [--previous-app <dir>]");
 
-  const { root, sha } = resolveCommit(values.commit);
+  const { root, prefix, sha } = resolveCommit(values.commit);
   const installedApp = path.join(applications, "Flywheel.app");
   if (appIsRunning(installedApp)) throw new Error(`${installedApp} is running: quit Flywheel first`);
   const backup = backupBoard({ dbPath, backupDir, at });
   console.log(backup ? `backup done: ${backup}` : `no board DB at ${dbPath}: nothing to back up`);
   const workDir = path.resolve(values["work-dir"] ?? path.join(process.env.TMPDIR ?? os.tmpdir(), `flywheel-build-under-test-${sha.slice(0, 12)}-${at}`));
-  const buildDir = exportCommit({ root, sha, workDir });
+  const buildDir = exportCommit({ root, prefix, sha, workDir });
   const builtApp = buildApp({ buildDir, buildScript: values["build-script"] && path.resolve(values["build-script"]) });
   const { installed, previous, quarantine } = install({ builtApp, applications, backupDir, at });
   console.log(`\n${quarantine}`);

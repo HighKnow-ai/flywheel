@@ -8,6 +8,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { exportCommit, resolveCommit } from "../build-under-test.mjs";
 import { checkBoard } from "../preflight-checks.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -121,3 +122,20 @@ test("a failed build leaves the installed app alone but keeps the backup", () =>
   assert.equal(fs.readFileSync(path.join(t.apps, "Flywheel.app", "Contents", "marker.txt"), "utf8"), "old");
   assert.equal(fs.readdirSync(t.backups).length, 1);
 });
+
+for (const layout of ["product at the repository root", "product under flywheel/"]) {
+  test(`exports the product folder when the ${layout}`, () => {
+    const repo = tmpDir();
+    const product = layout.endsWith("root") ? repo : path.join(repo, "flywheel");
+    fs.mkdirSync(path.join(product, "scripts"), { recursive: true });
+    fs.writeFileSync(path.join(product, "scripts", "marker.txt"), "x");
+    const git = (...a) => spawnSync("git", ["-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", ...a], { encoding: "utf8" });
+    git("init", "-q");
+    git("add", "-A");
+    git("commit", "-q", "-m", "c");
+    const { root, prefix, sha } = resolveCommit("HEAD", product);
+    const dir = exportCommit({ root, prefix, sha, workDir: path.join(tmpDir(), "work") });
+    assert.equal(fs.readFileSync(path.join(dir, "scripts", "marker.txt"), "utf8"), "x");
+    assert.ok(!fs.existsSync(path.join(dir, "flywheel")));
+  });
+}
