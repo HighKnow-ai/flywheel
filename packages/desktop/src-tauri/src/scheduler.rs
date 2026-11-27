@@ -82,6 +82,11 @@ fn run_cold_tick(app: &AppHandle) {
         &state.db,
         &flywheel_core::forge::ForgeCli::from_env(),
     ));
+    // The Issue mirror's outbox drains on the same tier, one write a second, off the board mutex.
+    changed.extend(flywheel_core::domain::issue_mirror::mirror_tick(
+        &state.db,
+        &flywheel_core::forge::ForgeCli::from_env(),
+    ));
     emit_git_facts_changed(app, changed);
 }
 

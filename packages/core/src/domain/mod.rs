@@ -23,6 +23,7 @@ pub mod confirm_done;
 pub mod epic;
 pub mod event;
 pub mod handoff;
+pub mod issue_mirror;
 pub mod landing;
 pub mod milestone;
 pub mod permission_request;

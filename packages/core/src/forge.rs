@@ -245,6 +245,15 @@ impl ForgeCli {
         })
     }
 
+    /// One `gh` call, for the Issue mirror's adapter ([`crate::issue_forge`]).
+    pub(crate) fn run_gh(
+        &self,
+        workdir: &Path,
+        args: &[&str],
+    ) -> Result<std::process::Output, ForgeError> {
+        self.run_cli(Forge::Github, workdir, args)
+    }
+
     /// Whether the CLI is installed and signed in. Nothing is written.
     pub fn ensure_ready(&self, forge: Forge, repo: &Path) -> Result<(), ForgeError> {
         let out = self.run_cli(forge, repo, &["auth", "status"])?;

@@ -75,6 +75,12 @@ pub const TABLE_CLASSES: &[(&str, TableClass)] = &[
     // A Story's review: opened by the core at hand-off with what the review is judged on, closed by
     // the developer's Merge or request for changes (`story_merge::merge_story` is human-only).
     ("reviews", TableClass::Runtime),
+    // Labels the forge is known to hold, so the mirror creates each once; written by the mirror.
+    ("mirror_labels", TableClass::Runtime),
+    // Writes the Issue mirror owes the forge, applied one at a time; written by the core.
+    ("mirror_outbox", TableClass::Runtime),
+    // What the forge holds for each mirrored record, as the last write left it; written by the core.
+    ("mirror_synced", TableClass::Runtime),
     // Application settings.
     ("settings", TableClass::Infrastructure),
     // The steps of shaping an Epic or a Milestone; opened by the core when shaping starts, closed
