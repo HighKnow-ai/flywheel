@@ -129,6 +129,8 @@ describe("The Acceptance criteria while their first read is slow", () => {
     storyGet.mockResolvedValue(story("running"));
     renderView();
     const skeleton = await screen.findByLabelText("Loading the Acceptance criteria");
+    // The hold counts from the frame that paints the skeleton; one that no frame painted is dropped (design 0.3.2).
+    await new Promise((resolve) => requestAnimationFrame(resolve));
 
     // The read lands inside the skeleton's hold, which outlasts this wait by far.
     land([CRITERION]);
