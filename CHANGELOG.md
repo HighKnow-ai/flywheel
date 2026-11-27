@@ -6,7 +6,7 @@ user would recognise. Releases up to v0.1.2 are described on their release pages
 
 ## Unreleased
 
-## 0.3.0 — 2026-11-26
+## 0.3.1 — 2026-11-27
 
 - Merge now lands a Story by pull request by default. Each project has a landing mode: a pull
   request on GitHub or a merge request on GitLab, a landing command that you name, or the local
